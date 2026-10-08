@@ -1,0 +1,79 @@
+{
+  "expo": {
+    "name": "Savorly",
+    "slug": "savorly",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "app.savorly.mobile",
+      "usesAppleSignIn": true
+    },
+    "android": {
+      "package": "app.savorly.mobile"
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "single",
+      "name": "Savorly — A little inspiration for your kitchen",
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Let Savorly access your photos to add images and videos to your recipes.",
+          "cameraPermission": "Let Savorly photograph a recipe so your sous-chef can read it.",
+          "microphonePermission": "Let Savorly listen while you describe your recipe."
+        }
+      ],
+      "expo-secure-store",
+      "expo-apple-authentication",
+      "expo-video",
+      [
+        "@config-plugins/react-native-webrtc",
+        {
+          "microphonePermission": "Let Savorly listen and talk with you to create recipes.",
+          "cameraPermission": "Let Savorly photograph recipes."
+        }
+      ],
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Let Savorly listen while you describe your recipe.",
+          "enableBackgroundPlayback": false,
+          "enableBackgroundRecording": false
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Let Savorly photograph a recipe for your sous-chef to read.",
+          "recordAudioAndroid": false,
+          "barcodeScannerEnabled": false
+        }
+      ],
+      "expo-asset",
+      [
+        "expo-localization",
+        {
+          "supportedLocales": ["en", "fr", "de", "ru", "es", "it", "pt", "zh-Hans", "ja"]
+        }
+      ]
+    ],
+    "scheme": "savorly",
+    "locales": {
+      "en": "./locales/en.json",
+      "fr": "./locales/fr.json",
+      "de": "./locales/de.json",
+      "ru": "./locales/ru.json",
+      "es": "./locales/es.json",
+      "it": "./locales/it.json",
+      "pt": "./locales/pt.json",
+      "zh-Hans": "./locales/zh-Hans.json",
+      "ja": "./locales/ja.json"
+    }
+  }
+}

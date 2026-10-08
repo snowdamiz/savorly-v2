@@ -1,0 +1,70 @@
+name: Verify Savorly
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: savorly
+          POSTGRES_PASSWORD: test_only_password
+          POSTGRES_DB: savorly
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U savorly -d savorly"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgres://savorly:test_only_password@localhost:5432/savorly?sslmode=disable
+      TEST_DATABASE_URL: postgres://savorly:test_only_password@localhost:5432/savorly?sslmode=disable
+      SEED_DATA: 'true'
+      ALLOWED_ORIGINS: http://localhost:8081
+      CI: '1'
+      TEST_OBJECT_STORAGE: 'true'
+      TEST_S3_ENDPOINT: http://localhost:8333
+      S3_SOURCE_BUCKET: savorly-sources
+      S3_ENDPOINT: http://localhost:8333
+      S3_REGION: us-east-1
+      S3_ACCESS_KEY_ID: savorly_local
+      S3_SECRET_ACCESS_KEY: savorly_local_only_change_for_any_shared_environment
+      S3_BUCKET: savorly-media
+      S3_PUBLIC_URL: http://localhost:8333/savorly-media
+      S3_FORCE_PATH_STYLE: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/mobile/package-lock.json
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: services/api/go.mod
+          cache-dependency-path: services/api/go.sum
+      - run: npm --prefix apps/mobile ci
+      - run: npm run typecheck
+      - run: npm --prefix apps/mobile run lint
+      - run: docker compose up -d --wait storage
+      - run: go vet ./... && go test -race ./...
+        working-directory: services/api
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+        working-directory: apps/mobile
+      - run: |
+          (cd services/api && go run ./cmd/server > /tmp/savorly-api.log 2>&1) &
+          (cd apps/mobile && npx expo start --web --port 8081 > /tmp/savorly-web.log 2>&1) &
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:8080/health && curl -fsS http://localhost:8081 > /dev/null; then break; fi
+            sleep 2
+          done
+          npm run test:integration
+          npm --prefix apps/mobile run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: browser-failures
+          path: apps/mobile/test-results

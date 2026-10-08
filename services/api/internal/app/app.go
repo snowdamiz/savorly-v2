@@ -1,0 +1,182 @@
+package app
+
+import (
+	"context"
+	"errors"
+	"log/slog"
+	"os"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/coreos/go-oidc/v3/oidc"
+	"github.com/gofiber/fiber/v3"
+	"github.com/gofiber/fiber/v3/middleware/cors"
+	"github.com/gofiber/fiber/v3/middleware/helmet"
+	"github.com/gofiber/fiber/v3/middleware/limiter"
+	"github.com/gofiber/fiber/v3/middleware/recover"
+	"github.com/gofiber/fiber/v3/middleware/requestid"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"savorly/api/internal/ai"
+	"savorly/api/internal/live"
+	"savorly/api/internal/narration"
+)
+
+type Config struct {
+	Production bool
+	Origins    []string
+}
+
+func Env(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+func LoadConfig() Config {
+	return Config{os.Getenv("APP_ENV") == "production", strings.Split(Env("ALLOWED_ORIGINS", "http://localhost:8081"), ",")}
+}
+
+type App struct {
+	DB               *pgxpool.Pool
+	Config           Config
+	AI               *ai.Client
+	Media            *MediaStore
+	Live             *live.Client
+	Narrator         *narration.Client
+	NarrationStreams narration.Hub
+	Context          context.Context
+	agentOnce        sync.Once
+	agentRouter      *fiber.App
+	oidcOnce         sync.Once
+	verifiers        map[string]*oidc.IDTokenVerifier
+}
+
+func errorHandler(c fiber.Ctx, err error) error {
+	code := 500
+	message := "Something went wrong. Please try again."
+	var fe *fiber.Error
+	if errors.As(err, &fe) {
+		code = fe.Code
+		message = fe.Message
+	} else {
+		slog.Error("request failed", "error", err, "path", c.Path())
+	}
+	return c.Status(code).JSON(fiber.Map{"error": message})
+}
+func New(db *pgxpool.Pool, config Config) *fiber.App {
+	return NewWithContext(context.Background(), db, config)
+}
+func NewWithContext(ctx context.Context, db *pgxpool.Pool, config Config) *fiber.App {
+	a := &App{DB: db, Config: config, AI: ai.New(), Media: NewMediaStore(), Live: live.New(), Narrator: narration.New(), Context: ctx}
+	f := fiber.New(fiber.Config{AppName: "Savorly API", BodyLimit: 55 * 1024 * 1024, ReadTimeout: 30 * time.Second, WriteTimeout: 30 * time.Second, ErrorHandler: errorHandler})
+	f.Use(recover.New(), requestid.New(), helmet.New())
+	f.Use(cors.New(cors.Config{AllowOrigins: config.Origins, AllowCredentials: true, AllowMethods: []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"}, AllowHeaders: []string{"Content-Type", "Authorization", "Idempotency-Key"}}))
+	f.Use(func(c fiber.Ctx) error {
+		// Cookies require an allowed Origin on mutation requests. Native clients use bearer tokens.
+		if c.Method() != "GET" && c.Method() != "HEAD" && c.Method() != "OPTIONS" {
+			if c.Path() != "/v1/media" && !(strings.HasPrefix(c.Path(), "/v1/recipe-studio/") && strings.HasSuffix(c.Path(), "/images")) && len(c.Body()) > 128*1024 {
+				return fiber.NewError(413, "This request is too large.")
+			}
+			origin := c.Get("Origin")
+			if origin != "" {
+				allowed := false
+				for _, o := range config.Origins {
+					if o == origin {
+						allowed = true
+					}
+				}
+				if !allowed {
+					return fiber.NewError(403, "Origin is not allowed.")
+				}
+			}
+			if c.Cookies("savorly_session") != "" && origin == "" && c.Get("Authorization") == "" {
+				return fiber.NewError(403, "An Origin header is required.")
+			}
+		}
+		return c.Next()
+	})
+	f.Use(limiter.New(limiter.Config{Max: 300, Expiration: time.Minute}))
+	f.Get("/health", func(c fiber.Ctx) error {
+		ctx, cancel := context.WithTimeout(c.Context(), 2*time.Second)
+		defer cancel()
+		if err := db.Ping(ctx); err != nil {
+			return fiber.NewError(503, "Database unavailable")
+		}
+		return c.JSON(fiber.Map{"status": "ok"})
+	})
+	v := f.Group("/v1")
+	v.Get("/capabilities", func(c fiber.Ctx) error {
+		return c.JSON(fiber.Map{
+			"cookingNarration": a.Narrator.Enabled(), "cookingNarrationModel": narration.Model,
+			"voiceAI": a.Live.Enabled() && a.AI.TextEnabled(), "voiceModel": a.Live.ModelID(),
+			"voicePerMinuteUSD": 0.05,
+			"recipeChat":        a.AI.TextEnabled(), "recipePhotos": a.AI.TextEnabled() && a.Media.S3 != nil,
+			"textAI": a.AI.TextEnabled(), "textModel": a.AI.TextModel, "recipeModel": a.AI.RecipeModel, "agentModel": a.AI.AgentModel,
+			"imageAI": a.AI.TextEnabled(), "imageModel": a.AI.ImageModel,
+			"videoAI": a.AI.VideoEnabled(), "videoProvider": "reAPI", "videoModel": a.AI.VideoModel, "videoEstimateUSD": 1.005,
+			"passwordRecovery": os.Getenv("RESEND_API_KEY") != "" && os.Getenv("EMAIL_FROM") != "",
+			"billing":          billingEnabled(), "appleSignIn": len(oauthAudiences("apple")) > 0, "googleSignIn": len(oauthAudiences("google")) > 0,
+			// Public client identifiers the sign-in SDKs need; none of these are secrets.
+			"auth": fiber.Map{"googleWebClientId": os.Getenv("GOOGLE_WEB_CLIENT_ID"), "googleIosClientId": os.Getenv("GOOGLE_IOS_CLIENT_ID"), "appleServicesId": os.Getenv("APPLE_SERVICES_ID"), "appleRedirectUri": os.Getenv("APPLE_REDIRECT_URI")},
+		})
+	})
+	authLimiter := limiter.New(limiter.Config{Max: 15, Expiration: 15 * time.Minute})
+	v.Post("/auth/register", authLimiter, a.register)
+	v.Post("/auth/login", authLimiter, a.login)
+	v.Post("/auth/forgot", authLimiter, a.forgotPassword)
+	v.Post("/auth/reset", authLimiter, a.resetPassword)
+	// Google's web button takes a nonce each time it renders, so nonces don't share login's limit.
+	v.Post("/auth/nonce", limiter.New(limiter.Config{Max: 60, Expiration: 15 * time.Minute}), a.authNonce)
+	v.Post("/auth/oauth", authLimiter, a.oauthSignIn)
+	v.Post("/auth/logout", a.requireAuth, a.logout)
+	v.Get("/me", a.requireAuth, a.me)
+	v.Patch("/me", a.requireAuth, a.updateMe)
+	v.Delete("/me", a.requireAuth, a.deleteMe)
+	v.Get("/recipes", a.listRecipes)
+	v.Get("/recipes/:id", a.getRecipe)
+	v.Post("/recipes/:id/steps/:step/narration", a.requireAuth, a.prepareNarration)
+	v.Get("/recipes/:id/steps/:step/narration/:key", a.requireAuth, a.readNarration)
+	v.Post("/recipes", a.requireAuth, a.createRecipe)
+	v.Put("/recipes/:id", a.requireAuth, a.updateRecipe)
+	v.Delete("/recipes/:id", a.requireAuth, a.deleteRecipe)
+	v.Get("/creators", a.creators)
+	v.Get("/creators/:id", a.creator)
+	v.Put("/creators/:id/follow", a.requireAuth, a.follow)
+	v.Delete("/creators/:id/follow", a.requireAuth, a.unfollow)
+	v.Get("/recipes/:id/reviews", a.reviews)
+	v.Put("/recipes/:id/review", a.requireAuth, a.review)
+	v.Post("/recipes/:id/report", a.requireAuth, a.report)
+	v.Get("/library", a.requireAuth, a.library)
+	v.Put("/recipes/:id/save", a.requireAuth, a.save)
+	v.Delete("/recipes/:id/save", a.requireAuth, a.unsave)
+	v.Post("/collections", a.requireAuth, a.createCollection)
+	v.Delete("/collections/:id", a.requireAuth, a.deleteCollection)
+	v.Get("/kitchen", a.requireAuth, a.kitchen)
+	v.Post("/planner", a.requireAuth, a.plan)
+	v.Delete("/planner/:id", a.requireAuth, a.deletePlan)
+	v.Post("/groceries", a.requireAuth, a.addGrocery)
+	v.Patch("/groceries/:id", a.requireAuth, a.checkGrocery)
+	v.Delete("/groceries/:id", a.requireAuth, a.deleteGrocery)
+	v.Post("/recipes/:id/groceries", a.requireAuth, a.recipeGroceries)
+	v.Post("/pantry", a.requireAuth, a.addPantry)
+	v.Delete("/pantry/:id", a.requireAuth, a.deletePantry)
+	v.Get("/billing", a.requireAuth, a.billing)
+	v.Post("/billing/checkout", a.requireAuth, a.checkout)
+	v.Post("/billing/portal", a.requireAuth, a.billingPortal)
+	v.Post("/billing/webhook", a.stripeWebhook)
+	v.Post("/media", a.requireAuth, a.uploadMedia)
+	v.Post("/ai/jobs", a.requireAuth, a.createJob)
+	v.Get("/ai/jobs", a.requireAuth, a.jobs)
+	v.Get("/recipe-studio", a.requireAuth, a.studioList)
+	v.Post("/recipe-studio", a.requireAuth, a.studioCreate)
+	v.Get("/recipe-studio/:id", a.requireAuth, a.studioGet)
+	v.Delete("/recipe-studio/:id", a.requireAuth, a.studioDelete)
+	v.Get("/recipe-studio/:id/events", a.requireAuth, a.studioEvents)
+	v.Post("/recipe-studio/:id/messages", a.requireAuth, a.studioMessage)
+	v.Put("/recipe-studio/:id/context", a.requireAuth, a.studioContext)
+	v.Post("/recipe-studio/:id/images", a.requireAuth, a.studioImage)
+	v.Post("/recipe-studio/:id/voice", a.requireAuth, a.voiceCreate)
+	v.Delete("/recipe-studio/voice/:session", a.requireAuth, a.voiceClose)
+	return f
+}

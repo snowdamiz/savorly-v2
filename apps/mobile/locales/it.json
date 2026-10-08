@@ -1,0 +1,8 @@
+{
+  "ios": {
+    "CFBundleDisplayName": "Savorly",
+    "NSCameraUsageDescription": "Consenti a Savorly di fotografare ricette per il tuo assistente di cucina.",
+    "NSMicrophoneUsageDescription": "Consenti a Savorly di ascoltarti mentre descrivi la ricetta.",
+    "NSPhotoLibraryUsageDescription": "Consenti a Savorly di accedere alle foto per aggiungere immagini e video alle ricette."
+  }
+}

@@ -1,0 +1,68 @@
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: savorly
+      POSTGRES_PASSWORD: savorly_local_only
+      POSTGRES_DB: savorly
+    ports:
+      - '127.0.0.1:54329:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U savorly -d savorly']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+  storage:
+    image: chrislusf/seaweedfs:4.48@sha256:4e61d15fd35994cb1e43e1e553dff106794841fd9a99ade2fc8c8bfce4d7872d
+    cpus: 1.0
+    mem_limit: 512m
+    environment:
+      GOMAXPROCS: '2'
+      GOMEMLIMIT: 384MiB
+    command:
+      - mini
+      - -dir=/data
+      - -volume.max=8
+      - -master.volumeSizeLimitMB=128
+      - -bucket=savorly-media
+      - -s3.config=/etc/seaweedfs/s3.json
+      - -s3.allowedOrigins=http://localhost:8081,http://localhost:19006
+      - -s3.autoCreateBucket=false
+      - -s3.port.iceberg=0
+      - -s3.port.lance=0
+      - -webdav=false
+      - -admin.ui=false
+      - -master.telemetry=false
+    ports:
+      - '127.0.0.1:8333:8333'
+    volumes:
+      - media_data:/data
+      - ./infra/seaweedfs/s3.json:/etc/seaweedfs/s3.json:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -fsS -I http://localhost:8333/savorly-media > /dev/null']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+  api:
+    build: ./services/api
+    profiles: ['full']
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: postgres://savorly:savorly_local_only@db:5432/savorly?sslmode=disable
+      PORT: 8080
+      S3_ENDPOINT: http://storage:8333
+    ports:
+      - '127.0.0.1:8080:8080'
+    depends_on:
+      db:
+        condition: service_healthy
+      storage:
+        condition: service_healthy
+volumes:
+  postgres_data:
+  media_data:

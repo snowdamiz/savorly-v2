@@ -1,0 +1,28 @@
+{
+  "identities": [
+    {
+      "name": "savorly-local",
+      "credentials": [
+        {
+          "accessKey": "savorly_local",
+          "secretKey": "savorly_local_only_change_for_any_shared_environment"
+        }
+      ],
+      "actions": [
+        "Read:savorly-media",
+        "Write:savorly-media",
+        "List:savorly-media",
+        "Admin:savorly-sources",
+        "Read:savorly-sources",
+        "Write:savorly-sources",
+        "List:savorly-sources"
+      ]
+    },
+    {
+      "name": "anonymous",
+      "actions": [
+        "Read:savorly-media"
+      ]
+    }
+  ]
+}

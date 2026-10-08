@@ -1,0 +1,15 @@
+{
+  "name": "savorly",
+  "main": "worker.ts",
+  "compatibility_date": "2026-10-02",
+  "assets": {
+    "directory": "../../apps/mobile/dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": true
+  },
+  "vars": {
+    "API_ORIGIN": "https://api.example.com"
+  },
+  "observability": { "enabled": true }
+}

@@ -1,0 +1,8 @@
+{
+  "ios": {
+    "CFBundleDisplayName": "Savorly",
+    "NSCameraUsageDescription": "料理アシスタントが読み取れるよう、Savorlyにレシピの撮影を許可してください。",
+    "NSMicrophoneUsageDescription": "レシピを説明する間、Savorlyにマイクの使用を許可してください。",
+    "NSPhotoLibraryUsageDescription": "レシピに写真や動画を追加するため、Savorlyに写真へのアクセスを許可してください。"
+  }
+}

@@ -1,0 +1,13 @@
+node_modules/
+.expo/
+dist/
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+services/api/uploads/
+services/api/server
+coverage/
+playwright-report/
+test-results/
