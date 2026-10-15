@@ -662,5 +662,11 @@
   "{{v0}} a month": "{{v0}} al mes",
   "{{v0}} a month, billed yearly · save {{v1}}%": "{{v0}} al mes, facturado anualmente · ahorra un {{v1}} %",
   "{{v0}} a year": "{{v0}} al año",
-  "{{v0}} of {{v1}}": "{{v0}} de {{v1}}"
+  "{{v0}} of {{v1}}": "{{v0}} de {{v1}}",
+  "Admin console": "Consola de administración",
+  "Moderation, members, AI spend and settings": "Moderación, miembros, gasto en IA y ajustes",
+  "Dismiss announcement": "Cerrar aviso",
+  "This account is suspended. Contact Savorly support if you think this is a mistake.": "Esta cuenta está suspendida. Contacta con el soporte de Savorly si crees que es un error.",
+  "New sign-ups are paused right now. Please try again later.": "Los nuevos registros están en pausa en este momento. Inténtalo de nuevo más tarde.",
+  "AI features are paused for maintenance. Your conversation and drafts are saved; please try again later.": "Las funciones de IA están en pausa por mantenimiento. Tu conversación y tus borradores están guardados; inténtalo de nuevo más tarde."
 }

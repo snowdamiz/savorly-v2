@@ -42,6 +42,12 @@ export type User = Creator & {
   hasPassword: boolean;
   identities: ('apple' | 'google')[];
   plan: PlanID;
+  /** Can open the admin console. */
+  admin?: boolean;
+  /** An admin listed in ADMIN_EMAILS, who also appoints other admins. */
+  adminOwner?: boolean;
+  /** An owner's address (ADMIN_EMAILS) that must be verified before the console opens. */
+  adminPending?: boolean;
 };
 export type PlanID = 'free' | 'plus' | 'pro';
 /** A subscription plan; `Plan` is a meal-plan entry. */
@@ -126,7 +132,10 @@ export type AIRequest = {
   placeholder?: string;
   onMedia?: (url: string) => void;
 };
+export type Announcement = { text: string; tone: 'info' | 'warning' };
 export type Capabilities = {
+  /** Set from the admin console; shown to everyone until dismissed. */
+  announcement?: Announcement | null;
   cookingNarration?: boolean;
   cookingNarrationModel?: string;
   voiceAI: boolean;
@@ -143,6 +152,8 @@ export type Capabilities = {
   /** Plans and allowances are live (PAID_PLANS); until then everyone has unlimited use. */
   plans?: boolean;
   billing?: boolean;
+  /** Password-reset email is configured. */
+  passwordRecovery?: boolean;
   appleSignIn?: boolean;
   googleSignIn?: boolean;
   auth?: {
@@ -153,7 +164,15 @@ export type Capabilities = {
   };
 };
 export type Screen =
-  'discover' | 'explore' | 'saved' | 'planner' | 'pantry' | 'profile' | 'create' | 'community';
+  | 'discover'
+  | 'explore'
+  | 'saved'
+  | 'planner'
+  | 'pantry'
+  | 'profile'
+  | 'create'
+  | 'community'
+  | 'admin';
 export const emptyRecipe = (): RecipeInput => ({
   title: '',
   description: '',

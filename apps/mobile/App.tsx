@@ -32,6 +32,7 @@ import {
   House,
   Leaf,
   Plus,
+  ShieldCheck,
   Sparkles,
   UserRound,
   Users,
@@ -66,6 +67,7 @@ import {
   native,
   useChrome,
 } from './src/components/ui';
+import { AnnouncementBanner } from './src/components/Announcement';
 import { AuthDialog } from './src/components/AuthDialog';
 import { RecipeDetail } from './src/components/RecipeDetail';
 import { RecipeStart } from './src/components/RecipeStart';
@@ -75,6 +77,7 @@ import { Discover } from './src/screens/Discover';
 import { Cookbooks, Pantry, Planner } from './src/screens/Kitchen';
 import { Editor } from './src/screens/Editor';
 import { Community, CreatorDialog, Profile } from './src/screens/Profile';
+import { Admin } from './src/screens/admin';
 const tabs = [
   { key: 'discover', title: 'Discover', icon: House },
   { key: 'explore', title: 'Explore', icon: Compass },
@@ -99,6 +102,7 @@ const screenNames: Record<Screen, string> = {
   profile: 'My kitchen',
   create: 'Share a recipe',
   community: 'Community',
+  admin: 'Admin console',
 };
 const tabScreens: Screen[] = ['discover', 'explore', 'create', 'saved', 'profile'];
 function Shell() {
@@ -294,6 +298,7 @@ function Shell() {
       )}
       {screen === 'profile' && <Profile onOpen={open} navigate={navigate} onRecipe={edit} />}
       {screen === 'community' && <Community onCreator={setCreator} />}
+      {screen === 'admin' && <Admin onOpen={open} />}
     </>
   );
   const darkTop = compact && screen === 'discover' && !app.loading && !app.error;
@@ -360,6 +365,14 @@ function Shell() {
                   onPress={() => navigate(item.key)}
                 />
               ))}
+              {app.user?.admin && (
+                <NavItem
+                  title={tr('Admin console')}
+                  icon={ShieldCheck}
+                  active={screen === 'admin'}
+                  onPress={() => navigate('admin')}
+                />
+              )}
             </View>
             <View style={{ flex: 1, minHeight: 40 }} />
             <View
@@ -596,6 +609,7 @@ function Shell() {
           <Sparkles size={24} color={color.white} strokeWidth={2} />
         </Press>
       )}
+      <AnnouncementBanner announcement={app.capabilities?.announcement} />
       <Toast message={selected ? '' : app.toast} />
       <AuthDialog />
       <RecipeStart visible={creating} onClose={() => setCreating(false)} onStart={create} />

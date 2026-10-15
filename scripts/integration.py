@@ -24,7 +24,10 @@ try:
  a=request('/auth/register','POST',{'name':'Integration Cook','email':f'test-{suffix}@example.test','password':password})['token'];accounts.append(a)
  b=request('/auth/register','POST',{'name':'Another Cook','email':f'other-{suffix}@example.test','password':password})['token'];accounts.append(b)
  me=request('/me',token=a)
- assert 'password' not in str(me)
+ assert 'password' not in str(me) and me['admin'] is False
+ request('/admin/overview',expected=401)
+ request('/admin/overview',token=a,expected=403)
+ request('/admin/users/'+me['id']+'/suspend','POST',{'reason':'Not an admin'},a,403)
  request('/auth/login','POST',{'email':f'test-{suffix}@example.test','password':'wrong'},expected=401)
  request('/me','PATCH',{'name':'Updated Cook','bio':'Testing my kitchen','avatar':'','preferences':{'diets':['Vegetarian'],'allergies':['Peanuts']}},a)
  request('/collections','POST',{'name':'Blocked'},a,expected=403,origin='https://evil.example')
@@ -69,7 +72,7 @@ try:
  request('/me','DELETE',{'password':'bad'},b,401)
  caps=request('/capabilities');assert caps['videoModel']=='doubao-seedance-2.5-eco'
  if not caps['textAI']:request('/ai/jobs','POST',{'kind':'recipe','prompt':'Make a nice pasta recipe'},a,503)
- print(f'PASS: {passed} API checks, including authentication, ownership, drafts, search, collections, reviews, planning, groceries, pantry, follows, and cascading deletes.')
+ print(f'PASS: {passed} API checks, including authentication, admin access, ownership, drafts, search, collections, reviews, planning, groceries, pantry, follows, and cascading deletes.')
 finally:
  for token in accounts:
   request('/me','DELETE',{'password':password},token,204)

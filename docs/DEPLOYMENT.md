@@ -65,7 +65,7 @@ For password recovery, onboard the sending domain in Cloudflare Email Service an
 
 ## Operational limits to address before a public launch
 
-- Report submission is implemented; moderation review currently happens through the `reports` table. Establish an operator workflow and policy. There is no dedicated moderator dashboard yet.
+- Reports are reviewed in the [admin console](ADMIN.md), which also suspends members and can pause AI or sign-ups. Make sure each owner in `ADMIN_EMAILS` has a verified email, and write a moderation policy for admins to apply.
 - Rate limiting is in-process; use Cloudflare rate-limit rules for a shared multi-replica ingress limit. Do not blindly trust a forwarded IP header on a publicly reachable origin.
 - Auth supports password accounts, recovery, and Apple/Google sign-in. There is no separate signup email-verification flow; production recovery needs a domain onboarded in Cloudflare Email Service.
 - Media is limited to 50 MB direct MP4/WebM; adaptive video transcoding/Cloudflare Stream, captions, and long-form video processing are not implemented.

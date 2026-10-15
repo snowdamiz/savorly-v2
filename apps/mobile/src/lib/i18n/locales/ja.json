@@ -662,5 +662,11 @@
   "{{v0}} a month": "月額{{v0}}",
   "{{v0}} a month, billed yearly · save {{v1}}%": "月額{{v0}}（年払い）· {{v1}}%お得",
   "{{v0}} a year": "年額{{v0}}",
-  "{{v0}} of {{v1}}": "{{v0}} / {{v1}}"
+  "{{v0}} of {{v1}}": "{{v0}} / {{v1}}",
+  "Admin console": "管理コンソール",
+  "Moderation, members, AI spend and settings": "モデレーション、メンバー、AIの費用、設定",
+  "Dismiss announcement": "お知らせを閉じる",
+  "This account is suspended. Contact Savorly support if you think this is a mistake.": "このアカウントは停止されています。誤りだと思われる場合は、Savorlyサポートにお問い合わせください。",
+  "New sign-ups are paused right now. Please try again later.": "現在、新規登録を一時停止しています。しばらくしてからもう一度お試しください。",
+  "AI features are paused for maintenance. Your conversation and drafts are saved; please try again later.": "AI機能はメンテナンスのため一時停止しています。会話と下書きは保存されています。しばらくしてからもう一度お試しください。"
 }

@@ -12,11 +12,19 @@ import (
 // Three ceilings apply: the member's plan SpendCap over 30 days; a shared daily budget for
 // free members, funded by a base amount plus a share of paying members' revenue; and a
 // hard daily circuit breaker that grows with paying members' ceilings, so it stops runaway
-// spend without ever blocking members inside their plan.
+// spend without ever blocking members inside their plan. The admin console can pause all AI
+// spend or override the two daily base budgets (Settings).
 // ponytail: sums 30 days of spend per reservation under one lock; keep a per-user rollup when volume grows.
 func reserveGeneration(ctx context.Context, tx pgx.Tx, owner string, estimate float64) error {
 	if _, e := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(7182302)`); e != nil {
 		return e
+	}
+	settings, e := loadSettings(ctx, tx)
+	if e != nil {
+		return e
+	}
+	if settings.AIPaused {
+		return fiber.NewError(503, aiPausedMessage)
 	}
 	p, e := planOf(ctx, tx, owner)
 	if e != nil {
@@ -38,10 +46,10 @@ func reserveGeneration(ctx context.Context, tx pgx.Tx, owner string, estimate fl
 	if e != nil {
 		return e
 	}
-	if p.ID == "free" && free+estimate > envFloat("AI_FREE_DAILY_BUDGET_USD", 5)+freeHeadroom {
+	if p.ID == "free" && free+estimate > settings.freeDailyBudget()+freeHeadroom {
 		return fiber.NewError(429, "Free AI use is at capacity today. Your conversation and draft are saved; try again tomorrow.")
 	}
-	if budget := envFloat("AI_DAILY_BUDGET_USD", 25); budget <= 0 || total+estimate > budget+freeHeadroom+paidHeadroom {
+	if budget := settings.dailyBudget(); budget <= 0 || total+estimate > budget+freeHeadroom+paidHeadroom {
 		return fiber.NewError(429, "Today's AI budget is reached. Your conversation and draft are saved; try again tomorrow.")
 	}
 	return nil

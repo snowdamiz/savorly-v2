@@ -64,7 +64,7 @@ func (a *App) createCollection(c fiber.Ctx) error {
 func (a *App) deleteCollection(c fiber.Ctx) error { return a.deleteOwned(c, "collections", "user_id") }
 func (a *App) kitchen(c fiber.Ctx) error {
 	return a.queryOne(c, `SELECT jsonb_build_object(
- 'plans',COALESCE((SELECT jsonb_agg(jsonb_build_object('id',p.id,'recipeId',p.recipe_id,'day',p.day,'meal',p.meal,'servings',p.servings,'recipe',`+recipeJSON+`)) FROM meal_plans p JOIN recipes r ON r.id=p.recipe_id JOIN users u ON u.id=r.author_id WHERE p.user_id=$1),'[]'),
+ 'plans',COALESCE((SELECT jsonb_agg(jsonb_build_object('id',p.id,'recipeId',p.recipe_id,'day',p.day,'meal',p.meal,'servings',p.servings,'recipe',`+recipeJSON+`)) FROM meal_plans p JOIN recipes r ON r.id=p.recipe_id JOIN users u ON u.id=r.author_id AND u.suspended_at IS NULL WHERE p.user_id=$1),'[]'),
  'groceries',COALESCE((SELECT jsonb_agg(jsonb_build_object('id',id,'name',name,'quantity',quantity,'category',category,'checked',checked) ORDER BY created_at) FROM groceries WHERE user_id=$1),'[]'),
  'pantry',COALESCE((SELECT jsonb_agg(jsonb_build_object('id',id,'name',name,'quantity',quantity,'expiresOn',expires_on)) FROM pantry WHERE user_id=$1),'[]'))`, userID(c))
 }

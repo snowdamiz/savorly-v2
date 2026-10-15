@@ -662,5 +662,11 @@
   "{{v0}} a month": "{{v0}} в месяц",
   "{{v0}} a month, billed yearly · save {{v1}}%": "{{v0}} в месяц при оплате за год · экономия {{v1}}%",
   "{{v0}} a year": "{{v0}} в год",
-  "{{v0}} of {{v1}}": "{{v0}} из {{v1}}"
+  "{{v0}} of {{v1}}": "{{v0}} из {{v1}}",
+  "Admin console": "Панель администратора",
+  "Moderation, members, AI spend and settings": "Модерация, участники, расходы на ИИ и настройки",
+  "Dismiss announcement": "Закрыть объявление",
+  "This account is suspended. Contact Savorly support if you think this is a mistake.": "Этот аккаунт заблокирован. Если вы считаете, что это ошибка, обратитесь в поддержку Savorly.",
+  "New sign-ups are paused right now. Please try again later.": "Регистрация новых аккаунтов сейчас приостановлена. Попробуйте позже.",
+  "AI features are paused for maintenance. Your conversation and drafts are saved; please try again later.": "Функции ИИ приостановлены на время технических работ. Ваш разговор и черновики сохранены; попробуйте позже."
 }
