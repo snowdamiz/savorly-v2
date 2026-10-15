@@ -24,7 +24,9 @@ const recipeJSON = `jsonb_build_object(
  'reviewCount',(SELECT count(*) FROM reviews WHERE recipe_id=r.id),
  'saveCount',(SELECT count(*) FROM saves WHERE recipe_id=r.id),
  'author',jsonb_build_object('id',u.id,'name',u.name,'handle',u.handle,'avatar',u.avatar,'bio',u.bio))`
-const recipeFrom = ` FROM recipes r JOIN users u ON u.id=r.author_id `
+
+// Suspended members' recipes leave every public and sous-chef view; admin views join directly.
+const recipeFrom = ` FROM recipes r JOIN users u ON u.id=r.author_id AND u.suspended_at IS NULL `
 
 func (a *App) queryOne(c fiber.Ctx, sql string, args ...any) error {
 	var b []byte
@@ -166,10 +168,10 @@ func (a *App) deleteOwned(c fiber.Ctx, table, column string) error {
 const creatorJSON = `jsonb_build_object('id',u.id,'name',u.name,'handle',u.handle,'bio',u.bio,'avatar',u.avatar,'recipeCount',(SELECT count(*) FROM recipes WHERE author_id=u.id AND published),'followerCount',(SELECT count(*) FROM follows WHERE creator_id=u.id))`
 
 func (a *App) creators(c fiber.Ctx) error {
-	return a.queryMany(c, `SELECT `+creatorJSON+` FROM users u WHERE EXISTS(SELECT 1 FROM recipes WHERE author_id=u.id AND published) ORDER BY (SELECT count(*) FROM follows WHERE creator_id=u.id) DESC,u.created_at LIMIT 40`)
+	return a.queryMany(c, `SELECT `+creatorJSON+` FROM users u WHERE u.suspended_at IS NULL AND EXISTS(SELECT 1 FROM recipes WHERE author_id=u.id AND published) ORDER BY (SELECT count(*) FROM follows WHERE creator_id=u.id) DESC,u.created_at LIMIT 40`)
 }
 func (a *App) creator(c fiber.Ctx) error {
-	return a.queryOne(c, `SELECT `+creatorJSON+` FROM users u WHERE id=$1`, c.Params("id"))
+	return a.queryOne(c, `SELECT `+creatorJSON+` FROM users u WHERE id=$1 AND u.suspended_at IS NULL`, c.Params("id"))
 }
 func (a *App) follow(c fiber.Ctx) error {
 	if userID(c) == c.Params("id") {
@@ -192,7 +194,7 @@ func (a *App) unfollow(c fiber.Ctx) error {
 	return c.SendStatus(204)
 }
 func (a *App) reviews(c fiber.Ctx) error {
-	return a.queryMany(c, `SELECT jsonb_build_object('id',v.id,'rating',v.rating,'body',v.body,'createdAt',v.created_at,'author',jsonb_build_object('id',u.id,'name',u.name,'avatar',u.avatar)) FROM reviews v JOIN users u ON u.id=v.user_id JOIN recipes r ON r.id=v.recipe_id WHERE v.recipe_id=$1 AND r.published ORDER BY v.created_at DESC LIMIT 100`, c.Params("id"))
+	return a.queryMany(c, `SELECT jsonb_build_object('id',v.id,'rating',v.rating,'body',v.body,'createdAt',v.created_at,'author',jsonb_build_object('id',u.id,'name',u.name,'avatar',u.avatar)) FROM reviews v JOIN users u ON u.id=v.user_id AND u.suspended_at IS NULL JOIN recipes r ON r.id=v.recipe_id WHERE v.recipe_id=$1 AND r.published ORDER BY v.created_at DESC LIMIT 100`, c.Params("id"))
 }
 func (a *App) review(c fiber.Ctx) error {
 	var in struct {
@@ -222,7 +224,7 @@ func (a *App) report(c fiber.Ctx) error {
 	if !validText(in.Reason, 5, 1000) {
 		return fiber.NewError(400, "Tell us what needs a closer look (5–1000 characters).")
 	}
-	r, e := a.DB.Exec(c.Context(), `INSERT INTO reports(id,user_id,recipe_id,reason) SELECT $1,$2,id,$4 FROM recipes WHERE id=$3 AND published ON CONFLICT(user_id,recipe_id) DO UPDATE SET reason=excluded.reason`, uuid.NewString(), userID(c), c.Params("id"), in.Reason)
+	r, e := a.DB.Exec(c.Context(), `INSERT INTO reports(id,user_id,recipe_id,reason) SELECT $1,$2,id,$4 FROM recipes WHERE id=$3 AND published ON CONFLICT(user_id,recipe_id) DO UPDATE SET reason=excluded.reason,status='open',created_at=now(),resolution='',resolved_by=NULL,resolved_at=NULL`, uuid.NewString(), userID(c), c.Params("id"), in.Reason)
 	if e != nil {
 		return e
 	}

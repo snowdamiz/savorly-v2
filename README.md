@@ -32,12 +32,13 @@ To run the API in Docker: `docker compose --profile full up --build`. Run Expo s
 - Serving scaling, ingredient checklists, guided cooking, step timers, spoken instructions, video playback, and recipe sharing.
 - ElevenLabs v4 Turbo cooking narration through OpenRouter with streamed audio, shared caching, next-step preloading, and device-speech fallback. See [setup and playback details](docs/COOKING-NARRATION.md).
 - Saved recipes and named cookbooks, follows, ratings/reviews, and content reports.
+- An admin console for owners and appointed admins: a moderation queue, member management (suspension, complimentary plans, sign-out, deletion), every recipe and review, AI spend and jobs, an AI kill switch and budget overrides, a sign-up pause, site-wide announcements, and an audit log. See [admin console](docs/ADMIN.md).
 - Weekly breakfast/lunch/dinner planner, recipe-to-grocery conversion, checked grocery lists, pantry quantities and expiry reminders, and pantry-to-recipe matching.
 - A sous-chef built into the places you cook (home, recipe pages, cooking mode, the editor, pantry and planner) rather than a separate AI page: recipe drafts, one-tap adaptations, ingredient swaps, nutrition estimates, meal plans, cooking questions, cover photos, and Seedance video clips. Durable jobs, visible status/errors, editable results, idempotency, user quotas, and global spend reservations.
 - A general sous-chef one tap away on every screen, by text, live voice, or photo: it knows the recipe and cooking step on screen, finds recipes and cooks, manages cookbooks, the planner, groceries, pantry, reviews and profile diets, creates, edits, publishes and deletes recipes (consequential actions need a yes), and drives the app itself: opening recipes, cooking steps, timers, pages and language. See [sous-chef setup and architecture](docs/RECIPE-STUDIO.md).
 - Cloudflare Worker serving the web app with the Go API as a Container, R2 storage adapter, Cloudflare Email Service password resets, Neon-compatible migrations, Docker development database/object storage and API build, EAS build profiles, and CI that deploys staging and builds the Android staging app from `main`.
 
-Staging runs at [staging.savorly.cooking](https://staging.savorly.cooking) on Cloudflare and Neon, with paid plans off and unlimited free use for testers ([staging](docs/STAGING.md)). Production is not deployed and there is no app-store release; the remaining launch work is in [DEPLOYMENT.md](docs/DEPLOYMENT.md).
+Staging runs at [staging.savorly.cooking](https://staging.savorly.cooking) on Cloudflare and Neon, with paid plans off and unlimited free use for testers ([staging](docs/STAGING.md)). Production runs at [savorly.cooking](https://savorly.cooking), deployed from the `release` branch ([production](docs/PRODUCTION.md)). There is no app-store release yet; the remaining launch work is in [PRODUCTION.md](docs/PRODUCTION.md#before-a-public-launch).
 
 ## Project layout
 
@@ -75,9 +76,11 @@ Browser tests use installed Google Chrome locally and Playwright Chromium in CI.
 - [Step-by-step provider and account setup](docs/ACCOUNTS.md)
 - [R2 and local SeaweedFS storage](docs/STORAGE.md)
 - [Plans, pricing and store rules](docs/PRICING.md)
+- [Admin console and who can open it](docs/ADMIN.md)
 - [Sign in with Apple and Google](docs/SIGN-IN.md)
 - [Deployment and current launch limits](docs/DEPLOYMENT.md)
 - [Staging deployment and Android test builds](docs/STAGING.md)
+- [Production deployment and releases](docs/PRODUCTION.md)
 - [AI provider choices, pricing, and reliability](docs/PROVIDERS.md)
 - [Verification record](docs/VERIFICATION.md)
 

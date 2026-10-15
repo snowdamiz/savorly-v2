@@ -14,7 +14,14 @@
       },
       "android": { "buildType": "apk" }
     },
-    "production": { "autoIncrement": true }
+    "production": {
+      "environment": "production",
+      "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://savorly.cooking/api",
+        "EXPO_PUBLIC_WEB_URL": "https://savorly.cooking"
+      }
+    }
   },
   "submit": { "production": {} }
 }
