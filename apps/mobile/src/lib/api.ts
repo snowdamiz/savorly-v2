@@ -15,6 +15,8 @@ export class ApiError extends Error {
   constructor(
     public status: number,
     message: string,
+    /** The server never handled the request (it was starting up), so resending is safe. */
+    public unsent = false,
   ) {
     super(message);
   }
@@ -28,10 +30,27 @@ export async function persistSession(token: string | null) {
   if (token) await SecureStore.setItemAsync('savorly.session', token);
   else await SecureStore.deleteItemAsync('savorly.session');
 }
-export async function api<T = void>(
-  path: string,
-  options: { method?: string; body?: unknown; headers?: Record<string, string> } = {},
-): Promise<T> {
+type RequestOptions = { method?: string; body?: unknown; headers?: Record<string, string> };
+// Server starts and deploys make the API briefly unavailable. Requests wait them out instead of
+// failing: reads retry gateway errors, and writes retry only what the server never handled, so
+// nothing is submitted twice.
+const RETRY_FOR_MS = 120_000;
+export async function api<T = void>(path: string, options: RequestOptions = {}): Promise<T> {
+  const read = (options.method || 'GET') === 'GET';
+  const started = Date.now();
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await request<T>(path, options);
+    } catch (error) {
+      const retry =
+        error instanceof ApiError &&
+        (error.unsent || (read && error.status >= 502 && error.status <= 504));
+      if (!retry || Date.now() - started > RETRY_FOR_MS) throw error;
+      await new Promise((resolve) => setTimeout(resolve, Math.min(1000 * attempt, 5000)));
+    }
+  }
+}
+async function request<T>(path: string, options: RequestOptions): Promise<T> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 30000);
   try {
@@ -64,6 +83,7 @@ export async function api<T = void>(
       throw new ApiError(
         response.status,
         result?.error || 'Something went wrong. Please try again.',
+        result?.starting === true,
       );
     return result as T;
   } catch (error) {
