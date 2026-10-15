@@ -12,6 +12,7 @@ import {
   LogOut,
   Plus,
   Settings2,
+  ShieldCheck,
   Sparkles,
   Trash2,
   Users,
@@ -38,6 +39,7 @@ import { PlanSettings } from '../components/PlanSettings';
 import { SocialButtons } from '../components/SocialButtons';
 import { DangerButton } from './Kitchen';
 import { foodIcon } from '../lib/icons';
+import { AdminPending } from './admin';
 function MenuRow({
   icon: Icon,
   title,
@@ -230,6 +232,16 @@ export function Profile({
       .finally(() => setBusy(false));
   };
   const menu = [
+    ...(app.user?.admin
+      ? [
+          {
+            icon: ShieldCheck,
+            title: tr('Admin console'),
+            text: 'Moderation, members, AI spend and settings',
+            go: () => navigate('admin'),
+          },
+        ]
+      : []),
     {
       icon: CalendarDays,
       title: tr('Meal planner'),
@@ -334,6 +346,7 @@ export function Profile({
           />
         </View>
       )}
+      <AdminPending />
       {app.user && app.capabilities?.plans && <PlanSettings />}
       {app.user && (
         <View style={[s.card, { gap: 12 }]}>

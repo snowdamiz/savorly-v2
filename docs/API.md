@@ -16,6 +16,7 @@ The browser authenticates with an HttpOnly session cookie and `credentials: incl
 | Groceries | `POST /groceries`, `PATCH /groceries/:id`, `DELETE /groceries/:id`, `POST /recipes/:id/groceries` |
 | Media | `POST /media` with multipart field `file` |
 | AI | `GET /capabilities`, `GET /ai/jobs`, `POST /ai/jobs` |
+| Admin | `/admin/*` for admins only; see [admin console](ADMIN.md#api) |
 
 ## Discovery
 

@@ -156,6 +156,12 @@ func (a *App) oauthSignIn(c fiber.Ctx) error {
 			return e
 		}
 	}
+	// A provider that verified this same address proves the kitchen's email, as a reset code does.
+	if id.EmailVerified && id.Email != "" {
+		if _, e = a.DB.Exec(ctx, `UPDATE users SET email_verified=true WHERE id=$1 AND email=$2 AND NOT email_verified`, owner, id.Email); e != nil {
+			return e
+		}
+	}
 	if id.Provider == "apple" && in.Code != "" {
 		// Kept only to revoke access when the account is deleted; sign-in works without it.
 		if refresh, e := appleRefreshToken(ctx, id.ClientID, in.Code); e != nil {
@@ -173,6 +179,9 @@ func (a *App) oauthSignIn(c fiber.Ctx) error {
 func (a *App) createProviderUser(ctx context.Context, id providerIdentity, name string) (string, error) {
 	if id.Email == "" || !id.EmailVerified {
 		return "", fiber.NewError(400, "Your "+providerName(id.Provider)+" account needs a verified email to create a kitchen.")
+	}
+	if e := a.signupsOpen(ctx); e != nil {
+		return "", e
 	}
 	var taken bool
 	if e := a.DB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE email=$1)`, id.Email).Scan(&taken); e != nil {

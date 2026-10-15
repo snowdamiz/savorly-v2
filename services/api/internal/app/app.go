@@ -124,7 +124,17 @@ func NewWithContext(ctx context.Context, db *pgxpool.Pool, config Config) *fiber
 	})
 	v := f.Group("/v1")
 	v.Get("/capabilities", func(c fiber.Ctx) error {
+		// The admin console's site-wide announcement; capabilities still answer if it can't load.
+		var announcement fiber.Map
+		if db != nil { // unit tests build the app without one
+			if s, e := loadSettings(c.Context(), db); e != nil {
+				slog.Warn("load operator settings", "error", e)
+			} else if s.Announcement != "" {
+				announcement = fiber.Map{"text": s.Announcement, "tone": s.AnnouncementTone}
+			}
+		}
 		return c.JSON(fiber.Map{
+			"announcement":     announcement,
 			"cookingNarration": a.Narrator.Enabled(), "cookingNarrationModel": narration.Model,
 			"voiceAI": a.Live.Enabled() && a.AI.TextEnabled(), "voiceModel": a.Live.ModelID(),
 			"voicePerMinuteUSD": 0.05,
@@ -195,5 +205,6 @@ func NewWithContext(ctx context.Context, db *pgxpool.Pool, config Config) *fiber
 	v.Post("/recipe-studio/:id/images", a.requireAuth, a.studioImage)
 	v.Post("/recipe-studio/:id/voice", a.requireAuth, a.voiceCreate)
 	v.Delete("/recipe-studio/voice/:session", a.requireAuth, a.voiceClose)
+	a.adminRoutes(v)
 	return f
 }

@@ -241,7 +241,7 @@ func (a *App) agentTool(ctx context.Context, run *agentRun, name string, raw jso
 		return string(jsonBytes(fiber.Map{"shown": len(run.recipes)}))
 	case "find_cooks":
 		var cooks json.RawMessage
-		e := a.DB.QueryRow(ctx, `SELECT COALESCE(jsonb_agg(c),'[]') FROM (SELECT `+creatorJSON+` - 'avatar' c FROM users u WHERE EXISTS(SELECT 1 FROM recipes WHERE author_id=u.id AND published) AND ($1='' OR u.name ILIKE '%'||$1||'%' OR u.handle ILIKE '%'||$1||'%' OR u.bio ILIKE '%'||$1||'%') ORDER BY (SELECT count(*) FROM follows WHERE creator_id=u.id) DESC LIMIT 10) x`, strings.TrimSpace(in.Query)).Scan(&cooks)
+		e := a.DB.QueryRow(ctx, `SELECT COALESCE(jsonb_agg(c),'[]') FROM (SELECT `+creatorJSON+` - 'avatar' c FROM users u WHERE u.suspended_at IS NULL AND EXISTS(SELECT 1 FROM recipes WHERE author_id=u.id AND published) AND ($1='' OR u.name ILIKE '%'||$1||'%' OR u.handle ILIKE '%'||$1||'%' OR u.bio ILIKE '%'||$1||'%') ORDER BY (SELECT count(*) FROM follows WHERE creator_id=u.id) DESC LIMIT 10) x`, strings.TrimSpace(in.Query)).Scan(&cooks)
 		if e != nil {
 			return toolError("Couldn't search cooks.")
 		}

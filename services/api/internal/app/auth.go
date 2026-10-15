@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -27,7 +28,8 @@ func token(c fiber.Ctx) string {
 func userID(c fiber.Ctx) string { u, _ := c.Locals("userID").(string); return u }
 func (a *App) requireAuth(c fiber.Ctx) error {
 	var id string
-	err := a.DB.QueryRow(c.Context(), `SELECT user_id FROM sessions WHERE token_hash=$1 AND expires_at>now()`, hashToken(token(c))).Scan(&id)
+	// Suspension deletes sessions; the join also covers one that raced the suspension.
+	err := a.DB.QueryRow(c.Context(), `SELECT s.user_id FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>now() AND u.suspended_at IS NULL`, hashToken(token(c))).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return fiber.NewError(401, "Sign in to your kitchen to continue.")
 	}
@@ -38,6 +40,14 @@ func (a *App) requireAuth(c fiber.Ctx) error {
 	return c.Next()
 }
 func (a *App) session(c fiber.Ctx, id string) error {
+	// Every sign-in path ends here, after the credentials were checked.
+	var suspended bool
+	if e := a.DB.QueryRow(c.Context(), `SELECT suspended_at IS NOT NULL FROM users WHERE id=$1`, id).Scan(&suspended); e != nil {
+		return e
+	}
+	if suspended {
+		return fiber.NewError(403, suspendedMessage)
+	}
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
 		return err
@@ -64,6 +74,9 @@ func (a *App) register(c fiber.Ctx) error {
 	if e != nil || parsed.Address != in.Email || len(in.Email) > 254 || !validText(in.Name, 2, 70) || len(in.Password) < 12 || len(in.Password) > 72 {
 		return fiber.NewError(400, "Use a valid email, a name, and a password of 12–72 characters.")
 	}
+	if e := a.signupsOpen(c.Context()); e != nil {
+		return e
+	}
 	hash, e := bcrypt.GenerateFromPassword([]byte(in.Password), 12)
 	if e != nil {
 		return e
@@ -78,6 +91,17 @@ func (a *App) register(c fiber.Ctx) error {
 		return e
 	}
 	return a.session(c, id)
+}
+
+func (a *App) signupsOpen(ctx context.Context) error {
+	settings, e := loadSettings(ctx, a.DB)
+	if e != nil {
+		return e
+	}
+	if settings.SignupsPaused {
+		return fiber.NewError(403, signupsPausedMessage)
+	}
+	return nil
 }
 
 func newHandle(name, id string) string {
@@ -125,8 +149,10 @@ func (a *App) logout(c fiber.Ctx) error {
 	return c.SendStatus(204)
 }
 func (a *App) me(c fiber.Ctx) error {
-	return a.queryOne(c, `SELECT jsonb_build_object('id',id,'name',name,'email',email,'handle',handle,'bio',bio,'avatar',avatar,'preferences',preferences,
- 'hasPassword',NOT starts_with(password_hash,'!'),'identities',COALESCE((SELECT jsonb_agg(provider ORDER BY provider) FROM identities WHERE user_id=users.id),'[]'),'plan',(SELECT `+effectivePlanSQL+` FROM users u WHERE u.id=users.id)) FROM users WHERE id=$1`, userID(c))
+	// adminPending: an owner's address that hasn't been proven yet, so the console stays closed.
+	return a.queryOne(c, `SELECT jsonb_build_object('id',u.id,'name',u.name,'email',u.email,'handle',u.handle,'bio',u.bio,'avatar',u.avatar,'preferences',u.preferences,
+ 'hasPassword',NOT starts_with(u.password_hash,'!'),'identities',COALESCE((SELECT jsonb_agg(provider ORDER BY provider) FROM identities WHERE user_id=u.id),'[]'),'plan',`+effectivePlanSQL+`,
+ 'admin',`+adminSQL(2, 3)+`,'adminOwner',`+ownerSQL(2, 3)+`,'adminPending',(NOT `+adminSQL(2, 3)+` AND u.email=ANY($2::text[]))) FROM users u WHERE u.id=$1`, userID(c), ownerEmails(), a.Config.Production)
 }
 func (a *App) updateMe(c fiber.Ctx) error {
 	var in struct {

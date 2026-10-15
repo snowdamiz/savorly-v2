@@ -674,5 +674,11 @@
   "A recipe that uses up the vegetables I have.": "Une recette qui utilise les légumes que j’ai.",
   "Ask the sous-chef: {{v0}}": "Demander au sous-chef : {{v0}}",
   "Follow {{v0}}": "Suivre {{v0}}",
-  "Unfollow {{v0}}": "Ne plus suivre {{v0}}"
+  "Unfollow {{v0}}": "Ne plus suivre {{v0}}",
+  "Admin console": "Console d’administration",
+  "Moderation, members, AI spend and settings": "Modération, membres, dépenses d’IA et réglages",
+  "Dismiss announcement": "Fermer l’annonce",
+  "This account is suspended. Contact Savorly support if you think this is a mistake.": "Ce compte est suspendu. Contactez l’assistance Savorly si vous pensez qu’il s’agit d’une erreur.",
+  "New sign-ups are paused right now. Please try again later.": "Les nouvelles inscriptions sont suspendues pour le moment. Réessayez plus tard.",
+  "AI features are paused for maintenance. Your conversation and drafts are saved; please try again later.": "Les fonctions d’IA sont en pause pour maintenance. Votre conversation et vos brouillons sont enregistrés ; réessayez plus tard."
 }

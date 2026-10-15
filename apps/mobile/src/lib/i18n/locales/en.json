@@ -674,5 +674,11 @@
   "A recipe that uses up the vegetables I have.": "A recipe that uses up the vegetables I have.",
   "Ask the sous-chef: {{v0}}": "Ask the sous-chef: {{v0}}",
   "Follow {{v0}}": "Follow {{v0}}",
-  "Unfollow {{v0}}": "Unfollow {{v0}}"
+  "Unfollow {{v0}}": "Unfollow {{v0}}",
+  "Admin console": "Admin console",
+  "Moderation, members, AI spend and settings": "Moderation, members, AI spend and settings",
+  "Dismiss announcement": "Dismiss announcement",
+  "This account is suspended. Contact Savorly support if you think this is a mistake.": "This account is suspended. Contact Savorly support if you think this is a mistake.",
+  "New sign-ups are paused right now. Please try again later.": "New sign-ups are paused right now. Please try again later.",
+  "AI features are paused for maintenance. Your conversation and drafts are saved; please try again later.": "AI features are paused for maintenance. Your conversation and drafts are saved; please try again later."
 }
