@@ -674,5 +674,16 @@
   "A recipe that uses up the vegetables I have.": "Una receta que aproveche las verduras que tengo.",
   "Ask the sous-chef: {{v0}}": "Preguntar al asistente: {{v0}}",
   "Follow {{v0}}": "Seguir a {{v0}}",
-  "Unfollow {{v0}}": "Dejar de seguir a {{v0}}"
+  "Unfollow {{v0}}": "Dejar de seguir a {{v0}}",
+  "Checking…": "Comprobando…",
+  "@{{v0}} is available.": "@{{v0}} está disponible.",
+  "That username is taken.": "Ese nombre de usuario ya está en uso.",
+  "We’ll check it when you save.": "Lo comprobaremos al guardar.",
+  "Usernames use 3–24 lowercase letters, numbers, dots or underscores.": "Los nombres de usuario tienen de 3 a 24 letras minúsculas, números, puntos o guiones bajos.",
+  "Username": "Nombre de usuario",
+  "Welcome to the table, @{{v0}}.": "Bienvenido a la mesa, @{{v0}}.",
+  "Pick your username": "Elige tu nombre de usuario",
+  "It’s how other cooks find you and see your recipes. You can change it anytime in My kitchen.": "Así te encuentran otros cocineros y ven tus recetas. Puedes cambiarlo cuando quieras en Mi cocina.",
+  "Save username": "Guardar nombre de usuario",
+  "Keep @{{v0}}": "Quedarme con @{{v0}}"
 }

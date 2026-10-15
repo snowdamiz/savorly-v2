@@ -674,5 +674,16 @@
   "A recipe that uses up the vegetables I have.": "手元の野菜を使い切れるレシピ。",
   "Ask the sous-chef: {{v0}}": "アシスタントに頼む：{{v0}}",
   "Follow {{v0}}": "{{v0}}をフォロー",
-  "Unfollow {{v0}}": "{{v0}}のフォローを解除"
+  "Unfollow {{v0}}": "{{v0}}のフォローを解除",
+  "Checking…": "確認中…",
+  "@{{v0}} is available.": "@{{v0}} は使えます。",
+  "That username is taken.": "このユーザー名はすでに使われています。",
+  "We’ll check it when you save.": "保存するときに確認します。",
+  "Usernames use 3–24 lowercase letters, numbers, dots or underscores.": "ユーザー名は3〜24文字の小文字の英字、数字、ピリオド、アンダースコアで作れます。",
+  "Username": "ユーザー名",
+  "Welcome to the table, @{{v0}}.": "ようこそ、@{{v0}} さん。",
+  "Pick your username": "ユーザー名を選びましょう",
+  "It’s how other cooks find you and see your recipes. You can change it anytime in My kitchen.": "ほかの料理好きがあなたやレシピを見つけるときの名前です。マイキッチンでいつでも変更できます。",
+  "Save username": "ユーザー名を保存",
+  "Keep @{{v0}}": "@{{v0}} のままにする"
 }

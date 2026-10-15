@@ -674,5 +674,16 @@
   "A recipe that uses up the vegetables I have.": "Рецепт, в котором пригодятся мои овощи.",
   "Ask the sous-chef: {{v0}}": "Спросить помощника: {{v0}}",
   "Follow {{v0}}": "Подписаться на {{v0}}",
-  "Unfollow {{v0}}": "Отписаться от {{v0}}"
+  "Unfollow {{v0}}": "Отписаться от {{v0}}",
+  "Checking…": "Проверяем…",
+  "@{{v0}} is available.": "@{{v0}} свободно.",
+  "That username is taken.": "Это имя пользователя уже занято.",
+  "We’ll check it when you save.": "Проверим при сохранении.",
+  "Usernames use 3–24 lowercase letters, numbers, dots or underscores.": "Имя пользователя: 3–24 строчные латинские буквы, цифры, точки или подчёркивания.",
+  "Username": "Имя пользователя",
+  "Welcome to the table, @{{v0}}.": "Добро пожаловать к столу, @{{v0}}.",
+  "Pick your username": "Выберите имя пользователя",
+  "It’s how other cooks find you and see your recipes. You can change it anytime in My kitchen.": "По нему другие кулинары находят вас и ваши рецепты. Его можно изменить в любой момент в разделе «Моя кухня».",
+  "Save username": "Сохранить имя пользователя",
+  "Keep @{{v0}}": "Оставить @{{v0}}"
 }

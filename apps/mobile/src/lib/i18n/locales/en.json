@@ -674,5 +674,16 @@
   "A recipe that uses up the vegetables I have.": "A recipe that uses up the vegetables I have.",
   "Ask the sous-chef: {{v0}}": "Ask the sous-chef: {{v0}}",
   "Follow {{v0}}": "Follow {{v0}}",
-  "Unfollow {{v0}}": "Unfollow {{v0}}"
+  "Unfollow {{v0}}": "Unfollow {{v0}}",
+  "Checking…": "Checking…",
+  "@{{v0}} is available.": "@{{v0}} is available.",
+  "That username is taken.": "That username is taken.",
+  "We’ll check it when you save.": "We’ll check it when you save.",
+  "Usernames use 3–24 lowercase letters, numbers, dots or underscores.": "Usernames use 3–24 lowercase letters, numbers, dots or underscores.",
+  "Username": "Username",
+  "Welcome to the table, @{{v0}}.": "Welcome to the table, @{{v0}}.",
+  "Pick your username": "Pick your username",
+  "It’s how other cooks find you and see your recipes. You can change it anytime in My kitchen.": "It’s how other cooks find you and see your recipes. You can change it anytime in My kitchen.",
+  "Save username": "Save username",
+  "Keep @{{v0}}": "Keep @{{v0}}"
 }

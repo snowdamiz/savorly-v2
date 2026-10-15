@@ -138,6 +138,7 @@ func (a *App) oauthSignIn(c fiber.Ctx) error {
 	}
 	current := a.signedInUser(c)
 	var owner string
+	created := false
 	e = a.DB.QueryRow(ctx, `SELECT user_id FROM identities WHERE provider=$1 AND subject=$2`, id.Provider, id.Subject).Scan(&owner)
 	switch {
 	case e == nil:
@@ -155,6 +156,7 @@ func (a *App) oauthSignIn(c fiber.Ctx) error {
 		if owner, e = a.createProviderUser(ctx, id, in.Name); e != nil {
 			return e
 		}
+		created = true
 	}
 	if id.Provider == "apple" && in.Code != "" {
 		// Kept only to revoke access when the account is deleted; sign-in works without it.
@@ -167,7 +169,7 @@ func (a *App) oauthSignIn(c fiber.Ctx) error {
 	if current != "" {
 		return c.JSON(fiber.Map{"ok": true, "connected": id.Provider})
 	}
-	return a.session(c, owner)
+	return a.session(c, owner, created)
 }
 
 func (a *App) createProviderUser(ctx context.Context, id providerIdentity, name string) (string, error) {
@@ -188,14 +190,29 @@ func (a *App) createProviderUser(ctx context.Context, id providerIdentity, name 
 	if !validText(name, 2, 70) {
 		name = "Savorly cook"
 	}
+	// A suggested handle can be claimed by a sign-up racing this one; pick again if so.
+	for try := 0; ; try++ {
+		owner, e := a.insertProviderUser(ctx, id, name)
+		if handleConflict(e) && try < 2 {
+			continue
+		}
+		return owner, e
+	}
+}
+
+func (a *App) insertProviderUser(ctx context.Context, id providerIdentity, name string) (string, error) {
 	owner := uuid.NewString()
 	tx, e := a.DB.Begin(ctx)
 	if e != nil {
 		return "", e
 	}
 	defer tx.Rollback(ctx)
+	handle, e := freeHandle(ctx, tx, name)
+	if e != nil {
+		return "", e
+	}
 	// "!" is never a bcrypt hash: no password works until the owner sets one by email.
-	if _, e = tx.Exec(ctx, `INSERT INTO users(id,email,password_hash,name,handle,email_verified) VALUES($1,$2,'!',$3,$4,true)`, owner, id.Email, name, newHandle(name, owner)); e != nil {
+	if _, e = tx.Exec(ctx, `INSERT INTO users(id,email,password_hash,name,handle,email_verified) VALUES($1,$2,'!',$3,$4,true)`, owner, id.Email, name, handle); e != nil {
 		return "", e
 	}
 	if _, e = tx.Exec(ctx, `INSERT INTO identities(provider,subject,user_id,email) VALUES($1,$2,$3,$4)`, id.Provider, id.Subject, owner, id.Email); e != nil {
