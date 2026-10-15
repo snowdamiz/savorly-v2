@@ -7,7 +7,7 @@ import { api, persistSession } from '../lib/api';
 import { color, s } from '../lib/theme';
 import { Button, Dialog, Field } from './ui';
 import { SocialButtons } from './SocialButtons';
-import { BrandMark, BrandWordmark, brandColors } from './Brand';
+import { BrandMark, brandColors } from './Brand';
 import { ProviderToken } from '../lib/auth/provider';
 export function AuthDialog() {
   const { t: tr } = useI18n();
@@ -71,20 +71,17 @@ export function AuthDialog() {
   return (
     <Dialog visible={app.authOpen} onClose={() => app.setAuthOpen(false)}>
       <View style={{ gap: 16, paddingTop: 10 }}>
-        <View style={[s.row, { gap: 12 }]}>
-          <View
-            style={{
-              width: 56,
-              height: 56,
-              borderRadius: 18,
-              backgroundColor: brandColors.sage,
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <BrandMark size={42} />
-          </View>
-          <BrandWordmark width={130} />
+        <View
+          style={{
+            width: 56,
+            height: 56,
+            borderRadius: 18,
+            backgroundColor: brandColors.sage,
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <BrandMark size={42} />
         </View>
         <Text style={[s.h1, { paddingRight: 40 }]}>
           {recovery

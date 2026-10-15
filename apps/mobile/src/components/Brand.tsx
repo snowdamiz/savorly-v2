@@ -20,19 +20,3 @@ export function BrandMark({ size = 40 }: { size?: number }) {
     </Svg>
   );
 }
-
-export function BrandWordmark({ width = 134 }: { width?: number }) {
-  const [, , sourceWidth, sourceHeight] = artwork.wordmark.viewBox.split(' ').map(Number);
-  return (
-    <Svg
-      width={width}
-      height={(width * sourceHeight) / sourceWidth}
-      viewBox={artwork.wordmark.viewBox}
-      accessible={false}
-      aria-hidden
-      pointerEvents="none"
-    >
-      <Path d={artwork.wordmark.path} fill={brandColors.ink} fillRule="evenodd" />
-    </Svg>
-  );
-}

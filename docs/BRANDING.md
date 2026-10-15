@@ -1,7 +1,8 @@
 # Savorly — The Happy Clove
 
 The selected identity pairs an asymmetric garlic-clove character with a flowing, hand-lettered
-`savorly` wordmark. The crescent eyes and curved clove separation remain readable at small sizes.
+`savorly` wordmark for standalone brand artwork. Inside the app, brand placements use only the
+clove icon. The crescent eyes and curved clove separation remain readable at small sizes.
 Charcoal (`#1B1C1A`), cream (`#F7F8F5`), and sage (`#CAD5AE`) come from the app's existing brand palette.
 
 ![Happy Clove logo and platform variants](brand/preview.png)
@@ -9,9 +10,9 @@ Charcoal (`#1B1C1A`), cream (`#F7F8F5`), and sage (`#CAD5AE`) come from the app'
 ## Artwork and use
 
 - `apps/mobile/assets/brand-artwork.json` is the shared vector source for the app and icon renderer.
-- `BrandMark` and `BrandWordmark` in `src/components/Brand.tsx` render it with the existing
-  `react-native-svg` dependency. The wordmark is outlined artwork and requires no additional font.
-- The desktop home link, sign-in dialog, and signed-out kitchen use the new identity. Cooking
+- `BrandMark` in `src/components/Brand.tsx` renders the clove with the existing `react-native-svg`
+  dependency. The standalone wordmark export is outlined artwork and requires no additional font.
+- The desktop home link, sign-in dialog, and signed-out kitchen use only the clove icon. Cooking
   controls and recipe placeholders keep their functional Lucide icons.
 - `brand-mark.svg` and `brand-wordmark.svg` are transparent exports. `brand.svg` is the square
   app icon with its sage background.

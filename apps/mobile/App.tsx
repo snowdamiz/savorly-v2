@@ -72,7 +72,7 @@ import {
 import { AnnouncementBanner } from './src/components/Announcement';
 import { haptic } from './src/lib/haptics';
 import { AuthDialog } from './src/components/AuthDialog';
-import { BrandMark, BrandWordmark } from './src/components/Brand';
+import { BrandMark } from './src/components/Brand';
 import { RecipeDetail } from './src/components/RecipeDetail';
 import { RecipeStart } from './src/components/RecipeStart';
 import { RecipeStudio } from './src/components/RecipeStudio';
@@ -377,10 +377,9 @@ function Shell() {
               accessibilityRole="button"
               accessibilityLabel={tr('Savorly home')}
               onPress={() => navigate('discover')}
-              style={[s.row, { gap: 10, marginLeft: 10, marginBottom: 28 }]}
+              style={[s.row, { marginLeft: 10, marginBottom: 28 }]}
             >
               <BrandMark size={42} />
-              <BrandWordmark />
             </Pressable>
             <View style={{ gap: 4 }}>
               {navigation.map((item) => (
