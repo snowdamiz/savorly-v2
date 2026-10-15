@@ -12,7 +12,12 @@
       "usesAppleSignIn": true
     },
     "android": {
-      "package": "app.savorly.mobile"
+      "package": "app.savorly.mobile",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png",
+        "backgroundColor": "#1B1C1A"
+      }
     },
     "web": {
       "bundler": "metro",
