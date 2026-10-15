@@ -38,7 +38,7 @@ To run the API in Docker: `docker compose --profile full up --build`. Run Expo s
 - A general sous-chef one tap away on every screen, by text, live voice, or photo: it knows the recipe and cooking step on screen, finds recipes and cooks, manages cookbooks, the planner, groceries, pantry, reviews and profile diets, creates, edits, publishes and deletes recipes (consequential actions need a yes), and drives the app itself: opening recipes, cooking steps, timers, pages and language. See [sous-chef setup and architecture](docs/RECIPE-STUDIO.md).
 - Cloudflare Worker serving the web app with the Go API as a Container, R2 storage adapter, Cloudflare Email Service password resets, Neon-compatible migrations, Docker development database/object storage and API build, EAS build profiles, and CI that deploys staging and builds the Android staging app from `main`.
 
-Staging runs at [staging.savorly.cooking](https://staging.savorly.cooking) on Cloudflare and Neon, with paid plans off and unlimited free use for testers ([staging](docs/STAGING.md)). Production is not deployed and there is no app-store release; the remaining launch work is in [DEPLOYMENT.md](docs/DEPLOYMENT.md).
+Staging runs at [staging.savorly.cooking](https://staging.savorly.cooking) on Cloudflare and Neon, with paid plans off and unlimited free use for testers ([staging](docs/STAGING.md)). Production runs at [savorly.cooking](https://savorly.cooking), deployed from the `release` branch ([production](docs/PRODUCTION.md)). There is no app-store release yet; the remaining launch work is in [PRODUCTION.md](docs/PRODUCTION.md#before-a-public-launch).
 
 ## Project layout
 
@@ -80,6 +80,7 @@ Browser tests use installed Google Chrome locally and Playwright Chromium in CI.
 - [Sign in with Apple and Google](docs/SIGN-IN.md)
 - [Deployment and current launch limits](docs/DEPLOYMENT.md)
 - [Staging deployment and Android test builds](docs/STAGING.md)
+- [Production deployment and releases](docs/PRODUCTION.md)
 - [AI provider choices, pricing, and reliability](docs/PROVIDERS.md)
 - [Verification record](docs/VERIFICATION.md)
 

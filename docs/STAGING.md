@@ -10,7 +10,7 @@ Staging is a full copy of Savorly for testing on real devices, at [staging.savor
 | Email                                     | Cloudflare Email Service on `savorly.cooking`, sending as `noreply@savorly.cooking`                                                     |
 | Android app                               | EAS profile `staging`: "Savorly Staging", package `app.savorly.mobile.staging`, installs beside production                              |
 
-Every push to `main` that passes verification redeploys the backend and queues an Android build ([ci.yml](../.github/workflows/ci.yml)).
+Every push to `main` that passes verification redeploys the backend and queues an Android build ([ci.yml](../.github/workflows/ci.yml)). [Production](PRODUCTION.md) deploys from the `release` branch.
 
 ## One-time setup
 

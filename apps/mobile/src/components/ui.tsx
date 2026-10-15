@@ -20,6 +20,7 @@ import {
   Platform,
   Pressable,
   PressableProps,
+  ScrollView,
   StyleProp,
   StyleSheet,
   Text,
@@ -32,9 +33,24 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GlassView, isGlassEffectAPIAvailable, isLiquidGlassAvailable } from 'expo-glass-effect';
-import { ArrowRight, Check, ChefHat, LucideIcon, Search, X } from 'lucide-react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import {
+  ArrowRight,
+  Check,
+  ChefHat,
+  ChevronLeft,
+  ChevronRight,
+  LucideIcon,
+  Search,
+  UserRound,
+  X,
+} from 'lucide-react-native';
 import { color, font, radius, s, shadow } from '../lib/theme';
+import { haptic } from '../lib/haptics';
 export const native = Platform.OS !== 'web';
+// Browsers frost whatever sits behind translucent chrome; native keeps its own materials.
+export const frost = (px: number) =>
+  (Platform.OS === 'web' ? { backdropFilter: `blur(${px}px) saturate(130%)` } : {}) as ViewStyle;
 // Liquid Glass on iPhones running iOS 26+; Android, web and older iOS keep the flat styles.
 export const liquidGlass =
   Platform.OS === 'ios' && isLiquidGlassAvailable() && isGlassEffectAPIAvailable();
@@ -148,6 +164,7 @@ export function FadeIn({
   );
 }
 // Layout facts every screen agrees on: phone/tablet get app chrome, desktop gets the sidebar.
+// On phones the page scrolls below the status bar, so `top` is the room under it.
 export function useChrome() {
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
@@ -159,7 +176,7 @@ export function useChrome() {
     desktop,
     compact: !desktop,
     gutter: desktop ? 40 : width > 650 ? 28 : 20,
-    top: desktop ? 32 : insets.top + 12,
+    top: desktop ? 32 : 12,
   };
 }
 export function Button({
@@ -284,18 +301,23 @@ export function IconButton({
                 ? color.ink
                 : plain
                   ? 'transparent'
-                  : color.white,
+                  : glass && !native
+                    ? 'rgba(255,255,255,0.86)'
+                    : color.white,
           borderColor: dark
             ? color.glassBorder
             : selected
               ? color.ink
               : plain
                 ? 'transparent'
-                : color.border,
+                : glass
+                  ? 'rgba(255,255,255,0.5)'
+                  : color.border,
           borderWidth: glassy ? 0 : 1,
           alignItems: 'center',
           justifyContent: 'center',
         },
+        (glass || dark) && !selected && frost(14),
       ]}
     >
       {glassy && (
@@ -375,7 +397,7 @@ export function Pill({
   const [bg, fg] = {
     light: [color.white, color.ink],
     dark: [color.ink, color.white],
-    glass: ['rgba(0,0,0,0.38)', color.white],
+    glass: ['rgba(0,0,0,0.44)', color.white],
     success: [color.successBg, color.success],
     warning: [color.warningBg, color.warning],
     error: [color.errorBg, color.error],
@@ -398,7 +420,18 @@ export function Pill({
   );
   // Glass badges sit on photos.
   return tone === 'glass' ? (
-    <GlassSurface dark flat={{ backgroundColor: bg }} style={pill}>
+    <GlassSurface
+      dark
+      flat={[
+        {
+          backgroundColor: bg,
+          borderWidth: StyleSheet.hairlineWidth,
+          borderColor: 'rgba(255,255,255,0.24)',
+        },
+        frost(12),
+      ]}
+      style={pill}
+    >
       {body}
     </GlassSurface>
   ) : (
@@ -472,6 +505,13 @@ export function SearchBar({
 }
 export function Avatar({ name, uri, size = 36 }: { name: string; uri?: string; size?: number }) {
   const [failed, setFailed] = useState(false);
+  const initials = name
+    .split(' ')
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((n) => n[0])
+    .join('')
+    .toUpperCase();
   return uri && !failed ? (
     <Image
       source={{ uri }}
@@ -489,27 +529,28 @@ export function Avatar({ name, uri, size = 36 }: { name: string; uri?: string; s
         backgroundColor: color.ink,
       }}
     >
-      <Text style={{ fontFamily: font.bold, color: color.white, fontSize: size / 2.8 }}>
-        {name
-          .split(' ')
-          .slice(0, 2)
-          .map((n) => n[0])
-          .join('')
-          .toUpperCase()}
-      </Text>
+      {initials ? (
+        <Text style={{ fontFamily: font.bold, color: color.white, fontSize: size / 2.8 }}>
+          {initials}
+        </Text>
+      ) : (
+        <UserRound size={Math.round(size * 0.46)} color={color.white} strokeWidth={1.9} />
+      )}
     </View>
   );
 }
 export function FoodImage({ uri, style }: { uri: string; style?: ViewStyle }) {
   const [failed, setFailed] = useState(false);
+  const [shown] = useState(() => new Animated.Value(0));
   return (
     <View style={[{ backgroundColor: color.subtle, overflow: 'hidden' }, style]}>
       {uri && !failed ? (
-        <Image
+        <Animated.Image
           source={{ uri }}
           resizeMode="cover"
           onError={() => setFailed(true)}
-          style={{ width: '100%', height: '100%' }}
+          onLoad={() => animate(shown, 1, 380).start()}
+          style={{ width: '100%', height: '100%', opacity: shown }}
         />
       ) : (
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
@@ -576,7 +617,7 @@ export function SectionTitle({
 }) {
   const { t: tr } = useI18n();
   return (
-    <View style={[s.between, { marginBottom: 14, gap: 12 }]}>
+    <View style={[s.row, { marginBottom: 14, gap: 12, alignItems: 'flex-start' }]}>
       <View style={{ flex: 1, gap: 3 }}>
         <Text style={s.h2}>{title}</Text>
         {subtitle && <Text style={s.muted}>{subtitle}</Text>}
@@ -587,12 +628,97 @@ export function SectionTitle({
           accessibilityLabel={tr(actionTitle)}
           onPress={action}
           hitSlop={10}
+          style={[s.row, { height: 26, gap: 2 }]}
         >
           <Text style={{ fontFamily: font.semibold, fontSize: 14, color: color.muted }}>
             {tr(actionTitle)}
           </Text>
+          <ChevronRight size={15} color={color.muted} strokeWidth={2.2} />
         </Press>
       )}
+    </View>
+  );
+}
+// A horizontal row. Phones run it edge to edge so it reads as swipeable; wider screens keep it in
+// the column, fade the clipped side and offer arrows, since a mouse wheel can't scroll sideways.
+export function Rail({
+  children,
+  gap = 10,
+  snap,
+  pad = 0,
+}: {
+  children: React.ReactNode;
+  gap?: number;
+  /** Card width plus gap, for carousels that rest on a card edge. */
+  snap?: number;
+  /** Vertical room so card shadows aren't clipped by the scroller. */
+  pad?: number;
+}) {
+  const { t: tr } = useI18n();
+  const { compact, gutter } = useChrome();
+  const ref = useRef<ScrollView>(null);
+  const [m, setM] = useState({ x: 0, view: 0, content: 0 });
+  const left = !compact && m.x > 2;
+  const right = !compact && m.x + m.view < m.content - 2;
+  const page = (dir: 1 | -1) =>
+    ref.current?.scrollTo({ x: Math.max(0, m.x + dir * m.view * 0.8), animated: true });
+  const edge = (side: 'left' | 'right') => (
+    <View
+      style={{
+        position: 'absolute',
+        top: pad,
+        bottom: pad,
+        [side]: 0,
+        width: 88,
+        justifyContent: 'center',
+        alignItems: side === 'left' ? 'flex-start' : 'flex-end',
+        pointerEvents: 'box-none',
+      }}
+    >
+      <LinearGradient
+        colors={['rgba(244,244,244,0)', color.bg]}
+        start={{ x: side === 'left' ? 1 : 0, y: 0 }}
+        end={{ x: side === 'left' ? 0 : 1, y: 0 }}
+        style={[StyleSheet.absoluteFill, { pointerEvents: 'none' }]}
+      />
+      <IconButton
+        icon={side === 'left' ? ChevronLeft : ChevronRight}
+        label={side === 'left' ? tr('Scroll back') : tr('Scroll for more')}
+        size={36}
+        onPress={() => page(side === 'left' ? -1 : 1)}
+      />
+    </View>
+  );
+  return (
+    <View style={{ marginVertical: -pad }}>
+      <ScrollView
+        ref={ref}
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        snapToInterval={snap}
+        decelerationRate={snap ? 'fast' : 'normal'}
+        scrollEventThrottle={32}
+        onScroll={
+          compact
+            ? undefined
+            : (e) => {
+                const x = e.nativeEvent.contentOffset.x;
+                setM((v) => ({ ...v, x }));
+              }
+        }
+        onLayout={(e) => setM((v) => ({ ...v, view: e.nativeEvent.layout.width }))}
+        onContentSizeChange={(w) => setM((v) => ({ ...v, content: w }))}
+        style={[{ flexGrow: 0 }, compact && { marginHorizontal: -gutter }]}
+        contentContainerStyle={{
+          gap,
+          paddingHorizontal: compact ? gutter : 0,
+          paddingVertical: pad,
+        }}
+      >
+        <FlatGlass>{children}</FlatGlass>
+      </ScrollView>
+      {left && edge('left')}
+      {right && edge('right')}
     </View>
   );
 }
@@ -684,7 +810,10 @@ export function Segmented<T extends string>({
             key={o.value}
             accessibilityRole="tab"
             accessibilityState={{ selected: on }}
-            onPress={() => onChange(o.value)}
+            onPress={() => {
+              if (!on) haptic.select();
+              onChange(o.value);
+            }}
             style={{
               flex: 1,
               minHeight: 40,

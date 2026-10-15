@@ -6,6 +6,7 @@ import {
   Linking,
   Platform,
   Pressable,
+  RefreshControl,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -13,6 +14,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
 import {
   useFonts,
   Manrope_400Regular,
@@ -64,16 +66,18 @@ import {
   SearchBar,
   SheetHost,
   Toast,
+  frost,
   native,
   useChrome,
 } from './src/components/ui';
 import { AnnouncementBanner } from './src/components/Announcement';
+import { haptic } from './src/lib/haptics';
 import { AuthDialog } from './src/components/AuthDialog';
 import { RecipeDetail } from './src/components/RecipeDetail';
 import { RecipeStart } from './src/components/RecipeStart';
 import { RecipeStudio } from './src/components/RecipeStudio';
 import { SousChef } from './src/components/SousChef';
-import { Discover } from './src/screens/Discover';
+import { Discover, FeedSkeleton } from './src/screens/Discover';
 import { Cookbooks, Pantry, Planner } from './src/screens/Kitchen';
 import { Editor } from './src/screens/Editor';
 import { Community, CreatorDialog, Profile } from './src/screens/Profile';
@@ -151,6 +155,21 @@ function Shell() {
     if (!app.authOpen && !app.user) setPendingStudio(null);
   }, [app.authOpen, app.user]);
   const scroll = useRef<ScrollView>(null);
+  const scrollY = useRef(new Animated.Value(0)).current;
+  const [headerHeight, setHeaderHeight] = useState(0);
+  const [pastHeader, setPastHeader] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const refresh = async () => {
+    haptic.soft();
+    setRefreshing(true);
+    try {
+      await Promise.all([app.refreshRecipes(), app.user ? app.refreshPrivate() : null]);
+    } catch (e) {
+      app.notify((e as Error).message);
+    } finally {
+      setRefreshing(false);
+    }
+  };
   const go = (next: Screen) => {
     if (!tabScreens.includes(next) && tabScreens.includes(screen)) setOrigin(screen);
     setScreen(next);
@@ -280,6 +299,7 @@ function Shell() {
           onAI={ai}
           onActivity={() => setActivity(true)}
           onAccount={account}
+          onHeader={setHeaderHeight}
         />
       )}
       {screen === 'saved' && <Cookbooks onOpen={open} navigate={navigate} />}
@@ -301,11 +321,38 @@ function Shell() {
       {screen === 'admin' && <Admin onOpen={open} />}
     </>
   );
-  const darkTop = compact && screen === 'discover' && !app.loading && !app.error;
+  const darkTop = compact && screen === 'discover' && !app.error;
+  // The status bar keeps the black header's color until the light sheet's rounded top has passed
+  // under it, then eases to the page color so scrolled content never sits under a black band.
+  // The header starts at the top of the scroll content, and the sheet overlaps its last radius.xl.
+  // It stays an animated value throughout: a natively driven prop swapped for a plain number keeps
+  // its last animated value on screen.
+  const sheetTop = headerHeight - radius.xl;
+  const measured = !app.loading && headerHeight > 0;
+  const inkTop = scrollY.interpolate({
+    inputRange: measured ? [sheetTop, sheetTop + radius.xl] : [0, 1],
+    outputRange: measured ? [1, 0] : [1, 1],
+    extrapolate: 'clamp',
+  });
+  // Scrolled content softens into the top edge instead of being sliced off by it.
+  const settled = darkTop && !app.loading && headerHeight ? sheetTop + radius.xl : 0;
+  const topFade = scrollY.interpolate({
+    inputRange: [settled, settled + 14],
+    outputRange: [0, 1],
+    extrapolate: 'clamp',
+  });
+  const onScroll = Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], {
+    useNativeDriver: native,
+    listener: (e: { nativeEvent: { contentOffset: { y: number } } }) => {
+      const past = e.nativeEvent.contentOffset.y > sheetTop + radius.xl / 2;
+      if (past !== pastHeader) setPastHeader(past);
+    },
+  });
+  const feed = screen === 'discover' || screen === 'explore';
   return (
     <View style={{ flex: 1, backgroundColor: color.bg, paddingTop: desktop ? insets.top : 0 }}>
       <StatusBar
-        barStyle={darkTop ? 'light-content' : 'dark-content'}
+        barStyle={darkTop && (!pastHeader || app.loading) ? 'light-content' : 'dark-content'}
         translucent
         backgroundColor="transparent"
       />
@@ -405,7 +452,7 @@ function Shell() {
               onPress={() => navigate('profile')}
               style={[s.row, { gap: 10, paddingHorizontal: 6 }]}
             >
-              <Avatar name={app.user?.name || 'Your kitchen'} uri={app.user?.avatar} size={38} />
+              <Avatar name={app.user?.name || ''} uri={app.user?.avatar} size={38} />
               <View style={{ flex: 1 }}>
                 <Text numberOfLines={1} style={[s.h3, { fontSize: 14 }]}>
                   {app.user?.name || tr('Your kitchen')}
@@ -457,13 +504,31 @@ function Shell() {
                 accessibilityLabel={app.user ? tr('My profile') : tr('Sign in')}
                 onPress={account}
               >
-                <Avatar name={app.user?.name || 'You'} uri={app.user?.avatar} size={44} />
+                <Avatar name={app.user?.name || ''} uri={app.user?.avatar} size={44} />
               </Pressable>
             </View>
           )}
-          <ScrollView
+          <Animated.ScrollView
             ref={scroll}
-            style={{ flex: 1 }}
+            onScroll={onScroll}
+            scrollEventThrottle={16}
+            refreshControl={
+              feed && native && !app.loading && !app.error ? (
+                <RefreshControl
+                  refreshing={refreshing}
+                  onRefresh={() => void refresh()}
+                  tintColor={darkTop ? color.white : color.ink}
+                  colors={[color.ink]}
+                />
+              ) : undefined
+            }
+            style={{
+              flex: 1,
+              marginTop: compact ? insets.top : 0,
+              // Pulling down past the black header shows more black (and the refresh spinner),
+              // never a band of page color; once scrolled past it the page color returns.
+              backgroundColor: darkTop && !pastHeader ? color.ink : undefined,
+            }}
             contentContainerStyle={{
               paddingHorizontal: gutter,
               paddingTop: top,
@@ -482,10 +547,14 @@ function Shell() {
               </View>
             )}
             {app.loading ? (
-              <View style={{ paddingVertical: 140, alignItems: 'center', gap: 18 }}>
-                <ActivityIndicator color={color.ink} />
-                <Text style={s.muted}>{tr('Setting the table…')}</Text>
-              </View>
+              page === 'discover' ? (
+                <FeedSkeleton />
+              ) : (
+                <View style={{ paddingVertical: 140, alignItems: 'center', gap: 18 }}>
+                  <ActivityIndicator color={color.ink} />
+                  <Text style={s.muted}>{tr('Setting the table…')}</Text>
+                </View>
+              )
             ) : app.error ? (
               <Empty
                 title={tr('Let’s reconnect your kitchen')}
@@ -500,7 +569,7 @@ function Shell() {
                 {pages}
               </FadeIn>
             )}
-          </ScrollView>
+          </Animated.ScrollView>
           {compact && (
             <View
               style={{
@@ -517,7 +586,13 @@ function Shell() {
                 dark
                 // Keeps the capsule reading as ink over light screens, not mid-grey.
                 tint="rgba(13,13,13,0.55)"
-                flat={{ backgroundColor: color.ink, boxShadow: shadow.float }}
+                flat={[
+                  {
+                    backgroundColor: native ? color.ink : 'rgba(13,13,13,0.9)',
+                    boxShadow: shadow.float,
+                  },
+                  frost(20),
+                ]}
                 style={{
                   flexDirection: 'row',
                   alignItems: 'center',
@@ -550,7 +625,11 @@ function Shell() {
                       accessibilityRole="button"
                       accessibilityLabel={tr(title)}
                       accessibilityState={{ selected: on }}
-                      onPress={() => navigate(key)}
+                      onPress={() => {
+                        if (key === 'create') haptic.tap();
+                        else if (!on) haptic.select();
+                        navigate(key);
+                      }}
                       scale={0.88}
                       style={{
                         width: 56,
@@ -574,6 +653,24 @@ function Shell() {
           )}
         </View>
       </View>
+      {compact && (
+        <Animated.View
+          style={{
+            position: 'absolute',
+            top: insets.top,
+            left: 0,
+            right: 0,
+            height: 18,
+            opacity: topFade,
+            pointerEvents: 'none',
+          }}
+        >
+          <LinearGradient
+            colors={[color.bg, 'rgba(244,244,244,0)']}
+            style={StyleSheet.absoluteFill}
+          />
+        </Animated.View>
+      )}
       {compact && insets.top > 0 && (
         <View
           style={{
@@ -582,16 +679,25 @@ function Shell() {
             left: 0,
             right: 0,
             height: insets.top,
-            backgroundColor: darkTop ? color.ink : color.bg,
+            backgroundColor: color.bg,
           }}
-        />
+        >
+          {darkTop && (
+            <Animated.View
+              style={[StyleSheet.absoluteFill, { backgroundColor: color.ink, opacity: inkTop }]}
+            />
+          )}
+        </View>
       )}
       {/* The sous-chef is one tap away everywhere; recipe pages and sheets cover it. */}
       {!studioMode && (
         <Press
           accessibilityRole="button"
           accessibilityLabel={tr('Ask your sous-chef')}
-          onPress={openSousChef}
+          onPress={() => {
+            haptic.tap();
+            openSousChef();
+          }}
           scale={0.9}
           style={{
             position: 'absolute',

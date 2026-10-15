@@ -67,6 +67,13 @@ func errorHandler(c fiber.Ctx, err error) error {
 	}
 	return c.Status(code).JSON(fiber.Map{"error": message})
 }
+
+// rateLimit answers in JSON like every other API error, so the app can show the message.
+func rateLimit(max int, window time.Duration) fiber.Handler {
+	return limiter.New(limiter.Config{Max: max, Expiration: window, LimitReached: func(c fiber.Ctx) error {
+		return fiber.NewError(429, "Too many requests. Please wait a moment and try again.")
+	}})
+}
 func New(db *pgxpool.Pool, config Config) *fiber.App {
 	return NewWithContext(context.Background(), db, config)
 }
@@ -106,7 +113,7 @@ func NewWithContext(ctx context.Context, db *pgxpool.Pool, config Config) *fiber
 		}
 		return c.Next()
 	})
-	f.Use(limiter.New(limiter.Config{Max: 300, Expiration: time.Minute}))
+	f.Use(rateLimit(300, time.Minute))
 	f.Get("/health", func(c fiber.Ctx) error {
 		ctx, cancel := context.WithTimeout(c.Context(), 2*time.Second)
 		defer cancel()
@@ -141,13 +148,13 @@ func NewWithContext(ctx context.Context, db *pgxpool.Pool, config Config) *fiber
 			"auth": fiber.Map{"googleWebClientId": os.Getenv("GOOGLE_WEB_CLIENT_ID"), "googleIosClientId": os.Getenv("GOOGLE_IOS_CLIENT_ID"), "appleServicesId": os.Getenv("APPLE_SERVICES_ID"), "appleRedirectUri": os.Getenv("APPLE_REDIRECT_URI")},
 		})
 	})
-	authLimiter := limiter.New(limiter.Config{Max: 15, Expiration: 15 * time.Minute})
+	authLimiter := rateLimit(15, 15*time.Minute)
 	v.Post("/auth/register", authLimiter, a.register)
 	v.Post("/auth/login", authLimiter, a.login)
 	v.Post("/auth/forgot", authLimiter, a.forgotPassword)
 	v.Post("/auth/reset", authLimiter, a.resetPassword)
 	// Google's web button takes a nonce each time it renders, so nonces don't share login's limit.
-	v.Post("/auth/nonce", limiter.New(limiter.Config{Max: 60, Expiration: 15 * time.Minute}), a.authNonce)
+	v.Post("/auth/nonce", rateLimit(60, 15*time.Minute), a.authNonce)
 	v.Post("/auth/oauth", authLimiter, a.oauthSignIn)
 	v.Post("/auth/logout", a.requireAuth, a.logout)
 	v.Get("/me", a.requireAuth, a.me)
