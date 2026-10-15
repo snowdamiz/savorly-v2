@@ -2,7 +2,7 @@
 
 The Expo app runs on iOS, Android, and web. Use Cloudflare wherever practical: Workers for the exported web app and gateway, R2 for media, Containers for the Go API, and Email Service for transactional email. Do not use Fly.io. Neon remains the production PostgreSQL provider for the existing schema and queries; Cloudflare D1 uses SQLite and would require a separate migration.
 
-**Current implementation:** the Worker serves static assets and runs the Go API as a [Cloudflare Container](https://developers.cloudflare.com/containers/) behind `/api`, passing Worker vars and secrets to it as its environment. A staging environment is deployed from `main` by CI; see [staging](STAGING.md). Password-reset email goes through [Cloudflare Email Service](https://developers.cloudflare.com/email-service/get-started/send-emails/).
+**Current implementation:** the Worker serves static assets and runs the Go API as a [Cloudflare Container](https://developers.cloudflare.com/containers/) behind `/api`, passing Worker vars and secrets to it as its environment. CI deploys `main` to [staging](STAGING.md) and the `release` branch to [production](PRODUCTION.md). Password-reset email goes through [Cloudflare Email Service](https://developers.cloudflare.com/email-service/get-started/send-emails/).
 
 Follow the [step-by-step provider setup guide](ACCOUNTS.md) for dashboard actions, credentials, callback URLs, and verification before deployment.
 
@@ -10,7 +10,7 @@ Follow the [step-by-step provider setup guide](ACCOUNTS.md) for dashboard action
 
 1. Create a Neon Postgres database. Put its TLS-enabled connection URL in `DATABASE_URL` (use `sslmode=require` or stronger certificate verification appropriate to the endpoint). The app's pgx pool is capped at 12 connections.
 2. Copy `.env.example` to a private environment file and set `APP_ENV=production`, `SEED_DATA=false`, `ALLOWED_ORIGINS=https://savorly.cooking`.
-3. `wrangler deploy` builds `services/api/Dockerfile` for `linux/amd64` (Docker must be running) and runs it as the `SavorlyApi` container: one instance, port 8080, sleeping after 30 idle minutes. Upload backend settings as Worker secrets (`wrangler secret put`, or `--secrets-file` as `scripts/deploy-staging.sh` does); non-secret settings are `vars` in `infra/cloudflare/wrangler.jsonc`. The Worker sets `X-Savorly-Client-IP` from `CF-Connecting-IP` and the API trusts it through `TRUSTED_PROXY_HEADER`, so rate limits apply per visitor. Queued AI jobs interrupted when the container sleeps or restarts are marked failed by the recovery loop; video polling resumes on the next start.
+3. `wrangler deploy` builds `services/api/Dockerfile` for `linux/amd64` (Docker must be running) and runs it as the `SavorlyApi` container: one instance, port 8080, sleeping after 30 idle minutes. Upload backend settings as Worker secrets (`wrangler secret put`, or `--secrets-file` as `scripts/deploy.sh` does); non-secret settings are `vars` in `infra/cloudflare/wrangler.jsonc`. The Worker sets `X-Savorly-Client-IP` from `CF-Connecting-IP` and the API trusts it through `TRUSTED_PROXY_HEADER`, so rate limits apply per visitor. Queued AI jobs interrupted when the container sleeps or restarts are marked failed by the recovery loop; video polling resumes on the next start.
 4. The API applies embedded, ordered, forward-only SQL migrations at startup inside an advisory-locked transaction. Migration names are recorded in `schema_migrations`. Add a new numbered SQL file for every schema change; do not edit applied migrations.
 5. Schedule backups / point-in-time recovery through Neon. Do not enable fixture seeding on a public production database. Review and rotate credentials outside source control.
 
@@ -34,7 +34,7 @@ Account deletion deletes database records immediately. Object lifecycle cleanup 
 EXPO_PUBLIC_API_URL=/api npm run build
 cd infra/cloudflare && npm ci
 npx wrangler deploy --dry-run
-npx wrangler deploy --env=""      # production on savorly.cooking; staging: npm run deploy:staging from the root
+npx wrangler deploy --env=""      # production on savorly.cooking; or npm run deploy:production|staging from the root
 ```
 
 Use Wrangler 4.151 or newer and a Workers Paid plan (Containers). The first command exports the Expo app. The Worker sends `/api/*` to the API container and serves other paths from static assets with SPA fallback. This keeps session cookies first-party. Each environment's custom domain is a `routes` entry in `wrangler.jsonc` (`savorly.cooking`, `staging.savorly.cooking`); list the same origin in the API's `ALLOWED_ORIGINS`.

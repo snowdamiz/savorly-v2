@@ -68,14 +68,20 @@ jobs:
         with:
           name: browser-failures
           path: apps/mobile/test-results
-  # Staging runs only for main, after verification passes. Setup: docs/STAGING.md.
-  deploy-staging:
-    name: Deploy staging backend
+  # After verification, main deploys to staging and release to production: the backend on
+  # Cloudflare and an EAS Android build. Setup: docs/STAGING.md and docs/PRODUCTION.md.
+  deploy:
+    name: Deploy backend
     needs: verify
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/release')
     runs-on: ubuntu-latest
-    concurrency: deploy-staging
+    environment:
+      name: ${{ github.ref == 'refs/heads/release' && 'production' || 'staging' }}
+      url: ${{ github.ref == 'refs/heads/release' && vars.PRODUCTION_URL || vars.STAGING_URL }}
+    concurrency: deploy-${{ github.ref_name }}
     env:
+      TARGET: ${{ github.ref == 'refs/heads/release' && 'production' || 'staging' }}
+      SITE_URL: ${{ github.ref == 'refs/heads/release' && vars.PRODUCTION_URL || vars.STAGING_URL }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
@@ -92,24 +98,24 @@ jobs:
             echo "::error::Add the CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID repository secrets (docs/STAGING.md)."
             exit 1
           fi
-      # Code only: Worker secrets uploaded from .env.staging persist across deployments.
-      - run: npm run deploy:staging
-      - name: Wait for the staging API
-        if: vars.STAGING_URL != ''
-        env:
-          STAGING_URL: ${{ vars.STAGING_URL }}
+      # Code only: Worker secrets uploaded from .env.<target> persist across deployments.
+      - run: sh scripts/deploy.sh "$TARGET"
+      - name: Wait for the API
+        if: env.SITE_URL != ''
         run: |
           for i in $(seq 1 30); do
-            curl -fsS "$STAGING_URL/api/health" && exit 0
+            curl -fsS "$SITE_URL/api/health" && exit 0
             sleep 10
           done
-          echo "::error::$STAGING_URL/api/health did not become healthy."
+          echo "::error::$SITE_URL/api/health did not become healthy."
           exit 1
-  build-android-staging:
-    name: Build staging Android app
+  build-android:
+    name: Build Android app
     needs: verify
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/release')
     runs-on: ubuntu-latest
+    env:
+      TARGET: ${{ github.ref == 'refs/heads/release' && 'production' || 'staging' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -130,6 +136,7 @@ jobs:
           token: ${{ secrets.EXPO_TOKEN }}
       - run: npm ci
         working-directory: apps/mobile
-      # Queues the build on EAS and returns; the install link appears on expo.dev and in Expo's email.
-      - run: eas build --platform android --profile staging --non-interactive --no-wait
+      # Queues the build on EAS and returns; it appears on expo.dev. Staging is an installable APK,
+      # production a Play Store bundle (.aab).
+      - run: eas build --platform android --profile "$TARGET" --non-interactive --no-wait
         working-directory: apps/mobile
