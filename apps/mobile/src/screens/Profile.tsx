@@ -170,20 +170,7 @@ export function CreatorDialog({
             icon={following ? Check : Plus}
             variant={following ? 'secondary' : 'primary'}
             style={{ alignSelf: 'stretch', marginTop: 6 }}
-            onPress={() => {
-              if (app.requireUser())
-                void app.act(
-                  async () => {
-                    await api(`/creators/${creator.id}/follow`, {
-                      method: following ? 'DELETE' : 'PUT',
-                    });
-                    await Promise.all([app.refreshPrivate(), app.refreshRecipes()]);
-                  },
-                  following
-                    ? 'You’ve unfollowed this kitchen.'
-                    : 'Following. Their recipes will show up for you.',
-                );
-            }}
+            onPress={() => void app.toggleFollow(creator)}
           />
         )}
       </View>

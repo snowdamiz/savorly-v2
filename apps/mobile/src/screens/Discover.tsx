@@ -1,16 +1,21 @@
 import { useI18n } from '../lib/i18n';
-import React, { useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { Animated, Pressable, ScrollView, StyleSheet, Text, View, ViewStyle } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
   ArrowRight,
   ArrowUp,
   Bell,
   CalendarDays,
+  Carrot,
+  Check,
+  ChevronRight,
   Clock3,
   Leaf,
+  Plus,
   Search,
   SlidersHorizontal,
+  Soup,
   Sparkles,
   Users,
   Zap,
@@ -18,6 +23,7 @@ import {
 import { useApp } from '../lib/store';
 import { AIRequest, Creator, Recipe, Screen } from '../lib/types';
 import { color, font, radius, s } from '../lib/theme';
+import { haptic } from '../lib/haptics';
 import {
   Avatar,
   Button,
@@ -25,18 +31,21 @@ import {
   Dialog,
   Empty,
   FadeIn,
-  FlatGlass,
   FoodImage,
   IconButton,
   PageHeading,
   Pill,
   Press,
+  Rail,
   SearchBar,
   SectionTitle,
   Segmented,
+  animate,
+  motionReduced,
+  usePress,
   useChrome,
 } from '../components/ui';
-import { RecipeGrid, RecipeRow, RecipeTile } from '../components/RecipeCard';
+import { RecipeGrid, RecipeRow, RecipeTile, Save } from '../components/RecipeCard';
 import { useRecipeSearch } from '../lib/useRecipeSearch';
 import { foodIcon } from '../lib/icons';
 import { allCuisines } from '../lib/cuisines';
@@ -50,10 +59,26 @@ const categories = [
   ['High protein', 'High protein'],
   ['Comfort food', 'Comfort food'],
 ];
+// One-tap starting points for the sous-chef; the prompt runs as soon as the sheet opens.
+const ideas = [
+  {
+    title: 'Dinner in 20 minutes',
+    prompt: 'A satisfying dinner I can make in 20 minutes.',
+    icon: Zap,
+  },
+  { title: 'Something cozy', prompt: 'Something cozy and comforting for tonight.', icon: Soup },
+  {
+    title: 'Use up my vegetables',
+    prompt: 'A recipe that uses up the vegetables I have.',
+    icon: Carrot,
+  },
+];
 const greeting = () => {
   const h = new Date().getHours();
   return h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
 };
+const heroHeight = (compact: boolean, width: number) =>
+  compact ? Math.min(460, Math.round(width * 1.15)) : 420;
 export function Discover({
   explore,
   query,
@@ -64,6 +89,7 @@ export function Discover({
   onAI,
   onActivity,
   onAccount,
+  onHeader,
 }: {
   explore?: boolean;
   query: string;
@@ -74,6 +100,8 @@ export function Discover({
   onAI: (r: AIRequest) => void;
   onActivity: () => void;
   onAccount: () => void;
+  /** Height of the phone's black header, so the shell can turn the status bar light past it. */
+  onHeader?: (height: number) => void;
 }) {
   const { t: tr } = useI18n();
   const app = useApp();
@@ -112,8 +140,6 @@ export function Discover({
       ? `In my pantry: ${app.kitchen.pantry.map((p) => p.name).join(', ')}`
       : undefined,
   };
-  const bleed = compact ? { marginHorizontal: -gutter } : undefined;
-  const pad = compact ? { paddingHorizontal: gutter } : undefined;
   const tileWidth = Math.min(250, Math.round(width * 0.6));
   // On phones the feed is a light sheet that rises over the black header on rounded top corners.
   const sheet = compact && !explore;
@@ -121,6 +147,7 @@ export function Discover({
     <View style={{ gap: 30 }}>
       {sheet ? (
         <View
+          onLayout={(e) => onHeader?.(e.nativeEvent.layout.height)}
           style={{
             marginHorizontal: -gutter,
             marginTop: -top,
@@ -146,18 +173,26 @@ export function Discover({
                   padding: 2,
                 }}
               >
-                <Avatar name={user?.name || 'S'} uri={user?.avatar} size={40} />
+                <Avatar name={user?.name || ''} uri={user?.avatar} size={40} />
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={{ color: color.onInk, fontFamily: font.medium, fontSize: 13 }}>
                   {tr(greeting())}
                 </Text>
-                <Text
-                  numberOfLines={1}
-                  style={{ color: color.white, fontFamily: font.bold, fontSize: 16 }}
-                >
-                  {user ? user.name : tr('Sign in to save recipes')}
-                </Text>
+                <View style={[s.row, { gap: 4 }]}>
+                  <Text
+                    numberOfLines={1}
+                    style={{
+                      color: color.white,
+                      fontFamily: font.bold,
+                      fontSize: 16,
+                      flexShrink: 1,
+                    }}
+                  >
+                    {user ? user.name : tr('Sign in to save recipes')}
+                  </Text>
+                  {!user && <ChevronRight size={16} color={color.onInk} strokeWidth={2.2} />}
+                </View>
               </View>
             </Pressable>
             <IconButton icon={Bell} dark label={tr('Kitchen activity')} onPress={onActivity} />
@@ -201,12 +236,12 @@ export function Discover({
           },
         ]}
       >
-        <View style={[s.row, { gap: 10 }]}>
+        <View style={[s.row, { gap: 8 }]}>
           <IconButton
             icon={SlidersHorizontal}
             label={tr('Filter recipes')}
             selected={refined}
-            size={42}
+            size={40}
             onPress={() => setFilters(true)}
           />
           <ScrollView
@@ -221,7 +256,10 @@ export function Discover({
                 title={tr(title)}
                 icon={foodIcon(value)}
                 active={category === value}
-                onPress={() => setCategory(value)}
+                onPress={() => {
+                  if (category !== value) haptic.select();
+                  setCategory(value);
+                }}
               />
             ))}
           </ScrollView>
@@ -253,7 +291,7 @@ export function Discover({
               <Text style={[s.muted, { color: color.error }]}>{tr(search.error)}</Text>
             )}
             {search.loading && !filtered.length ? (
-              <ActivityIndicator color={color.ink} style={{ paddingVertical: 60 }} />
+              <TileBones />
             ) : filtered.length ? (
               <RecipeGrid recipes={filtered} onOpen={onOpen} />
             ) : (
@@ -299,244 +337,143 @@ export function Discover({
           <>
             {hero && (
               <FadeIn>
-                <Press
-                  accessibilityRole="button"
-                  accessibilityLabel={tr('Let’s get cooking')}
-                  onPress={() => onOpen(hero)}
-                  scale={0.985}
-                  style={{
-                    height: compact ? Math.min(460, Math.round(width * 1.15)) : 420,
-                    borderRadius: radius.xl,
-                    overflow: 'hidden',
-                    backgroundColor: color.ink,
-                  }}
-                >
-                  <View
-                    style={{
-                      position: 'absolute',
-                      top: 0,
-                      bottom: 0,
-                      right: 0,
-                      width: compact ? '100%' : '66%',
-                    }}
-                  >
-                    <FoodImage uri={hero.image} style={StyleSheet.absoluteFill} />
-                  </View>
-                  <LinearGradient
-                    colors={
-                      compact
-                        ? ['rgba(0,0,0,0.1)', 'rgba(0,0,0,0.1)', 'rgba(0,0,0,0.86)']
-                        : [color.ink, color.ink, 'rgba(13,13,13,0)']
-                    }
-                    locations={compact ? [0, 0.35, 1] : [0, 0.36, 0.7]}
-                    start={{ x: 0, y: compact ? 0 : 0.5 }}
-                    end={{ x: compact ? 0 : 1, y: compact ? 1 : 0.5 }}
-                    style={StyleSheet.absoluteFill}
-                  />
-                  <View style={{ position: 'absolute', top: 18, left: 18 }}>
-                    <Pill title={tr('The daily dish')} tone="glass" />
-                  </View>
-                  <View
-                    style={{
-                      position: 'absolute',
-                      left: compact ? 22 : 40,
-                      right: compact ? 22 : '45%',
-                      bottom: compact ? 22 : 40,
-                      gap: 12,
-                    }}
-                  >
-                    <Text
-                      style={[
-                        s.display,
-                        {
-                          color: color.white,
-                          fontSize: compact ? 30 : 40,
-                          lineHeight: compact ? 35 : 46,
-                        },
-                      ]}
-                    >
-                      {hero.title}
-                    </Text>
-                    <Text
-                      numberOfLines={2}
-                      style={{
-                        color: 'rgba(255,255,255,0.78)',
-                        fontFamily: font.medium,
-                        fontSize: 14,
-                        lineHeight: 21,
-                      }}
-                    >
-                      {hero.description}
-                    </Text>
-                    <View style={[s.row, { gap: 12, marginTop: 6 }]}>
-                      <View
-                        style={[
-                          s.row,
-                          {
-                            gap: 8,
-                            backgroundColor: color.white,
-                            height: 48,
-                            paddingHorizontal: 20,
-                            borderRadius: radius.pill,
-                          },
-                        ]}
-                      >
-                        <Text style={{ fontFamily: font.bold, fontSize: 14, color: color.ink }}>
-                          {tr('Let’s get cooking')}
-                        </Text>
-                        <ArrowRight size={16} color={color.ink} strokeWidth={2.2} />
-                      </View>
-                      <View style={[s.row, { gap: 6 }]}>
-                        <Clock3 size={14} color="rgba(255,255,255,0.8)" />
-                        <Text
-                          style={{
-                            color: 'rgba(255,255,255,0.8)',
-                            fontFamily: font.semibold,
-                            fontSize: 13,
-                          }}
-                        >
-                          {tr('{{v0}} min', { v0: hero.minutes })}
-                        </Text>
-                      </View>
-                    </View>
-                  </View>
-                </Press>
+                <Hero recipe={hero} onOpen={onOpen} />
               </FadeIn>
             )}
             <FadeIn delay={90}>
               <SectionTitle title={tr('Trending now')} action={() => navigate('explore')} />
               {compact ? (
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  snapToInterval={tileWidth + 12}
-                  decelerationRate="fast"
-                  style={[{ flexGrow: 0 }, bleed]}
-                  contentContainerStyle={[pad, { gap: 12, paddingBottom: 8 }]}
-                >
-                  <FlatGlass>
-                    {trending.map((r) => (
-                      <RecipeTile
-                        key={r.id}
-                        recipe={r}
-                        onOpen={onOpen}
-                        width={tileWidth}
-                        height={Math.round(tileWidth * 1.28)}
-                      />
-                    ))}
-                  </FlatGlass>
-                </ScrollView>
+                <Rail gap={12} snap={tileWidth + 12}>
+                  {trending.map((r) => (
+                    <RecipeTile
+                      key={r.id}
+                      recipe={r}
+                      onOpen={onOpen}
+                      width={tileWidth}
+                      height={Math.round(tileWidth * 1.28)}
+                    />
+                  ))}
+                </Rail>
               ) : (
                 <RecipeGrid recipes={trending.slice(0, width > 1430 ? 4 : 3)} onOpen={onOpen} />
               )}
             </FadeIn>
             <FadeIn
               delay={180}
-              style={{
-                backgroundColor: color.ink,
-                borderRadius: radius.xl,
-                padding: compact ? 22 : 32,
-                gap: 14,
-                overflow: 'hidden',
-              }}
+              style={[
+                {
+                  backgroundColor: color.ink,
+                  borderRadius: radius.xl,
+                  padding: compact ? 22 : 40,
+                  gap: compact ? 18 : 48,
+                  overflow: 'hidden',
+                },
+                desktop && { flexDirection: 'row', alignItems: 'center' },
+              ]}
             >
               <LinearGradient
-                colors={['rgba(255,255,255,0.09)', 'rgba(255,255,255,0)']}
+                colors={['rgba(255,255,255,0.11)', 'rgba(255,255,255,0)']}
                 start={{ x: 1, y: 0 }}
                 end={{ x: 0.3, y: 0.8 }}
                 style={[StyleSheet.absoluteFill, { pointerEvents: 'none' }]}
               />
-              <View style={[s.row, { gap: 10 }]}>
-                <View
-                  style={{
-                    width: 32,
-                    height: 32,
-                    borderRadius: 16,
-                    backgroundColor: color.white,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  <Sparkles size={16} color={color.ink} strokeWidth={2.2} />
+              <View style={[{ gap: 14 }, desktop && { flex: 1 }]}>
+                <View style={[s.row, { gap: 10 }]}>
+                  <View style={styles.spark}>
+                    <Sparkles size={16} color={color.ink} strokeWidth={2.2} />
+                  </View>
+                  <Text style={[s.label, { color: color.onInk }]}>{tr('Sous-chef')}</Text>
                 </View>
-                <Text style={[s.label, { color: color.onInk }]}>{tr('Sous-chef')}</Text>
-              </View>
-              <Text style={[s.h1, { color: color.white, fontSize: 25, lineHeight: 31 }]}>
-                {tr('Not sure what to make?')}
-              </Text>
-              <Text style={[s.muted, { color: color.onInk, maxWidth: 520 }]}>
-                {tr(
-                  'Say what’s in your fridge or what you’re craving. You get a full recipe you can tweak and save.',
-                )}
-              </Text>
-              <Press
-                accessibilityRole="button"
-                accessibilityLabel={tr('Ask the sous-chef for a recipe')}
-                onPress={() => onAI(fridge)}
-                scale={0.98}
-                style={[
-                  s.row,
-                  {
-                    height: 56,
-                    marginTop: 4,
-                    borderRadius: radius.pill,
-                    backgroundColor: color.glass,
-                    borderWidth: 1,
-                    borderColor: color.glassBorder,
-                    paddingLeft: 20,
-                    paddingRight: 6,
-                    maxWidth: 560,
-                  },
-                ]}
-              >
                 <Text
-                  numberOfLines={1}
-                  style={{ flex: 1, color: color.onInk, fontFamily: font.medium, fontSize: 15 }}
+                  style={[
+                    s.h1,
+                    { color: color.white },
+                    compact && { fontSize: 25, lineHeight: 31 },
+                  ]}
                 >
-                  {tr('Eggs, spinach, feta…')}
+                  {tr('Not sure what to make?')}
                 </Text>
-                <View
-                  style={{
-                    width: 44,
-                    height: 44,
-                    borderRadius: 22,
-                    backgroundColor: color.white,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
+                <Text style={[s.muted, { color: color.onInk, maxWidth: 520 }]}>
+                  {tr(
+                    'Say what’s in your fridge or what you’re craving. You get a full recipe you can tweak and save.',
+                  )}
+                </Text>
+              </View>
+              <View style={[{ gap: 14 }, desktop && { flex: 1.1 }]}>
+                <Press
+                  accessibilityRole="button"
+                  accessibilityLabel={tr('Ask the sous-chef for a recipe')}
+                  onPress={() => onAI(fridge)}
+                  scale={0.98}
+                  style={[
+                    s.row,
+                    {
+                      height: 56,
+                      borderRadius: radius.pill,
+                      backgroundColor: color.glass,
+                      borderWidth: 1,
+                      borderColor: color.glassBorder,
+                      paddingLeft: 20,
+                      paddingRight: 6,
+                      maxWidth: 560,
+                    },
+                  ]}
                 >
-                  <ArrowUp size={20} color={color.ink} strokeWidth={2.4} />
+                  <Text
+                    numberOfLines={1}
+                    style={{ flex: 1, color: color.onInk, fontFamily: font.medium, fontSize: 15 }}
+                  >
+                    {tr('Eggs, spinach, feta…')}
+                  </Text>
+                  <View style={styles.send}>
+                    <ArrowUp size={20} color={color.ink} strokeWidth={2.4} />
+                  </View>
+                </Press>
+                <View style={[s.wrap, { gap: 8, maxWidth: 620 }]}>
+                  {ideas.map(({ title, prompt, icon: Icon }) => (
+                    <Press
+                      key={title}
+                      accessibilityRole="button"
+                      accessibilityLabel={tr('Ask the sous-chef: {{v0}}', { v0: tr(title) })}
+                      onPress={() => onAI({ ...fridge, title: tr(title), prompt })}
+                      scale={0.95}
+                      style={styles.idea}
+                    >
+                      <Icon size={14} color={color.white} strokeWidth={2} />
+                      <Text style={{ color: color.white, fontFamily: font.semibold, fontSize: 13 }}>
+                        {tr(title)}
+                      </Text>
+                    </Press>
+                  ))}
                 </View>
-              </Press>
+              </View>
             </FadeIn>
             {compact && (
               <FadeIn delay={240} style={[s.row, { gap: 10, alignItems: 'stretch' }]}>
                 {[
-                  { key: 'planner', title: tr('Planner'), text: 'Your week', icon: CalendarDays },
-                  { key: 'pantry', title: tr('Pantry'), text: 'What you have', icon: Leaf },
-                  { key: 'community', title: tr('Cooks'), text: 'Find people', icon: Users },
+                  {
+                    key: 'planner',
+                    title: tr('Planner'),
+                    text: tr('Your week'),
+                    icon: CalendarDays,
+                  },
+                  { key: 'pantry', title: tr('Pantry'), text: tr('What you have'), icon: Leaf },
+                  { key: 'community', title: tr('Cooks'), text: tr('Find people'), icon: Users },
                 ].map(({ key, title, text, icon: Icon }) => (
                   <Press
                     key={key}
                     accessibilityRole="button"
                     accessibilityLabel={tr('Open {{v0}}', { v0: title })}
                     onPress={() => navigate(key as Screen)}
-                    style={[s.card, { flex: 1, padding: 14, gap: 10 }]}
+                    style={[s.card, { flex: 1, padding: 14, gap: 12 }]}
                   >
-                    <View
-                      style={{
-                        width: 38,
-                        height: 38,
-                        borderRadius: 19,
-                        backgroundColor: color.bg,
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                      }}
-                    >
-                      <Icon size={18} color={color.ink} strokeWidth={1.9} />
+                    <View style={styles.shortcut}>
+                      <Icon size={18} color={color.white} strokeWidth={2} />
                     </View>
-                    <View>
-                      <Text style={[s.h3, { fontSize: 14 }]}>{title}</Text>
+                    <View style={{ gap: 1 }}>
+                      <Text numberOfLines={1} style={[s.h3, { fontSize: 14, lineHeight: 19 }]}>
+                        {title}
+                      </Text>
                       <Text numberOfLines={1} style={[s.small, { fontSize: 11 }]}>
                         {text}
                       </Text>
@@ -567,32 +504,19 @@ export function Discover({
             {creators.length > 0 && (
               <FadeIn delay={360}>
                 <SectionTitle title={tr('Cooks to follow')} action={() => navigate('community')} />
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  style={[{ flexGrow: 0 }, bleed]}
-                  contentContainerStyle={[pad, { gap: 12, paddingBottom: 8 }]}
-                >
-                  {creators.slice(0, 8).map((c) => (
-                    <Press
-                      key={c.id}
-                      accessibilityRole="button"
-                      accessibilityLabel={tr('Meet {{v0}}', { v0: c.name })}
-                      onPress={() => onCreator(c)}
-                      style={[s.card, { width: 148, alignItems: 'center', gap: 10, padding: 18 }]}
-                    >
-                      <Avatar uri={c.avatar} name={c.name} size={60} />
-                      <View style={{ alignItems: 'center', gap: 2 }}>
-                        <Text numberOfLines={1} style={[s.h3, { fontSize: 14 }]}>
-                          {c.name}
-                        </Text>
-                        <Text style={s.small}>
-                          {tr('{{v0}} recipes', { v0: c.recipeCount ?? 0 })}
-                        </Text>
-                      </View>
-                    </Press>
-                  ))}
-                </ScrollView>
+                {compact ? (
+                  <Rail gap={12} pad={14}>
+                    {creators.slice(0, 8).map((c) => (
+                      <Cook key={c.id} creator={c} onPress={onCreator} width={156} />
+                    ))}
+                  </Rail>
+                ) : (
+                  <View style={[s.row, { gap: 16, alignItems: 'stretch' }]}>
+                    {creators.slice(0, 6).map((c) => (
+                      <Cook key={c.id} creator={c} onPress={onCreator} />
+                    ))}
+                  </View>
+                )}
               </FadeIn>
             )}
           </>
@@ -642,3 +566,415 @@ export function Discover({
     </View>
   );
 }
+// The daily dish: an editorial cover with the cook's byline, saving without opening it.
+function Hero({ recipe, onOpen }: { recipe: Recipe; onOpen: (r: Recipe) => void }) {
+  const { t: tr } = useI18n();
+  const { compact, width } = useChrome();
+  const press = usePress(0.985);
+  const hover = useState(() => new Animated.Value(0))[0];
+  return (
+    <Animated.View
+      style={[
+        {
+          height: heroHeight(compact, width),
+          borderRadius: radius.xl,
+          overflow: 'hidden',
+          backgroundColor: color.ink,
+        },
+        press.style,
+      ]}
+    >
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={tr('Let’s get cooking')}
+        onPress={() => onOpen(recipe)}
+        onPressIn={press.onPressIn}
+        onPressOut={press.onPressOut}
+        onHoverIn={() => animate(hover, 1, 900).start()}
+        onHoverOut={() => animate(hover, 0, 600).start()}
+        style={StyleSheet.absoluteFill}
+      >
+        <Animated.View
+          style={{
+            position: 'absolute',
+            top: 0,
+            bottom: 0,
+            right: 0,
+            width: compact ? '100%' : '66%',
+            transform: [
+              { scale: hover.interpolate({ inputRange: [0, 1], outputRange: [1, 1.04] }) },
+            ],
+          }}
+        >
+          <FoodImage uri={recipe.image} style={StyleSheet.absoluteFill} />
+        </Animated.View>
+        {/* Many short stops ease the photo into the ink without a visible band. */}
+        <LinearGradient
+          colors={
+            compact
+              ? [
+                  'rgba(0,0,0,0.3)',
+                  'rgba(0,0,0,0)',
+                  'rgba(0,0,0,0.04)',
+                  'rgba(0,0,0,0.38)',
+                  'rgba(0,0,0,0.72)',
+                  'rgba(0,0,0,0.9)',
+                ]
+              : [
+                  color.ink,
+                  color.ink,
+                  'rgba(13,13,13,0.94)',
+                  'rgba(13,13,13,0.74)',
+                  'rgba(13,13,13,0.42)',
+                  'rgba(13,13,13,0.14)',
+                  'rgba(13,13,13,0)',
+                ]
+          }
+          locations={
+            compact ? [0, 0.22, 0.38, 0.6, 0.8, 1] : [0, 0.33, 0.41, 0.5, 0.59, 0.67, 0.76]
+          }
+          start={{ x: 0, y: compact ? 0 : 0.5 }}
+          end={{ x: compact ? 0 : 1, y: compact ? 1 : 0.5 }}
+          style={StyleSheet.absoluteFill}
+        />
+        <View style={{ position: 'absolute', top: 18, left: 18, pointerEvents: 'none' }}>
+          <Pill title={tr('The daily dish')} tone="glass" />
+        </View>
+        <View
+          style={{
+            position: 'absolute',
+            left: compact ? 22 : 40,
+            right: compact ? 22 : '45%',
+            bottom: compact ? 22 : 40,
+            gap: 12,
+          }}
+        >
+          <View style={[s.row, { gap: 8 }]}>
+            <Avatar uri={recipe.author.avatar} name={recipe.author.name} size={24} />
+            <Text numberOfLines={1} style={styles.byline}>
+              {tr('by {{v0}}', { v0: recipe.author.name })}
+            </Text>
+          </View>
+          <Text
+            style={[
+              s.display,
+              {
+                color: color.white,
+                fontSize: compact ? 30 : 42,
+                lineHeight: compact ? 35 : 48,
+              },
+            ]}
+          >
+            {recipe.title}
+          </Text>
+          <Text numberOfLines={2} style={styles.blurb}>
+            {recipe.description}
+          </Text>
+          <View style={[s.row, { gap: 14, marginTop: 6 }]}>
+            <View style={[s.row, styles.cta]}>
+              <Text style={{ fontFamily: font.bold, fontSize: 14, color: color.ink }}>
+                {tr('Let’s get cooking')}
+              </Text>
+              <ArrowRight size={16} color={color.ink} strokeWidth={2.2} />
+            </View>
+            <View style={[s.row, { gap: 6 }]}>
+              <Clock3 size={14} color="rgba(255,255,255,0.8)" />
+              <Text style={styles.meta}>
+                {tr('{{v0}} min · {{v1}}', { v0: recipe.minutes, v1: tr(recipe.difficulty) })}
+              </Text>
+            </View>
+          </View>
+        </View>
+      </Pressable>
+      <View style={{ position: 'absolute', top: 14, right: 14 }}>
+        <Save recipe={recipe} size={40} glass />
+      </View>
+    </Animated.View>
+  );
+}
+function Cook({
+  creator,
+  onPress,
+  width,
+}: {
+  creator: Creator;
+  onPress: (c: Creator) => void;
+  width?: number;
+}) {
+  const { t: tr } = useI18n();
+  const app = useApp();
+  const press = usePress(0.97);
+  const following = app.library.followingIds.includes(creator.id);
+  // The card and its follow button are siblings: browsers don't allow a button inside a button.
+  return (
+    <Animated.View
+      style={[
+        s.card,
+        { alignItems: 'center', gap: 12, padding: 16, paddingTop: 20 },
+        width ? { width } : { flex: 1, maxWidth: 300 },
+        press.style,
+      ]}
+    >
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={tr('Meet {{v0}}', { v0: creator.name })}
+        onPress={() => onPress(creator)}
+        onPressIn={press.onPressIn}
+        onPressOut={press.onPressOut}
+        style={[StyleSheet.absoluteFill, { borderRadius: radius.lg }]}
+      />
+      <View style={{ alignItems: 'center', gap: 12, alignSelf: 'stretch', pointerEvents: 'none' }}>
+        <Avatar uri={creator.avatar} name={creator.name} size={64} />
+        <View style={{ alignItems: 'center', gap: 2, alignSelf: 'stretch' }}>
+          <Text numberOfLines={1} style={[s.h3, { fontSize: 15 }]}>
+            {creator.name}
+          </Text>
+          <Text numberOfLines={1} style={s.small}>
+            {tr('{{v0}} recipes', { v0: creator.recipeCount ?? 0 })}
+          </Text>
+        </View>
+      </View>
+      {app.user?.id !== creator.id && (
+        <Press
+          accessibilityRole="button"
+          accessibilityLabel={
+            following
+              ? tr('Unfollow {{v0}}', { v0: creator.name })
+              : tr('Follow {{v0}}', { v0: creator.name })
+          }
+          accessibilityState={{ selected: following }}
+          onPress={() => {
+            if (app.user) haptic.tap();
+            void app.toggleFollow(creator);
+          }}
+          scale={0.94}
+          style={[
+            s.row,
+            styles.follow,
+            following
+              ? { backgroundColor: color.white, borderColor: color.border }
+              : { backgroundColor: color.ink, borderColor: color.ink },
+          ]}
+        >
+          {following ? (
+            <Check size={14} color={color.ink} strokeWidth={2.4} />
+          ) : (
+            <Plus size={14} color={color.white} strokeWidth={2.4} />
+          )}
+          <Text
+            style={{
+              fontFamily: font.bold,
+              fontSize: 13,
+              color: following ? color.ink : color.white,
+            }}
+          >
+            {following ? tr('Following') : tr('Follow')}
+          </Text>
+        </Press>
+      )}
+    </Animated.View>
+  );
+}
+// Placeholders shaped like the feed, so the first paint already has its layout.
+function usePulse() {
+  const a = useState(() => new Animated.Value(0))[0];
+  useEffect(() => {
+    if (motionReduced()) return;
+    const loop = Animated.loop(Animated.sequence([animate(a, 1, 800), animate(a, 0, 800)]));
+    loop.start();
+    return () => loop.stop();
+  }, [a]);
+  return a.interpolate({ inputRange: [0, 1], outputRange: [1, 0.5] });
+}
+function Bone({
+  style,
+  dark,
+  pulse,
+}: {
+  style: ViewStyle;
+  dark?: boolean;
+  pulse: Animated.AnimatedInterpolation<number>;
+}) {
+  return (
+    <Animated.View
+      style={[
+        {
+          backgroundColor: dark ? 'rgba(255,255,255,0.1)' : '#E7E7E7',
+          borderRadius: radius.pill,
+          opacity: pulse,
+        },
+        style,
+      ]}
+    />
+  );
+}
+function TileBones({ count }: { count?: number }) {
+  const { compact } = useChrome();
+  const pulse = usePulse();
+  return (
+    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: compact ? 12 : 20 }}>
+      {Array.from({ length: count ?? (compact ? 4 : 8) }, (_, i) => (
+        <Bone
+          key={i}
+          pulse={pulse}
+          style={{
+            flexGrow: 1,
+            flexBasis: compact ? '40%' : '20%',
+            aspectRatio: compact ? 1 / 1.3 : 1 / 1.12,
+            borderRadius: radius.lg,
+          }}
+        />
+      ))}
+    </View>
+  );
+}
+export function FeedSkeleton() {
+  const { t: tr } = useI18n();
+  const { compact, gutter, top, width } = useChrome();
+  const pulse = usePulse();
+  const bone = (style: ViewStyle, dark?: boolean) => (
+    <Bone style={style} dark={dark} pulse={pulse} />
+  );
+  return (
+    <View accessibilityLabel={tr('Setting the table…')} style={{ gap: 30 }}>
+      {compact ? (
+        <View
+          style={{
+            marginHorizontal: -gutter,
+            marginTop: -top,
+            paddingTop: top + 8,
+            paddingHorizontal: gutter,
+            paddingBottom: 26 + radius.xl,
+            backgroundColor: color.ink,
+            gap: 20,
+          }}
+        >
+          <View style={[s.row, { gap: 12, height: 48 }]}>
+            {bone({ width: 48, height: 48 }, true)}
+            <View style={{ gap: 8 }}>
+              {bone({ width: 90, height: 10 }, true)}
+              {bone({ width: 160, height: 14 }, true)}
+            </View>
+          </View>
+          <View style={{ gap: 10, paddingVertical: 4 }}>
+            {bone({ width: '88%', height: 27 }, true)}
+            {bone({ width: '56%', height: 27 }, true)}
+          </View>
+          {bone({ height: 52 }, true)}
+        </View>
+      ) : (
+        <View style={{ gap: 14 }}>
+          {bone({ width: 150, height: 11 })}
+          {bone({ width: 520, height: 34 })}
+        </View>
+      )}
+      <View
+        style={[
+          { gap: 30 },
+          compact && {
+            marginHorizontal: -gutter,
+            marginTop: -30 - radius.xl,
+            paddingHorizontal: gutter,
+            paddingTop: 24,
+            backgroundColor: color.bg,
+            borderTopLeftRadius: radius.xl,
+            borderTopRightRadius: radius.xl,
+          },
+        ]}
+      >
+        <View style={[s.row, { gap: 8, overflow: 'hidden' }]}>
+          {bone({ width: 40, height: 40 })}
+          {[70, 116, 112, 104, 120].map((w, i) => (
+            <React.Fragment key={i}>{bone({ width: w, height: 40 })}</React.Fragment>
+          ))}
+        </View>
+        <View style={{ gap: 16 }}>
+          {bone({ width: 104, height: 20 })}
+          <View style={[s.row, { gap: 18, overflow: 'hidden' }]}>
+            {Array.from({ length: 10 }, (_, i) => (
+              <View key={i} style={{ alignItems: 'center', gap: 9 }}>
+                {bone({ width: 66, height: 66, borderRadius: 24 })}
+                {bone({ width: 44, height: 9 })}
+              </View>
+            ))}
+          </View>
+        </View>
+        {bone({ height: heroHeight(compact, width), borderRadius: radius.xl })}
+        <View style={{ gap: 14 }}>
+          {bone({ width: 140, height: 20 })}
+          <TileBones count={compact ? 2 : 4} />
+        </View>
+      </View>
+    </View>
+  );
+}
+const styles = StyleSheet.create({
+  spark: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: color.white,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  send: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: color.white,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  idea: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    height: 36,
+    paddingHorizontal: 14,
+    borderRadius: radius.pill,
+    backgroundColor: 'rgba(255,255,255,0.07)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.14)',
+  },
+  shortcut: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: color.ink,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  byline: {
+    color: 'rgba(255,255,255,0.88)',
+    fontFamily: font.semibold,
+    fontSize: 13,
+    flexShrink: 1,
+  },
+  blurb: {
+    color: 'rgba(255,255,255,0.78)',
+    fontFamily: font.medium,
+    fontSize: 14,
+    lineHeight: 21,
+  },
+  cta: {
+    gap: 8,
+    backgroundColor: color.white,
+    height: 48,
+    paddingHorizontal: 20,
+    borderRadius: radius.pill,
+  },
+  meta: {
+    color: 'rgba(255,255,255,0.8)',
+    fontFamily: font.semibold,
+    fontSize: 13,
+  },
+  follow: {
+    gap: 5,
+    height: 34,
+    alignSelf: 'stretch',
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+  },
+});

@@ -662,5 +662,17 @@
   "{{v0}} a month": "{{v0}} par mois",
   "{{v0}} a month, billed yearly · save {{v1}}%": "{{v0}} par mois, facturé annuellement · économisez {{v1}} %",
   "{{v0}} a year": "{{v0}} par an",
-  "{{v0}} of {{v1}}": "{{v0}} sur {{v1}}"
+  "{{v0}} of {{v1}}": "{{v0}} sur {{v1}}",
+  "by {{v0}}": "par {{v0}}",
+  "Scroll back": "Revenir",
+  "Scroll for more": "Voir plus",
+  "Dinner in 20 minutes": "Un dîner en 20 minutes",
+  "A satisfying dinner I can make in 20 minutes.": "Un dîner bien nourrissant que je peux préparer en 20 minutes.",
+  "Something cozy": "Un plat réconfortant",
+  "Something cozy and comforting for tonight.": "Un plat chaleureux et réconfortant pour ce soir.",
+  "Use up my vegetables": "Finir mes légumes",
+  "A recipe that uses up the vegetables I have.": "Une recette qui utilise les légumes que j’ai.",
+  "Ask the sous-chef: {{v0}}": "Demander au sous-chef : {{v0}}",
+  "Follow {{v0}}": "Suivre {{v0}}",
+  "Unfollow {{v0}}": "Ne plus suivre {{v0}}"
 }

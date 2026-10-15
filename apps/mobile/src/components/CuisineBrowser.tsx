@@ -1,11 +1,14 @@
 import { useI18n } from '../lib/i18n';
 import React from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import { allCuisines, cuisineFilters } from '../lib/cuisines';
-import { color, font, radius } from '../lib/theme';
+import { haptic } from '../lib/haptics';
+import { color, font } from '../lib/theme';
 import { CuisineIcon } from './CuisineIcon';
-import { SectionTitle, useChrome } from './ui';
+import { Rail, SectionTitle } from './ui';
 
+// Illustrated tiles rather than a second row of chips, so cuisines read as places to browse and the
+// category chips above stay the only filter strip.
 export function CuisineBrowser({
   value,
   onChange,
@@ -16,16 +19,10 @@ export function CuisineBrowser({
   onSeeAll: () => void;
 }) {
   const { t: tr } = useI18n();
-  const { compact, gutter } = useChrome();
   return (
     <View>
       <SectionTitle title={tr('Cuisines')} action={onSeeAll} actionTitle={tr('See all cuisines')} />
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={{ flexGrow: 0, marginHorizontal: compact ? -gutter : 0 }}
-        contentContainerStyle={{ gap: 10, paddingHorizontal: compact ? gutter : 0 }}
-      >
+      <Rail gap={6} pad={12}>
         {cuisineFilters.map((name) => {
           const active = value === name;
           return (
@@ -39,39 +36,48 @@ export function CuisineBrowser({
               }
               accessibilityState={{ selected: active }}
               aria-pressed={active}
-              onPress={() => onChange(name)}
-              style={({ pressed, hovered }: { pressed: boolean; hovered?: boolean }) => ({
-                minHeight: 44,
-                borderRadius: radius.pill,
-                borderWidth: 1,
-                borderColor: active ? color.ink : color.border,
-                backgroundColor: active ? color.ink : color.white,
-                alignItems: 'center',
-                justifyContent: 'center',
-                flexDirection: 'row',
-                paddingHorizontal: 14,
-                paddingVertical: 6,
-                gap: 7,
-                opacity: hovered ? 0.86 : 1,
-                transform: [{ scale: pressed ? 0.96 : 1 }],
-              })}
+              onPress={() => {
+                if (!active) haptic.select();
+                onChange(name);
+              }}
+              style={{ width: 78, alignItems: 'center', gap: 8 }}
             >
-              <CuisineIcon name={name} size={28} />
-              <Text
-                style={{
-                  fontFamily: font.semibold,
-                  fontSize: 13,
-                  lineHeight: 18,
-                  textAlign: 'center',
-                  color: active ? color.white : color.ink,
-                }}
-              >
-                {name === allCuisines ? tr('All cuisines') : tr(name)}
-              </Text>
+              {({ pressed, hovered }: { pressed: boolean; hovered?: boolean }) => (
+                <>
+                  <View
+                    style={{
+                      width: 66,
+                      height: 66,
+                      borderRadius: 24,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      backgroundColor: active ? color.ink : color.white,
+                      borderWidth: 1,
+                      borderColor: active ? color.ink : hovered ? color.line : color.border,
+                      boxShadow: active ? '0px 6px 14px rgba(0,0,0,0.16)' : undefined,
+                      transform: [{ scale: pressed ? 0.93 : 1 }],
+                    }}
+                  >
+                    <CuisineIcon name={name} size={40} />
+                  </View>
+                  <Text
+                    numberOfLines={1}
+                    style={{
+                      fontFamily: active ? font.bold : font.semibold,
+                      fontSize: 12,
+                      lineHeight: 16,
+                      textAlign: 'center',
+                      color: active ? color.ink : color.muted,
+                    }}
+                  >
+                    {name === allCuisines ? tr('All') : tr(name)}
+                  </Text>
+                </>
+              )}
             </Pressable>
           );
         })}
-      </ScrollView>
+      </Rail>
     </View>
   );
 }
