@@ -31,7 +31,7 @@ Tests create a random schema and drop only that test schema. They do not insert 
 
 - Funded OpenRouter and reAPI generation: adapters are mock-server tested, but no keys or paid generation were used.
 - Neon and Cloudflare R2: code and deployment contracts are present; no cloud credentials were supplied.
-- Resend email delivery: recovery state/security is tested; actual delivery needs a verified sender and API key.
+- Cloudflare email delivery: recovery state/security and the send request are tested against a local mock; actual delivery needs an onboarded domain and token.
 - Signed native binaries and device behavior: iOS/Android JavaScript/Hermes exports passed; no Xcode/Gradle signed build, physical-device test, or store upload was performed.
 - Production load, multi-region failover, and a complete external accessibility/security audit.
 

@@ -43,8 +43,9 @@ func (a *App) queueStudioAssets(ctx context.Context, state studioState, redo str
 		return e
 	}
 	for _, kind := range kinds {
-		// Automatic media skips what the plan doesn't include rather than showing a failure.
-		if redo == "missing" && ((kind == "video" && plan.Videos == 0) || (kind == "image" && plan.Images == 0)) {
+		// Automatic media skips what the plan doesn't include, or the server can't make, rather
+		// than showing a failure. Explicit regeneration still explains why.
+		if redo == "missing" && ((kind == "video" && (plan.Videos == 0 || !a.AI.VideoEnabled())) || (kind == "image" && plan.Images == 0)) {
 			continue
 		}
 		var status string

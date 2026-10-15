@@ -74,6 +74,12 @@
       "pt": "./locales/pt.json",
       "zh-Hans": "./locales/zh-Hans.json",
       "ja": "./locales/ja.json"
-    }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "c0e4c4a0-bfbf-4b82-9701-0e46c9463c6c"
+      }
+    },
+    "owner": "120356aa-user"
   }
 }

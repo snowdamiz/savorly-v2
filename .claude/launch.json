@@ -4,13 +4,13 @@
     {
       "name": "api",
       "runtimeExecutable": "sh",
-      "runtimeArgs": ["-c", "cd /Volumes/SSK-SSD/savorly/services/api && exec go run ./cmd/server"],
+      "runtimeArgs": ["-c", "cd services/api && exec go run ./cmd/server"],
       "port": 8080
     },
     {
       "name": "expo",
       "runtimeExecutable": "sh",
-      "runtimeArgs": ["-c", "cd /Volumes/SSK-SSD/savorly/apps/mobile && exec npx expo start --port 8081"],
+      "runtimeArgs": ["-c", "cd apps/mobile && exec npx expo start --port 8081"],
       "port": 8081
     }
   ]

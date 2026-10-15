@@ -25,6 +25,9 @@ import (
 type Config struct {
 	Production bool
 	Origins    []string
+	// ProxyHeader carries the client IP when a gateway that always overwrites it fronts the
+	// API, so rate limits apply per visitor rather than to the gateway's own address.
+	ProxyHeader string
 }
 
 func Env(key, fallback string) string {
@@ -34,7 +37,7 @@ func Env(key, fallback string) string {
 	return fallback
 }
 func LoadConfig() Config {
-	return Config{os.Getenv("APP_ENV") == "production", strings.Split(Env("ALLOWED_ORIGINS", "http://localhost:8081"), ",")}
+	return Config{Production: os.Getenv("APP_ENV") == "production", Origins: strings.Split(Env("ALLOWED_ORIGINS", "http://localhost:8081"), ","), ProxyHeader: os.Getenv("TRUSTED_PROXY_HEADER")}
 }
 
 type App struct {
@@ -69,7 +72,14 @@ func New(db *pgxpool.Pool, config Config) *fiber.App {
 }
 func NewWithContext(ctx context.Context, db *pgxpool.Pool, config Config) *fiber.App {
 	a := &App{DB: db, Config: config, AI: ai.New(), Media: NewMediaStore(), Live: live.New(), Narrator: narration.New(), Context: ctx}
-	f := fiber.New(fiber.Config{AppName: "Savorly API", BodyLimit: 55 * 1024 * 1024, ReadTimeout: 30 * time.Second, WriteTimeout: 30 * time.Second, ErrorHandler: errorHandler})
+	fc := fiber.Config{AppName: "Savorly API", BodyLimit: 55 * 1024 * 1024, ReadTimeout: 30 * time.Second, WriteTimeout: 30 * time.Second, ErrorHandler: errorHandler}
+	if config.ProxyHeader != "" {
+		// Only configured where the gateway is the sole route in (Cloudflare Containers have no
+		// public address), so every peer is that gateway.
+		fc.ProxyHeader, fc.TrustProxy = config.ProxyHeader, true
+		fc.TrustProxyConfig = fiber.TrustProxyConfig{Proxies: []string{"0.0.0.0/0", "::/0"}}
+	}
+	f := fiber.New(fc)
 	f.Use(recover.New(), requestid.New(), helmet.New())
 	f.Use(cors.New(cors.Config{AllowOrigins: config.Origins, AllowCredentials: true, AllowMethods: []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"}, AllowHeaders: []string{"Content-Type", "Authorization", "Idempotency-Key"}}))
 	f.Use(func(c fiber.Ctx) error {
@@ -115,8 +125,8 @@ func NewWithContext(ctx context.Context, db *pgxpool.Pool, config Config) *fiber
 			"textAI": a.AI.TextEnabled(), "textModel": a.AI.TextModel, "recipeModel": a.AI.RecipeModel, "agentModel": a.AI.AgentModel,
 			"imageAI": a.AI.TextEnabled(), "imageModel": a.AI.ImageModel,
 			"videoAI": a.AI.VideoEnabled(), "videoProvider": "reAPI", "videoModel": a.AI.VideoModel, "videoEstimateUSD": 1.005,
-			"passwordRecovery": os.Getenv("RESEND_API_KEY") != "" && os.Getenv("EMAIL_FROM") != "",
-			"billing":          billingEnabled(), "appleSignIn": len(oauthAudiences("apple")) > 0, "googleSignIn": len(oauthAudiences("google")) > 0,
+			"passwordRecovery": emailEnabled(),
+			"plans":            paidPlans(), "billing": billingEnabled(), "appleSignIn": len(oauthAudiences("apple")) > 0, "googleSignIn": len(oauthAudiences("google")) > 0,
 			// Public client identifiers the sign-in SDKs need; none of these are secrets.
 			"auth": fiber.Map{"googleWebClientId": os.Getenv("GOOGLE_WEB_CLIENT_ID"), "googleIosClientId": os.Getenv("GOOGLE_IOS_CLIENT_ID"), "appleServicesId": os.Getenv("APPLE_SERVICES_ID"), "appleRedirectUri": os.Getenv("APPLE_REDIRECT_URI")},
 		})

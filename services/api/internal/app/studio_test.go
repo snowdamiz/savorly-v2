@@ -306,6 +306,25 @@ func TestManualEditInvalidatesStudioMediaAndApproval(t *testing.T) {
 		t.Fatal("manual edits overwritten or stale approval retained")
 	}
 }
+func TestAutomaticMediaSkipsVideoWithoutAProvider(t *testing.T) {
+	a, p := studioFixture(t)
+	a.AI.VideoKey = ""
+	ctx := context.Background()
+	id := uuid.NewString()
+	if e := persistRecipe(ctx, a.DB, "cook", id, exampleVoiceRecipe(), false); e != nil {
+		t.Fatal(e)
+	}
+	if _, e := a.DB.Exec(ctx, `UPDATE voice_projects SET recipe_id=$2,revision=1,status='draft' WHERE id=$1`, p, id); e != nil {
+		t.Fatal(e)
+	}
+	a.recoverStudioBundles(ctx)
+	var kinds string
+	a.DB.QueryRow(ctx, `SELECT string_agg(kind,',') FROM voice_assets WHERE project_id=$1`, p).Scan(&kinds)
+	if kinds != "image" {
+		t.Fatalf("automatic media without a video provider: %q", kinds)
+	}
+}
+
 func TestStudioRecoversUnqueuedBundleAndQueuesSourceDeletion(t *testing.T) {
 	a, p := studioFixture(t)
 	ctx := context.Background()

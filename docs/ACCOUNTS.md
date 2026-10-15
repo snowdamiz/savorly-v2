@@ -4,11 +4,11 @@ Checked October 7, 2026 against the app and provider documentation. This is the 
 
 Start with Cloudflare, OpenRouter, OpenAI, and Neon. Add reAPI when testing generated videos, Stripe when testing subscriptions, and the mobile/sign-in accounts when preparing native builds.
 
-**Two implementation steps remain:** the Go API is not yet connected to Cloudflare Containers, and password-reset email still calls Resend. You can prepare the Cloudflare account, domain, buckets, and email sender now, but those two features need code/deployment changes before they work through Cloudflare. Account creation alone will not deploy the app.
+The Go API runs on Cloudflare Containers and password-reset email goes through Cloudflare Email Service (see [staging](STAGING.md) for a working deployment). Account creation alone will not deploy the app.
 
 ## Before starting
 
-1. Choose the domain you own and want to use. This guide uses `app.example.com` for the app, `media.example.com` for public recipe media, and `noreply@example.com` for outgoing email. Replace every example with your actual domain.
+1. Savorly's domain is `savorly.cooking`, registered with Cloudflare: the app is `savorly.cooking`, staging is `staging.savorly.cooking`, public recipe media is `media.savorly.cooking`, and email goes out as `noreply@savorly.cooking`.
 2. Confirm the permanent iOS bundle identifier and Android package name before registering native apps. Both are currently `app.savorly.mobile` in `apps/mobile/app.json`. The name must match Apple, Google, Expo, and store registrations.
 3. For local testing, edit the existing repository-root `.env`; do not overwrite it with `.env.example`. The example file documents variable names, not real secrets. Keep local database/storage values if you want to continue using Docker locally.
 4. Store production credentials in your password manager until the production deployment is ready, then install them as backend secrets. Store/build credentials belong in Wrangler/EAS or the relevant provider dashboard. Only explicitly public build settings below go in Expo.
@@ -24,15 +24,15 @@ Open the [Cloudflare dashboard](https://dash.cloudflare.com/).
 2. Add your domain to Cloudflare DNS. Review the imported DNS records, including existing mail records, then change the nameservers at your registrar to the two Cloudflare supplies. Wait for the zone to become Active. If your domain already uses Cloudflare, keep its existing zone. See [DNS setup](https://developers.cloudflare.com/dns/zone-setups/full-setup/setup/).
 3. Enable the **Workers Paid** plan when ready to use Containers and Email Sending. The domain's zone plan is separate; this does not require upgrading the domain to the Pro website plan. [Containers availability](https://developers.cloudflare.com/containers/).
 4. For local deployment authentication, run `npx wrangler login` and approve access to the correct account. No API token is needed for this interactive login. Automated deployment can use a separately scoped deployment token later.
-5. Reserve `app.example.com` for the Worker. Attach it as the Worker's custom domain when the deployment is ready. Do not create an API hostname pointing at a nonexistent host.
+5. `savorly.cooking` (production) and `staging.savorly.cooking` (staging) are the Workers' custom domains, set as `routes` in `infra/cloudflare/wrangler.jsonc`; `wrangler deploy` creates their DNS records and certificates. Do not create an API hostname pointing at a nonexistent host.
 
-**Pending code:** `infra/cloudflare/worker.ts` currently forwards `/api/*` to `API_ORIGIN`. It needs the Containers binding, secret forwarding, startup/readiness handling, and background-job lifecycle before Cloudflare can host the Go API. This guide does not ask you to provision another container host.
+`infra/cloudflare/worker.ts` runs the Go API as a Container behind `/api` and passes it the Worker's vars and secrets. This guide does not ask you to provision another container host.
 
 ### R2 media storage
 
 1. In **Storage & databases → R2**, complete R2 activation/billing.
 2. Create two buckets: `savorly-media` for published media and `savorly-sources` for private recipe imports. Use the same jurisdiction for both because the app has one S3 endpoint.
-3. Open `savorly-media` → **Settings → Custom Domains → Add**, connect `media.example.com`, and wait for Active status. Keep `savorly-sources` private: no custom domain and no public `r2.dev` access.
+3. Open `savorly-media` → **Settings → Custom Domains → Add**, connect `media.savorly.cooking`, and wait for Active status. Keep `savorly-sources` private: no custom domain and no public `r2.dev` access.
 4. In the R2 overview, open **Manage API Tokens**. Create an account token if your role allows it, otherwise a user token. Choose **Object Read & Write**, limited to these two buckets. Copy the **Access Key ID** and **Secret Access Key** when shown; the secret cannot be retrieved later. This credential is different from a Wrangler deployment token.
 5. Copy the S3 endpoint displayed for the buckets. Use the jurisdiction-specific endpoint if applicable. These steps follow [R2 activation](https://developers.cloudflare.com/r2/get-started/), [custom domains](https://developers.cloudflare.com/r2/buckets/public-buckets/), and [R2 credentials](https://developers.cloudflare.com/r2/api/tokens/).
 
@@ -45,7 +45,7 @@ S3_ACCESS_KEY_ID=YOUR_R2_ACCESS_KEY_ID
 S3_SECRET_ACCESS_KEY=YOUR_R2_SECRET_ACCESS_KEY
 S3_BUCKET=savorly-media
 S3_SOURCE_BUCKET=savorly-sources
-S3_PUBLIC_URL=https://media.example.com
+S3_PUBLIC_URL=https://media.savorly.cooking
 S3_FORCE_PATH_STYLE=true
 ```
 
@@ -54,7 +54,7 @@ In the public bucket's CORS settings, allow the actual web app origin. For this 
 ```json
 [
   {
-    "AllowedOrigins": ["https://app.example.com"],
+    "AllowedOrigins": ["https://savorly.cooking"],
     "AllowedMethods": ["GET", "HEAD"],
     "AllowedHeaders": ["Range"],
     "ExposeHeaders": ["ETag", "Content-Length", "Content-Range", "Accept-Ranges"]
@@ -62,17 +62,25 @@ In the public bucket's CORS settings, allow the actual web app origin. For this 
 ]
 ```
 
-**Check:** after the API has these settings, upload a recipe photo in Savorly. Its URL should use `media.example.com`. Private source images must not have a public URL. See [storage configuration](STORAGE.md) for more detail.
+**Check:** after the API has these settings, upload a recipe photo in Savorly. Its URL should use `media.savorly.cooking`. Private source images must not have a public URL. See [storage configuration](STORAGE.md) for more detail.
 
 ### Password-reset email
 
 1. Go to **Compute → Email Service → Email Sending → Onboard Domain**.
 2. Choose your domain and review the SPF, DKIM, DMARC, and bounce-domain records Cloudflare proposes. Complete onboarding and wait for the domain to be ready to send.
-3. Choose the sender, for example `noreply@example.com`.
-4. Create a scoped Cloudflare API token with **Email Sending: Edit** for the account. Save it alongside the Account ID and sender in your password manager. These are for the planned REST adapter; do not paste the token into `RESEND_API_KEY`.
-5. After the adapter is implemented, test Forgot password with an address you control and confirm the reset code arrives. [Cloudflare email setup](https://developers.cloudflare.com/email-service/get-started/send-emails/).
+3. Choose the sender, for example `noreply@savorly.cooking`.
+4. Create a custom Cloudflare API token (**My Profile → API Tokens**) with **Account → Email Sending: Edit**, limited to this account. It is separate from the R2 and deployment tokens.
+5. Set these **backend** values:
 
-**Pending code:** the current password-reset path still requires `RESEND_API_KEY` and `EMAIL_FROM`. Hold off on creating a Resend account for this Cloudflare setup. There is no working Cloudflare email environment variable in the app yet.
+```dotenv
+CLOUDFLARE_ACCOUNT_ID=YOUR_ACCOUNT_ID
+CLOUDFLARE_EMAIL_API_TOKEN=YOUR_EMAIL_SENDING_TOKEN
+EMAIL_FROM=noreply@savorly.cooking
+```
+
+`EMAIL_FROM` is a plain address on the onboarded domain. Restart the API, use Forgot password with an address you control, and confirm the 8-digit code arrives. Delivery failures are logged without recipient addresses; the app's response never reveals whether an account exists. [Cloudflare email setup](https://developers.cloudflare.com/email-service/get-started/send-emails/).
+
+Sending needs Workers Paid, which includes 3,000 emails a month, then $0.35 per 1,000 ([pricing](https://developers.cloudflare.com/email-service/platform/pricing/)). Sends to addresses verified in your Cloudflare account are free on any plan.
 
 ## 2. OpenRouter — text, images, and ElevenLabs narration
 
@@ -128,8 +136,8 @@ OPENAI_LIVE_VOICE=gleam
 ```dotenv
 APP_ENV=production
 SEED_DATA=false
-ALLOWED_ORIGINS=https://app.example.com
-APP_URL=https://app.example.com
+ALLOWED_ORIGINS=https://savorly.cooking
+APP_URL=https://savorly.cooking
 ```
 
 5. Choose the backup/restore retention appropriate for your Neon plan. On first API startup, the app applies its own SQL migrations; you do not need to paste schema files into Neon's SQL editor.
@@ -150,11 +158,13 @@ REAPI_API_KEY=YOUR_REAPI_KEY
 REAPI_VIDEO_MODEL=doubao-seedance-2.5-eco
 ```
 
-5. Restart the API and generate one short recipe video using a test account whose plan allows video generation. Free and Plus accounts currently have no video allowance; a Pro test subscription can be created using Stripe's sandbox below. Media storage must also be working.
+5. Restart the API and generate one short recipe video with any account while paid plans are off. Once `PAID_PLANS=true`, only Pro includes video; a Pro test subscription can be created using Stripe's sandbox below. Media storage must also be working.
 
 **Done when:** the job completes and the clip plays from your media storage. The test is a paid generation. You can leave this key blank until you need video generation. [reAPI quickstart](https://reapi.ai/docs/api/quickstart).
 
 ## 6. Stripe — subscriptions
+
+Not needed while paid plans are off: until `PAID_PLANS=true`, everyone has unlimited Free use and Stripe keys are ignored ([pricing](PRICING.md)). Set `PAID_PLANS=true` along with the keys below when testing subscriptions.
 
 Start in a Stripe sandbox/test environment; switch to live only after checkout and webhooks work.
 
@@ -169,7 +179,7 @@ Start in a Stripe sandbox/test environment; switch to live only after checkout a
 | Savorly Pro | Yearly | $159.99 | `STRIPE_PRICE_PRO_YEARLY` |
 
 3. Copy each `price_...` value, not the product's `prod_...` ID. Open the API keys page and copy the sandbox secret key into `STRIPE_SECRET_KEY`. The app uses hosted Checkout and does not need a publishable key in Expo. [Create products/prices](https://docs.stripe.com/products-prices/manage-prices).
-4. In **Workbench → Webhooks**, create a webhook destination for your account using **snapshot events** and your public API URL. Through the current same-origin gateway it is `https://app.example.com/api/v1/billing/webhook`; with a separately mapped API origin it is `https://api.example.com/v1/billing/webhook`. Use only the URL that actually routes to the deployed backend.
+4. In **Workbench → Webhooks**, create a webhook destination for your account using **snapshot events** and your public API URL. Through the current same-origin gateway it is `https://savorly.cooking/api/v1/billing/webhook`; with a separately mapped API origin it is `https://api.savorly.cooking/v1/billing/webhook`. Use only the URL that actually routes to the deployed backend.
 5. Subscribe to these implemented events:
 
 ```text
@@ -210,7 +220,7 @@ npx eas-cli build:configure
 
 Review the generated project ID/configuration. The repository already has `eas.json` profiles; keep `development`, `preview`, and `production`.
 
-2. In the Expo project's **Environment variables**, set public `EXPO_PUBLIC_API_URL` for the environment you will build. With the same-origin gateway, use `https://app.example.com/api` (the client adds `/v1`); with a dedicated API domain use `https://api.example.com`. Do not append `/v1` yourself.
+2. In the Expo project's **Environment variables**, set public `EXPO_PUBLIC_API_URL` for the environment you will build. With the same-origin gateway, use `https://savorly.cooking/api` (the client adds `/v1`); with a dedicated API domain use `https://api.savorly.cooking`. Do not append `/v1` yourself.
 3. After creating the Google iOS OAuth client below, set `GOOGLE_IOS_URL_SCHEME` in the same build environment to its reversed client ID. This is a public build setting.
 4. Let EAS generate/manage the Android keystore and Apple signing credentials when prompted, or provide existing credentials for an already released app. Start with an Android preview build:
 
@@ -230,7 +240,7 @@ npx eas-cli build --profile production --platform all
 ## 8. Google Cloud — Sign in with Google
 
 1. Open [Google Cloud Console](https://console.cloud.google.com/) and create/select a Savorly project. Open **Google Auth Platform** and configure Branding: app name, support email, authorized domain, homepage, and privacy-policy URL. Set the audience for your intended users; add your test accounts if using Testing status. Login needs only `openid`, `email`, and `profile`.
-2. Under **Clients**, create a **Web application** OAuth client. Add `https://app.example.com` as an Authorized JavaScript origin. For local development also add `http://localhost` and `http://localhost:8081`. This app uses the JavaScript callback flow, so it does not need a Google backend redirect URL.
+2. Under **Clients**, create a **Web application** OAuth client. Add `https://savorly.cooking` as an Authorized JavaScript origin. For local development also add `http://localhost` and `http://localhost:8081`. This app uses the JavaScript callback flow, so it does not need a Google backend redirect URL.
 3. Create an **iOS** OAuth client for the app's bundle ID. Copy its client ID and reversed URL scheme.
 4. Create an **Android** OAuth client for the package name and the signing certificate's SHA-1. Register each certificate you actually use: development/preview, upload, and Play app signing. Use EAS credentials for build signing information and Play Console's App integrity page for Play's signing certificate. Multiple certificates generally mean separate Android OAuth client registrations.
 5. Set on the backend:
@@ -249,14 +259,14 @@ Set `GOOGLE_IOS_URL_SCHEME` in EAS, for example `com.googleusercontent.apps.YOUR
 ## 9. Apple Developer / App Store Connect — Apple sign-in and iOS release
 
 1. Enroll in the [Apple Developer Program](https://developer.apple.com/programs/enroll/). In **Certificates, Identifiers & Profiles → Identifiers**, register/select the explicit App ID matching the iOS bundle ID and enable **Sign in with Apple** as a primary App ID.
-2. For web sign-in, register a **Services ID**, for example `app.savorly.web`. Enable Sign in with Apple on it, associate the primary App ID, and add your web domain plus the exact HTTPS return URL, for example `https://app.example.com/auth/apple`. Localhost is not the production return URL. [Web sign-in setup](https://developer.apple.com/help/account/capabilities/configure-sign-in-with-apple-for-the-web/).
+2. For web sign-in, register a **Services ID**, for example `app.savorly.web`. Enable Sign in with Apple on it, associate the primary App ID, and add your web domain plus the exact HTTPS return URL, for example `https://savorly.cooking/auth/apple`. Localhost is not the production return URL. [Web sign-in setup](https://developer.apple.com/help/account/capabilities/configure-sign-in-with-apple-for-the-web/).
 3. Under **Keys**, create a Sign in with Apple key associated with the primary App ID. Download its `.p8` file and record the Key ID and your Team ID. Keep a secure copy; the download is available only once. This app uses it for Apple's server operations, including revocation on account deletion. [Apple sign-in key](https://developer.apple.com/help/account/capabilities/create-a-sign-in-with-apple-private-key/).
 4. Set these backend values to match your registrations:
 
 ```dotenv
 APPLE_BUNDLE_ID=app.savorly.mobile
 APPLE_SERVICES_ID=app.savorly.web
-APPLE_REDIRECT_URI=https://app.example.com/auth/apple
+APPLE_REDIRECT_URI=https://savorly.cooking/auth/apple
 APPLE_TEAM_ID=YOUR_TEAM_ID
 APPLE_KEY_ID=YOUR_KEY_ID
 APPLE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nYOUR_KEY_CONTENT\n-----END PRIVATE KEY-----"

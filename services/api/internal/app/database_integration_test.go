@@ -88,6 +88,7 @@ func jobRequest(f *fiber.App, user, key, prompt string) (int, map[string]any, er
 	return res.StatusCode, out, nil
 }
 func TestJobIdempotencyAndConcurrentUserLimit(t *testing.T) {
+	t.Setenv("PAID_PLANS", "true")
 	t.Setenv("AI_DAILY_BUDGET_USD", "100")
 	db := isolatedDB(t)
 	testUser(t, db, "cook")

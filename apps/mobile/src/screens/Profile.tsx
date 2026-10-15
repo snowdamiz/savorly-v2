@@ -347,7 +347,7 @@ export function Profile({
           />
         </View>
       )}
-      {app.user && <PlanSettings />}
+      {app.user && app.capabilities?.plans && <PlanSettings />}
       {app.user && (
         <View style={[s.card, { gap: 12 }]}>
           <Text style={s.h3}>{tr('Sign-in methods')}</Text>

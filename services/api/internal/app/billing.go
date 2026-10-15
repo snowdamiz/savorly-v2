@@ -26,7 +26,7 @@ var stripeBase = "https://api.stripe.com/v1"
 var stripeHTTP = &http.Client{Timeout: 20 * time.Second}
 
 func billingEnabled() bool {
-	return os.Getenv("STRIPE_SECRET_KEY") != "" && os.Getenv("STRIPE_WEBHOOK_SECRET") != ""
+	return paidPlans() && os.Getenv("STRIPE_SECRET_KEY") != "" && os.Getenv("STRIPE_WEBHOOK_SECRET") != ""
 }
 func priceID(plan, interval string) string {
 	return os.Getenv("STRIPE_PRICE_" + strings.ToUpper(plan) + "_" + strings.ToUpper(interval))
@@ -76,6 +76,10 @@ func stripeCall(ctx context.Context, method, path, idempotency string, form url.
 func appURL(c Config) string { return strings.TrimRight(Env("APP_URL", c.Origins[0]), "/") }
 
 func (a *App) billing(c fiber.Ctx) error {
+	// Prices stay private until the catalog is live.
+	if !paidPlans() {
+		return fiber.NewError(404, "Plans aren't available yet.")
+	}
 	owner := userID(c)
 	var plan, status, interval string
 	var renews *time.Time
@@ -156,8 +160,11 @@ func (a *App) billingPortal(c fiber.Ctx) error {
 // stripeWebhook trusts only the event's signature and id: each subscription is re-read from
 // Stripe, so retries and out-of-order deliveries all converge on Stripe's current state.
 func (a *App) stripeWebhook(c fiber.Ctx) error {
+	if !billingEnabled() {
+		return fiber.NewError(404, "Billing isn't enabled.")
+	}
 	secret := os.Getenv("STRIPE_WEBHOOK_SECRET")
-	if secret == "" || !validStripeSignature(c.Body(), c.Get("Stripe-Signature"), secret, time.Now()) {
+	if !validStripeSignature(c.Body(), c.Get("Stripe-Signature"), secret, time.Now()) {
 		return fiber.NewError(400, "Invalid signature.")
 	}
 	var ev struct {

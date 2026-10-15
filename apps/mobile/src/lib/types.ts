@@ -140,6 +140,8 @@ export type Capabilities = {
   videoProvider: string;
   videoModel: string;
   videoEstimateUSD: number;
+  /** Plans and allowances are live (PAID_PLANS); until then everyone has unlimited use. */
+  plans?: boolean;
   billing?: boolean;
   appleSignIn?: boolean;
   googleSignIn?: boolean;

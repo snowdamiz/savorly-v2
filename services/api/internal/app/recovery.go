@@ -1,15 +1,12 @@
 package app
 
 import (
-	"bytes"
 	"crypto/rand"
 	"crypto/subtle"
 	"errors"
 	"fmt"
 	"log/slog"
 	"math/big"
-	"net/http"
-	"os"
 	"strings"
 	"time"
 
@@ -19,7 +16,7 @@ import (
 )
 
 func (a *App) forgotPassword(c fiber.Ctx) error {
-	if os.Getenv("RESEND_API_KEY") == "" || os.Getenv("EMAIL_FROM") == "" {
+	if !emailEnabled() {
 		return fiber.NewError(503, "Password recovery is not connected yet. Contact the kitchen administrator.")
 	}
 	var in struct{ Email string }
@@ -47,21 +44,8 @@ func (a *App) forgotPassword(c fiber.Ctx) error {
 	if e != nil {
 		return e
 	}
-	payload := jsonBytes(fiber.Map{"from": os.Getenv("EMAIL_FROM"), "to": []string{email}, "subject": "Your Savorly password reset code", "text": "Your Savorly reset code is " + code + ". Enter it in the app to choose a new password. It expires in 15 minutes. If you did not request this, you can ignore this email."})
-	req, e := http.NewRequestWithContext(c.Context(), "POST", "https://api.resend.com/emails", bytes.NewReader(payload))
-	if e != nil {
-		return e
-	}
-	req.Header.Set("Authorization", "Bearer "+os.Getenv("RESEND_API_KEY"))
-	req.Header.Set("Content-Type", "application/json")
-	res, e := (&http.Client{Timeout: 15 * time.Second}).Do(req)
-	if e != nil {
+	if e = sendEmail(c.Context(), email, "Your Savorly password reset code", "Your Savorly reset code is "+code+". Enter it in the app to choose a new password. It expires in 15 minutes. If you did not request this, you can ignore this email."); e != nil {
 		slog.Error("recovery email delivery failed", "error", e)
-	} else {
-		res.Body.Close()
-		if res.StatusCode >= 300 {
-			slog.Error("recovery email rejected", "status", res.StatusCode)
-		}
 	}
 	// The response is identical whether or not an address exists or delivery succeeds.
 	return c.JSON(fiber.Map{"ok": true})

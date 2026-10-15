@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -25,6 +26,39 @@ func signStripe(payload []byte, secret string, at time.Time) string {
 	mac := hmac.New(sha256.New, []byte(secret))
 	mac.Write([]byte(stamp + "." + string(payload)))
 	return "t=" + stamp + ",v1=" + hex.EncodeToString(mac.Sum(nil))
+}
+
+func TestUnlimitedFreeUntilPaidPlansGoLive(t *testing.T) {
+	t.Setenv("STRIPE_SECRET_KEY", "sk_test")
+	t.Setenv("STRIPE_WEBHOOK_SECRET", "whsec")
+	capabilities := func() map[string]any {
+		res, e := New(nil, Config{Origins: []string{"http://localhost:8081"}}).Test(httptest.NewRequest("GET", "/v1/capabilities", nil))
+		if e != nil {
+			t.Fatal(e)
+		}
+		defer res.Body.Close()
+		var body map[string]any
+		_ = json.NewDecoder(res.Body).Decode(&body)
+		return body
+	}
+	ctx := context.Background()
+	for _, setting := range []string{"", "false"} {
+		t.Setenv("PAID_PLANS", setting)
+		// No database: neither check may need one.
+		if p, e := planOf(ctx, nil, "cook"); e != nil || p.ID != "free" || p.Videos == 0 || !math.IsInf(p.SpendCap, 1) {
+			t.Fatalf("PAID_PLANS=%q: plan %+v %v", setting, p, e)
+		}
+		if e := allowance(ctx, nil, "cook", "video"); e != nil {
+			t.Fatalf("PAID_PLANS=%q: %v", setting, e)
+		}
+		if c := capabilities(); c["plans"] != false || c["billing"] != false {
+			t.Fatalf("PAID_PLANS=%q: plans %v, billing %v", setting, c["plans"], c["billing"])
+		}
+	}
+	t.Setenv("PAID_PLANS", "true")
+	if c := capabilities(); c["plans"] != true || c["billing"] != true {
+		t.Fatalf("live catalog: plans %v, billing %v", c["plans"], c["billing"])
+	}
 }
 
 func TestStripeSignature(t *testing.T) {
@@ -82,6 +116,7 @@ func newFakeStripe(t *testing.T) *fakeStripe {
 	old := stripeBase
 	stripeBase = server.URL
 	t.Cleanup(func() { stripeBase = old })
+	t.Setenv("PAID_PLANS", "true")
 	t.Setenv("STRIPE_SECRET_KEY", "sk_test")
 	t.Setenv("STRIPE_WEBHOOK_SECRET", "whsec")
 	t.Setenv("STRIPE_PRICE_PLUS_MONTHLY", "price_plus_m")
@@ -126,6 +161,22 @@ func TestBillingCheckoutWebhookAndPlans(t *testing.T) {
 		status, _ := request("POST", "/billing/webhook", body, map[string]string{"Stripe-Signature": signStripe(body, "whsec", time.Now())})
 		return status
 	}
+
+	// Before the catalog is live, Stripe keys alone list and sell nothing.
+	t.Setenv("PAID_PLANS", "")
+	if status, _ := request("GET", "/billing", nil, nil); status != 404 {
+		t.Fatalf("plans listed before launch: %d", status)
+	}
+	if status, _ := request("POST", "/billing/checkout", jsonBytes(map[string]string{"plan": "plus", "interval": "monthly"}), nil); status != 503 {
+		t.Fatalf("checkout before launch: %d", status)
+	}
+	if status := webhook(map[string]any{"type": "customer.subscription.updated", "data": map[string]any{"object": map[string]any{"id": "sub_new"}}}); status != 404 {
+		t.Fatalf("webhook before launch: %d", status)
+	}
+	if err := allowance(ctx, db, "cook", "video"); err != nil {
+		t.Fatalf("testing plan refused video: %v", err)
+	}
+	t.Setenv("PAID_PLANS", "true")
 
 	if status, _ := request("POST", "/billing/checkout", jsonBytes(map[string]string{"plan": "pro", "interval": "monthly"}), nil); status != 400 {
 		t.Fatalf("unconfigured price accepted: %d", status)
