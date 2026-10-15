@@ -35,9 +35,9 @@ To run the API in Docker: `docker compose --profile full up --build`. Run Expo s
 - Weekly breakfast/lunch/dinner planner, recipe-to-grocery conversion, checked grocery lists, pantry quantities and expiry reminders, and pantry-to-recipe matching.
 - A sous-chef built into the places you cook (home, recipe pages, cooking mode, the editor, pantry and planner) rather than a separate AI page: recipe drafts, one-tap adaptations, ingredient swaps, nutrition estimates, meal plans, cooking questions, cover photos, and Seedance video clips. Durable jobs, visible status/errors, editable results, idempotency, user quotas, and global spend reservations.
 - A general sous-chef one tap away on every screen, by text, live voice, or photo: it knows the recipe and cooking step on screen, finds recipes and cooks, manages cookbooks, the planner, groceries, pantry, reviews and profile diets, creates, edits, publishes and deletes recipes (consequential actions need a yes), and drives the app itself: opening recipes, cooking steps, timers, pages and language. See [sous-chef setup and architecture](docs/RECIPE-STUDIO.md).
-- Cloudflare static-web/API gateway configuration, R2 storage adapter, Neon-compatible migrations, Docker development database/object storage and API build, EAS build profiles, and CI.
+- Cloudflare Worker serving the web app with the Go API as a Container, R2 storage adapter, Cloudflare Email Service password resets, Neon-compatible migrations, Docker development database/object storage and API build, EAS build profiles, and CI that deploys staging and builds the Android staging app from `main`.
 
-The local product works against a real API and database. This is not a published service: no Neon project, Cloudflare deployment, funded AI account, email sender, or app-store release was created. The precise remaining launch work is in [DEPLOYMENT.md](docs/DEPLOYMENT.md).
+Staging runs at [staging.savorly.cooking](https://staging.savorly.cooking) on Cloudflare and Neon, with paid plans off and unlimited free use for testers ([staging](docs/STAGING.md)). Production is not deployed and there is no app-store release; the remaining launch work is in [DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ## Project layout
 
@@ -77,6 +77,7 @@ Browser tests use installed Google Chrome locally and Playwright Chromium in CI.
 - [Plans, pricing and store rules](docs/PRICING.md)
 - [Sign in with Apple and Google](docs/SIGN-IN.md)
 - [Deployment and current launch limits](docs/DEPLOYMENT.md)
+- [Staging deployment and Android test builds](docs/STAGING.md)
 - [AI provider choices, pricing, and reliability](docs/PROVIDERS.md)
 - [Verification record](docs/VERIFICATION.md)
 

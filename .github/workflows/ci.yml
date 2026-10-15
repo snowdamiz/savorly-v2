@@ -68,3 +68,68 @@ jobs:
         with:
           name: browser-failures
           path: apps/mobile/test-results
+  # Staging runs only for main, after verification passes. Setup: docs/STAGING.md.
+  deploy-staging:
+    name: Deploy staging backend
+    needs: verify
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    concurrency: deploy-staging
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            apps/mobile/package-lock.json
+            infra/cloudflare/package-lock.json
+      - run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::error::Add the CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID repository secrets (docs/STAGING.md)."
+            exit 1
+          fi
+      # Code only: Worker secrets uploaded from .env.staging persist across deployments.
+      - run: npm run deploy:staging
+      - name: Wait for the staging API
+        if: vars.STAGING_URL != ''
+        env:
+          STAGING_URL: ${{ vars.STAGING_URL }}
+        run: |
+          for i in $(seq 1 30); do
+            curl -fsS "$STAGING_URL/api/health" && exit 0
+            sleep 10
+          done
+          echo "::error::$STAGING_URL/api/health did not become healthy."
+          exit 1
+  build-android-staging:
+    name: Build staging Android app
+    needs: verify
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/mobile/package-lock.json
+      - run: |
+          if [ -z "$EXPO_TOKEN" ]; then
+            echo "::error::Add the EXPO_TOKEN repository secret (docs/STAGING.md)."
+            exit 1
+          fi
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+      - uses: expo/expo-github-action@v9
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+      - run: npm ci
+        working-directory: apps/mobile
+      # Queues the build on EAS and returns; the install link appears on expo.dev and in Expo's email.
+      - run: eas build --platform android --profile staging --non-interactive --no-wait
+        working-directory: apps/mobile

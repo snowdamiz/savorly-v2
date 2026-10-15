@@ -58,7 +58,7 @@ const appleScript = `window.AppleID = { auth: {
   init(o) { window.__apple = o; },
   async signIn() { return { authorization: { id_token: 'apple-id-token:' + window.__apple.nonce, code: 'apple-code' }, user: { name: { firstName: 'Alex', lastName: 'Cook' } } }; } } };`;
 
-async function mockAccounts(page: Page, signedIn: boolean) {
+async function mockAccounts(page: Page, signedIn: boolean, catalogLive = true) {
   const posts: { path: string; body: unknown }[] = [];
   let nonces = 0;
   let session = signedIn;
@@ -82,6 +82,7 @@ async function mockAccounts(page: Page, signedIn: boolean) {
     if (path === '/capabilities')
       return fulfill({
         textAI: true,
+        plans: catalogLive,
         billing: true,
         appleSignIn: true,
         googleSignIn: true,
@@ -171,4 +172,11 @@ test('plans show usage and sell through Stripe checkout on the web', async ({ pa
     plan: 'plus',
     interval: 'monthly',
   });
+});
+
+test('plans stay hidden until the catalog is live', async ({ page }) => {
+  await mockAccounts(page, true, false);
+  await page.goto('/?page=profile');
+  await expect(page.getByText('Sign-in methods', { exact: true })).toBeVisible();
+  await expect(page.getByText('Your plan', { exact: true })).toHaveCount(0);
 });

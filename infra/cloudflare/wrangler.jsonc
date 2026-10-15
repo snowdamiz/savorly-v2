@@ -1,15 +1,93 @@
+// The Worker serves the exported web app and runs the Go API (services/api) as a Cloudflare
+// Container behind /api. Account-specific values and credentials are Worker secrets, passed
+// to the container with these vars (see docs/STAGING.md). Bindings and vars do not inherit
+// into environments, so each environment declares its own.
 {
   "name": "savorly",
   "main": "worker.ts",
   "compatibility_date": "2026-10-02",
+  // Custom domains: wrangler deploy creates their DNS records and certificates.
+  "routes": [{ "pattern": "savorly.cooking", "custom_domain": true }],
   "assets": {
     "directory": "../../apps/mobile/dist",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
     "run_worker_first": true
   },
-  "vars": {
-    "API_ORIGIN": "https://api.example.com"
+  "exports": {
+    "SavorlyApi": { "type": "durable-object", "storage": "sqlite" }
   },
-  "observability": { "enabled": true }
+  "containers": [
+    {
+      "class_name": "SavorlyApi",
+      "image": "../../services/api/Dockerfile",
+      "instance_type": "basic",
+      "max_instances": 2
+    }
+  ],
+  "durable_objects": {
+    "bindings": [{ "name": "API", "class_name": "SavorlyApi" }]
+  },
+  "vars": {
+    "APP_ENV": "production",
+    "SEED_DATA": "false",
+    // Unlimited Free for everyone, no prices or Stripe, until plans launch (docs/PRICING.md).
+    "PAID_PLANS": "false",
+    "TRUSTED_PROXY_HEADER": "X-Savorly-Client-IP",
+    "S3_REGION": "auto",
+    "S3_BUCKET": "savorly-media",
+    "S3_SOURCE_BUCKET": "savorly-sources",
+    "S3_FORCE_PATH_STYLE": "true",
+    "OPENROUTER_TEXT_MODEL": "openai/gpt-6-luna",
+    "OPENROUTER_RECIPE_MODEL": "openai/gpt-6.1-sol",
+    "OPENROUTER_AGENT_MODEL": "openai/gpt-6-luna",
+    "OPENROUTER_IMAGE_MODEL": "openai/gpt-image-2.5-flare",
+    "OPENROUTER_TTS_VOICE": "sarah",
+    "REAPI_VIDEO_MODEL": "doubao-seedance-2.5-eco",
+    "OPENAI_LIVE_MODEL": "gpt-live-1",
+    "OPENAI_LIVE_VOICE": "gleam",
+    "AI_FREE_DAILY_BUDGET_USD": "5",
+    "AI_DAILY_BUDGET_USD": "25"
+  },
+  "observability": { "enabled": true },
+  "env": {
+    "staging": {
+      "name": "savorly-staging",
+      "routes": [{ "pattern": "staging.savorly.cooking", "custom_domain": true }],
+      "containers": [
+        {
+          "class_name": "SavorlyApi",
+          "image": "../../services/api/Dockerfile",
+          "instance_type": "basic",
+          "max_instances": 2
+        }
+      ],
+      "durable_objects": {
+        "bindings": [{ "name": "API", "class_name": "SavorlyApi" }]
+      },
+      "vars": {
+        "APP_ENV": "production",
+        // Fixture recipes and creators so a fresh staging kitchen has something to browse.
+        "SEED_DATA": "true",
+        // Testing: unlimited Free for everyone, no prices or Stripe (docs/PRICING.md).
+        "PAID_PLANS": "false",
+        "TRUSTED_PROXY_HEADER": "X-Savorly-Client-IP",
+        "S3_REGION": "auto",
+        "S3_BUCKET": "savorly-staging-media",
+        "S3_SOURCE_BUCKET": "savorly-staging-sources",
+        "S3_FORCE_PATH_STYLE": "true",
+        "OPENROUTER_TEXT_MODEL": "openai/gpt-6-luna",
+        "OPENROUTER_RECIPE_MODEL": "openai/gpt-6.1-sol",
+        "OPENROUTER_AGENT_MODEL": "openai/gpt-6-luna",
+        "OPENROUTER_IMAGE_MODEL": "openai/gpt-image-2.5-flare",
+        "OPENROUTER_TTS_VOICE": "sarah",
+        "REAPI_VIDEO_MODEL": "doubao-seedance-2.5-eco",
+        "OPENAI_LIVE_MODEL": "gpt-live-1",
+        "OPENAI_LIVE_VOICE": "gleam",
+        // With no per-member limits, these shared daily ceilings are the only spend guard.
+        "AI_FREE_DAILY_BUDGET_USD": "10",
+        "AI_DAILY_BUDGET_USD": "10"
+      }
+    }
+  }
 }

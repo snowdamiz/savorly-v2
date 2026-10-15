@@ -3,6 +3,8 @@ package app
 import (
 	"context"
 	"fmt"
+	"math"
+	"os"
 	"strconv"
 
 	"github.com/gofiber/fiber/v3"
@@ -31,6 +33,14 @@ var plans = []Plan{
 	{ID: "plus", MonthlyUSD: 9.99, YearlyUSD: 79.99, Assistant: 80, VoiceMinutes: 20, Images: 6, Videos: 0, Narration: 30, SpendCap: 3.80},
 	{ID: "pro", MonthlyUSD: 19.99, YearlyUSD: 159.99, Assistant: 130, VoiceMinutes: 40, Images: 10, Videos: 1, Narration: 30, SpendCap: 7.65},
 }
+
+// paidPlans reports whether the plan catalog is live (PAID_PLANS=true): Free allowances
+// apply, and Plus and Pro are listed and sold once Stripe is configured. Until then, during
+// testing, every member gets unlimitedFree, bounded only by the daily AI budgets, and
+// Stripe is unused even if its keys are set.
+func paidPlans() bool { return os.Getenv("PAID_PLANS") == "true" }
+
+var unlimitedFree = Plan{ID: "free", Assistant: math.MaxInt32, VoiceMinutes: math.MaxInt32, Images: math.MaxInt32, Videos: math.MaxInt32, Narration: math.MaxInt32, SpendCap: math.Inf(1)}
 
 // Conservative per-charge fees: Stripe cards 2.9% + $0.30, Billing 0.7% and Tax 0.5%, with
 // room for Managed Payments (+3.5%), international cards and conversion, and ~1% refunds
@@ -87,6 +97,9 @@ type querier interface {
 }
 
 func planOf(ctx context.Context, q querier, owner string) (Plan, error) {
+	if !paidPlans() {
+		return unlimitedFree, nil
+	}
 	var id string
 	e := q.QueryRow(ctx, `SELECT `+effectivePlanSQL+` FROM users u WHERE u.id=$1`, owner).Scan(&id)
 	return planByID(id), e
@@ -121,6 +134,9 @@ func usageOf(ctx context.Context, q querier, owner string) (usage, error) {
 // when the plan's 30-day allowance is used. The message stays neutral: whether the app
 // may offer an upgrade depends on the storefront, which only the client knows.
 func allowance(ctx context.Context, q querier, owner, kind string) error {
+	if !paidPlans() {
+		return nil
+	}
 	p, e := planOf(ctx, q, owner)
 	if e != nil {
 		return e

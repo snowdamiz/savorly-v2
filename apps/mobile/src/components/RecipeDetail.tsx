@@ -35,7 +35,7 @@ import {
   Users,
 } from 'lucide-react-native';
 import { AIRequest, CookCommand, Creator, Recipe, Review } from '../lib/types';
-import { api } from '../lib/api';
+import { api, WEB_URL } from '../lib/api';
 import { useApp } from '../lib/store';
 import { color, font, radius, s } from '../lib/theme';
 import {
@@ -735,7 +735,7 @@ export function RecipeDetail({
               onPress={() =>
                 void app.act(async () => {
                   await Share.share({
-                    message: `${recipe.title} — ${recipe.minutes} minutes. ${typeof window !== 'undefined' && window.location ? window.location.origin : 'https://savorly.app'}/?recipe=${recipe.id}`,
+                    message: `${recipe.title} — ${recipe.minutes} minutes. ${WEB_URL}/?recipe=${recipe.id}`,
                   });
                 })
               }

@@ -1,6 +1,11 @@
 import { Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 export const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:8080';
+/** Where shared recipe links open: the current site on the web, the build's web app on native. */
+export const WEB_URL =
+  Platform.OS === 'web' && typeof window !== 'undefined'
+    ? window.location.origin
+    : process.env.EXPO_PUBLIC_WEB_URL || 'https://savorly.cooking';
 let nativeToken: string | null = null;
 // Audio requests use bearer auth on native and HttpOnly cookies on web.
 export function sessionHeaders(): Record<string, string> {

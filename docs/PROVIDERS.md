@@ -50,4 +50,4 @@ AI output is always editable before publishing, recipes/media carry an AI disclo
 
 ## Optional email
 
-Password recovery uses [Resend's `/emails` endpoint](https://resend.com/docs/api-reference/emails/send-email) with an independently verified sender domain. Codes are random, hashed in Postgres, expire in fifteen minutes, and permit five failed attempts. A successful reset invalidates every account session. Resend is disabled until `RESEND_API_KEY` and `EMAIL_FROM` are supplied. No recovery email was sent during development.
+Password recovery uses [Cloudflare Email Service's send endpoint](https://developers.cloudflare.com/email-service/get-started/send-emails/) with a domain onboarded in the same Cloudflare account; Workers Paid includes 3,000 emails a month. Codes are random, hashed in Postgres, expire in fifteen minutes, and permit five failed attempts. A successful reset invalidates every account session. Recovery is disabled until `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_EMAIL_API_TOKEN` and `EMAIL_FROM` are supplied. No recovery email was sent during development.

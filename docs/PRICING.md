@@ -2,9 +2,15 @@
 
 Checked October 3, 2026. Prices are USD. Re-check provider prices and store rules before launch and at least quarterly; `services/api/internal/app/pricing_test.go` fails if a change to prices, allowances, or cost estimates makes a plan unprofitable.
 
+## Before launch: unlimited Free
+
+Paid plans are off until `PAID_PLANS=true`. Until then every member is on Free with no allowances or `SpendCap`; only the shared daily budgets (`AI_FREE_DAILY_BUDGET_USD`, `AI_DAILY_BUDGET_USD`) bound AI spend. The app hides the plan card, `/v1/billing` returns 404, and checkout and the Stripe webhook are closed even if Stripe keys are set, so no Stripe account is needed. Videos are included when `REAPI_API_KEY` is set, and recipes made with the sous-chef then generate one automatically, at about $1.50 each against the daily budget.
+
+To launch: configure Stripe ([accounts](ACCOUNTS.md#6-stripe--subscriptions)), set `PAID_PLANS=true`, and size the daily budgets for the table below.
+
 ## Plans
 
-Allowances cover a rolling 30 days.
+Allowances cover a rolling 30 days once `PAID_PLANS=true`.
 
 |                                       |  Free |             Plus |               Pro |
 | ------------------------------------- | ----: | ---------------: | ----------------: |
@@ -81,7 +87,7 @@ STRIPE_PRICE_PLUS_YEARLY=price_...
 STRIPE_PRICE_PRO_MONTHLY=price_...
 STRIPE_PRICE_PRO_YEARLY=price_...
 STRIPE_AUTOMATIC_TAX=true   # after registering for tax where required
-APP_URL=https://savorly.app # where checkout returns
+APP_URL=https://savorly.cooking # where checkout returns
 AI_FREE_DAILY_BUDGET_USD=5
 AI_DAILY_BUDGET_USD=25
 ```

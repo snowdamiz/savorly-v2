@@ -3,6 +3,17 @@
   "build": {
     "development": { "developmentClient": true, "distribution": "internal" },
     "preview": { "distribution": "internal", "android": { "buildType": "apk" } },
+    "staging": {
+      "distribution": "internal",
+      "environment": "preview",
+      "autoIncrement": true,
+      "env": {
+        "APP_VARIANT": "staging",
+        "EXPO_PUBLIC_API_URL": "https://staging.savorly.cooking/api",
+        "EXPO_PUBLIC_WEB_URL": "https://staging.savorly.cooking"
+      },
+      "android": { "buildType": "apk" }
+    },
     "production": { "autoIncrement": true }
   },
   "submit": { "production": {} }
