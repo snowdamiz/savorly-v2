@@ -1,10 +1,10 @@
 import { useI18n } from '../lib/i18n';
 import React, { useEffect, useRef, useState } from 'react';
-import { Text, View } from 'react-native';
-import Svg, { Path } from 'react-native-svg';
+import { View } from 'react-native';
 import { useApp } from '../lib/store';
 import { issueNonce, Provider, ProviderToken, SocialButtonsProps } from '../lib/auth/provider';
-import { font } from '../lib/theme';
+import { color, radius } from '../lib/theme';
+import { ProviderFace, providerButton } from './ProviderFace';
 import { Press } from './ui';
 
 type GoogleIdentity = {
@@ -47,8 +47,47 @@ function load(src: string) {
   return scripts[src];
 }
 
-// The web offers both: Google Identity Services draws its own button (that's how it hands
-// back an ID token), and Sign in with Apple JS runs in a popup.
+// Google's button stays the control (it is how Google hands back an ID token), drawn invisibly over
+// the app's own face and stretched to its size, so the click, keyboard focus and screen-reader
+// label are Google's while the look is ours. Hover and focus show through the wrapper.
+let chromeStyled = false;
+function styleGoogleChrome() {
+  if (chromeStyled) return;
+  chromeStyled = true;
+  const sheet = document.createElement('style');
+  sheet.textContent = `@media (hover:hover){[data-google-button]:hover{background-color:${color.bg}!important}}
+[data-google-button]:focus-within{outline:2px solid ${color.ink};outline-offset:3px}`;
+  document.head.appendChild(sheet);
+}
+// Fits Google's clickable button onto the host: its frame once loaded (less the margins Google pads
+// it with), or the placeholder it draws until then.
+function stretch(host: HTMLElement) {
+  const inner = host.firstElementChild as HTMLElement | null;
+  if (!inner) return;
+  inner.style.transform = '';
+  const origin = inner.getBoundingClientRect();
+  const frame = inner.querySelector('iframe');
+  let target: DOMRect | undefined;
+  if (frame) {
+    const r = frame.getBoundingClientRect();
+    const m = getComputedStyle(frame);
+    const dx = Math.max(0, -parseFloat(m.marginLeft) || 0);
+    const dy = Math.max(0, -parseFloat(m.marginTop) || 0);
+    if (r.width > dx * 2 && r.height > dy * 2)
+      target = new DOMRect(r.x + dx, r.y + dy, r.width - dx * 2, r.height - dy * 2);
+  }
+  if (!target) {
+    const placeholder = inner.querySelector<HTMLElement>('[style*="width"]') ?? inner;
+    target = placeholder.getBoundingClientRect();
+  }
+  if (!target.width || !target.height) return;
+  const sx = host.clientWidth / target.width;
+  const sy = host.clientHeight / target.height;
+  inner.style.transformOrigin = '0 0';
+  inner.style.transform = `translate(${-(target.x - origin.x) * sx}px, ${-(target.y - origin.y) * sy}px) scale(${sx}, ${sy})`;
+}
+
+// The web offers both: Google Identity Services (see above), and Sign in with Apple JS in a popup.
 export function SocialButtons({ only, onToken, onError, children }: SocialButtonsProps) {
   const { t: tr, language } = useI18n();
   const caps = useApp().capabilities;
@@ -57,7 +96,9 @@ export function SocialButtons({ only, onToken, onError, children }: SocialButton
   const google = caps?.googleSignIn && !!auth?.googleWebClientId && allowed('google');
   const apple =
     caps?.appleSignIn && !!auth?.appleServicesId && !!auth?.appleRedirectUri && allowed('apple');
+  const frame = useRef<View>(null);
   const host = useRef<View>(null);
+  const [width, setWidth] = useState(0);
   // Each nonce works once, so Google's button is re-armed after every attempt.
   const [attempt, setAttempt] = useState(0);
   const handlers = useRef({ onToken, onError });
@@ -66,12 +107,16 @@ export function SocialButtons({ only, onToken, onError, children }: SocialButton
   });
   const clientId = auth?.googleWebClientId;
   useEffect(() => {
-    if (!google || !clientId) return;
+    if (!google || !clientId || !width) return;
     let live = true;
+    let watch: MutationObserver | undefined;
+    const timers: ReturnType<typeof setTimeout>[] = [];
     void Promise.all([load('https://accounts.google.com/gsi/client'), issueNonce()])
       .then(([, nonce]) => {
         const el = host.current as unknown as HTMLElement | null;
         if (!live || !el || !window.google) return;
+        styleGoogleChrome();
+        (frame.current as unknown as HTMLElement | null)?.setAttribute('data-google-button', '');
         window.google.accounts.id.initialize({
           client_id: clientId,
           nonce,
@@ -89,15 +134,22 @@ export function SocialButtons({ only, onToken, onError, children }: SocialButton
           size: 'large',
           text: 'continue_with',
           shape: 'pill',
-          width: 300,
+          width: Math.min(400, width),
           locale: language,
         });
+        // Google fills in its frame asynchronously, so it's fitted again as it arrives.
+        stretch(el);
+        watch = new MutationObserver(() => stretch(el));
+        watch.observe(el, { childList: true, subtree: true });
+        timers.push(...[150, 600, 1500].map((ms) => setTimeout(() => stretch(el), ms)));
       })
       .catch((e) => live && handlers.current.onError((e as Error).message));
     return () => {
       live = false;
+      watch?.disconnect();
+      timers.forEach(clearTimeout);
     };
-  }, [google, clientId, attempt, language]);
+  }, [google, clientId, attempt, language, width]);
   const signInWithApple = async () => {
     try {
       await load(
@@ -134,29 +186,34 @@ export function SocialButtons({ only, onToken, onError, children }: SocialButton
           accessibilityRole="button"
           accessibilityLabel={tr('Continue with Apple')}
           onPress={() => void signInWithApple()}
-          style={{
-            width: 300,
-            height: 44,
-            borderRadius: 22,
-            backgroundColor: '#000',
-            flexDirection: 'row',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: 8,
-          }}
+          scale={0.97}
+          style={providerButton('apple')}
         >
-          <Svg width={16} height={19} viewBox="0 0 814 1000">
-            <Path
-              fill="#fff"
-              d="M788 341c-6 4-108 62-108 190 0 148 130 200 134 202-1 3-21 72-69 142-43 62-88 124-156 124s-86-40-165-40c-77 0-104 41-166 41s-106-57-156-127C44 791 0 666 0 548c0-191 124-292 246-292 65 0 119 43 160 43 39 0 100-45 174-45 28 0 129 3 208 87zM555 159c31-36 52-87 52-138 0-7-1-14-2-20-50 2-109 33-145 75-28 32-55 83-55 135 0 8 1 15 2 18 3 1 8 1 13 1 45 0 101-30 135-71z"
-            />
-          </Svg>
-          <Text style={{ color: '#fff', fontFamily: font.semibold, fontSize: 16 }}>
-            {tr('Continue with Apple')}
-          </Text>
+          <ProviderFace provider="apple" title={tr('Continue with Apple')} />
         </Press>
       )}
-      {google && <View ref={host} style={{ minHeight: 44, width: 300 }} />}
+      {google && (
+        <View
+          ref={frame}
+          onLayout={(e) => setWidth(Math.round(e.nativeEvent.layout.width))}
+          style={[providerButton('google'), { cursor: 'pointer' }]}
+        >
+          <ProviderFace provider="google" title={tr('Continue with Google')} />
+          <View
+            ref={host}
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              borderRadius: radius.pill,
+              overflow: 'hidden',
+              opacity: 0,
+            }}
+          />
+        </View>
+      )}
       {children}
     </View>
   );

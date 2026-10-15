@@ -680,5 +680,16 @@
   "Dismiss announcement": "Закрыть объявление",
   "This account is suspended. Contact Savorly support if you think this is a mistake.": "Этот аккаунт заблокирован. Если вы считаете, что это ошибка, обратитесь в поддержку Savorly.",
   "New sign-ups are paused right now. Please try again later.": "Регистрация новых аккаунтов сейчас приостановлена. Попробуйте позже.",
-  "AI features are paused for maintenance. Your conversation and drafts are saved; please try again later.": "Функции ИИ приостановлены на время технических работ. Ваш разговор и черновики сохранены; попробуйте позже."
+  "AI features are paused for maintenance. Your conversation and drafts are saved; please try again later.": "Функции ИИ приостановлены на время технических работ. Ваш разговор и черновики сохранены; попробуйте позже.",
+  "Checking…": "Проверяем…",
+  "@{{v0}} is available.": "@{{v0}} свободно.",
+  "That username is taken.": "Это имя пользователя уже занято.",
+  "We’ll check it when you save.": "Проверим при сохранении.",
+  "Usernames use 3–24 lowercase letters, numbers, dots or underscores.": "Имя пользователя: 3–24 строчные латинские буквы, цифры, точки или подчёркивания.",
+  "Username": "Имя пользователя",
+  "Welcome to the table, @{{v0}}.": "Добро пожаловать к столу, @{{v0}}.",
+  "Pick your username": "Выберите имя пользователя",
+  "It’s how other cooks find you and see your recipes. You can change it anytime in My kitchen.": "По нему другие кулинары находят вас и ваши рецепты. Его можно изменить в любой момент в разделе «Моя кухня».",
+  "Save username": "Сохранить имя пользователя",
+  "Keep @{{v0}}": "Оставить @{{v0}}"
 }

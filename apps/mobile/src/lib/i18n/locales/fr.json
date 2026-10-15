@@ -680,5 +680,16 @@
   "Dismiss announcement": "Fermer l’annonce",
   "This account is suspended. Contact Savorly support if you think this is a mistake.": "Ce compte est suspendu. Contactez l’assistance Savorly si vous pensez qu’il s’agit d’une erreur.",
   "New sign-ups are paused right now. Please try again later.": "Les nouvelles inscriptions sont suspendues pour le moment. Réessayez plus tard.",
-  "AI features are paused for maintenance. Your conversation and drafts are saved; please try again later.": "Les fonctions d’IA sont en pause pour maintenance. Votre conversation et vos brouillons sont enregistrés ; réessayez plus tard."
+  "AI features are paused for maintenance. Your conversation and drafts are saved; please try again later.": "Les fonctions d’IA sont en pause pour maintenance. Votre conversation et vos brouillons sont enregistrés ; réessayez plus tard.",
+  "Checking…": "Vérification…",
+  "@{{v0}} is available.": "@{{v0}} est disponible.",
+  "That username is taken.": "Ce nom d’utilisateur est déjà pris.",
+  "We’ll check it when you save.": "Nous le vérifierons à l’enregistrement.",
+  "Usernames use 3–24 lowercase letters, numbers, dots or underscores.": "Les noms d’utilisateur comptent 3 à 24 lettres minuscules, chiffres, points ou tirets bas.",
+  "Username": "Nom d’utilisateur",
+  "Welcome to the table, @{{v0}}.": "Bienvenue à table, @{{v0}}.",
+  "Pick your username": "Choisissez votre nom d’utilisateur",
+  "It’s how other cooks find you and see your recipes. You can change it anytime in My kitchen.": "C’est ainsi que les autres cuisiniers vous trouvent et voient vos recettes. Vous pouvez le changer à tout moment dans Ma cuisine.",
+  "Save username": "Enregistrer le nom d’utilisateur",
+  "Keep @{{v0}}": "Garder @{{v0}}"
 }

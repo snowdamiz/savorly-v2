@@ -680,5 +680,16 @@
   "Dismiss announcement": "Dismiss announcement",
   "This account is suspended. Contact Savorly support if you think this is a mistake.": "This account is suspended. Contact Savorly support if you think this is a mistake.",
   "New sign-ups are paused right now. Please try again later.": "New sign-ups are paused right now. Please try again later.",
-  "AI features are paused for maintenance. Your conversation and drafts are saved; please try again later.": "AI features are paused for maintenance. Your conversation and drafts are saved; please try again later."
+  "AI features are paused for maintenance. Your conversation and drafts are saved; please try again later.": "AI features are paused for maintenance. Your conversation and drafts are saved; please try again later.",
+  "Checking…": "Checking…",
+  "@{{v0}} is available.": "@{{v0}} is available.",
+  "That username is taken.": "That username is taken.",
+  "We’ll check it when you save.": "We’ll check it when you save.",
+  "Usernames use 3–24 lowercase letters, numbers, dots or underscores.": "Usernames use 3–24 lowercase letters, numbers, dots or underscores.",
+  "Username": "Username",
+  "Welcome to the table, @{{v0}}.": "Welcome to the table, @{{v0}}.",
+  "Pick your username": "Pick your username",
+  "It’s how other cooks find you and see your recipes. You can change it anytime in My kitchen.": "It’s how other cooks find you and see your recipes. You can change it anytime in My kitchen.",
+  "Save username": "Save username",
+  "Keep @{{v0}}": "Keep @{{v0}}"
 }

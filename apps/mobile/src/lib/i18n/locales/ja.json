@@ -680,5 +680,16 @@
   "Dismiss announcement": "お知らせを閉じる",
   "This account is suspended. Contact Savorly support if you think this is a mistake.": "このアカウントは停止されています。誤りだと思われる場合は、Savorlyサポートにお問い合わせください。",
   "New sign-ups are paused right now. Please try again later.": "現在、新規登録を一時停止しています。しばらくしてからもう一度お試しください。",
-  "AI features are paused for maintenance. Your conversation and drafts are saved; please try again later.": "AI機能はメンテナンスのため一時停止しています。会話と下書きは保存されています。しばらくしてからもう一度お試しください。"
+  "AI features are paused for maintenance. Your conversation and drafts are saved; please try again later.": "AI機能はメンテナンスのため一時停止しています。会話と下書きは保存されています。しばらくしてからもう一度お試しください。",
+  "Checking…": "確認中…",
+  "@{{v0}} is available.": "@{{v0}} は使えます。",
+  "That username is taken.": "このユーザー名はすでに使われています。",
+  "We’ll check it when you save.": "保存するときに確認します。",
+  "Usernames use 3–24 lowercase letters, numbers, dots or underscores.": "ユーザー名は3〜24文字の小文字の英字、数字、ピリオド、アンダースコアで作れます。",
+  "Username": "ユーザー名",
+  "Welcome to the table, @{{v0}}.": "ようこそ、@{{v0}} さん。",
+  "Pick your username": "ユーザー名を選びましょう",
+  "It’s how other cooks find you and see your recipes. You can change it anytime in My kitchen.": "ほかの料理好きがあなたやレシピを見つけるときの名前です。マイキッチンでいつでも変更できます。",
+  "Save username": "ユーザー名を保存",
+  "Keep @{{v0}}": "@{{v0}} のままにする"
 }

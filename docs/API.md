@@ -7,7 +7,7 @@ The browser authenticates with an HttpOnly session cookie and `credentials: incl
 | Area | Endpoints |
 | --- | --- |
 | Auth | `POST /auth/register`, `/auth/login`, `/auth/logout`, `/auth/forgot`, `/auth/reset` |
-| Account | `GET /me`, `PATCH /me`, `DELETE /me` (requires current password) |
+| Account | `GET /me`, `PATCH /me`, `DELETE /me` (requires current password), `GET /handles/:handle` |
 | Recipes | `GET /recipes`, `GET /recipes/:id`, `POST /recipes`, `PUT /recipes/:id`, `DELETE /recipes/:id` |
 | Reviews and reports | `GET /recipes/:id/reviews`, `PUT /recipes/:id/review`, `POST /recipes/:id/report` |
 | Creators | `GET /creators`, `GET /creators/:id`, `PUT` or `DELETE /creators/:id/follow` |
@@ -17,6 +17,12 @@ The browser authenticates with an HttpOnly session cookie and `credentials: incl
 | Media | `POST /media` with multipart field `file` |
 | AI | `GET /capabilities`, `GET /ai/jobs`, `POST /ai/jobs` |
 | Admin | `/admin/*` for admins only; see [admin console](ADMIN.md#api) |
+
+## Usernames
+
+A handle is 3–24 lowercase letters, digits, dots or underscores that starts and ends with a letter or digit, with no two dots in a row; a few names that would read as Savorly itself are reserved. New kitchens get one from their name (`alexrivera`, or `alexrivera42` when that's taken), and registration and a first Apple or Google sign-in answer `"created": true` so the app can offer to change it straight away.
+
+`PATCH /me` takes an optional `handle` (a leading `@` and capitals are normalized). Left out or unchanged, the current handle stays, including older generated ones the rules above would reject. An invalid handle is `400`, a taken or reserved one `409`. `GET /handles/:handle` answers `{ "handle", "valid", "available" }` while someone types; their own handle counts as available.
 
 ## Discovery
 

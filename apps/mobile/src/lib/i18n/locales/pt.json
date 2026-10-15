@@ -680,5 +680,16 @@
   "Dismiss announcement": "Fechar aviso",
   "This account is suspended. Contact Savorly support if you think this is a mistake.": "Esta conta está suspensa. Fale com o suporte do Savorly se achar que isso é um erro.",
   "New sign-ups are paused right now. Please try again later.": "Novos cadastros estão pausados no momento. Tente novamente mais tarde.",
-  "AI features are paused for maintenance. Your conversation and drafts are saved; please try again later.": "Os recursos de IA estão pausados para manutenção. Sua conversa e seus rascunhos estão salvos; tente novamente mais tarde."
+  "AI features are paused for maintenance. Your conversation and drafts are saved; please try again later.": "Os recursos de IA estão pausados para manutenção. Sua conversa e seus rascunhos estão salvos; tente novamente mais tarde.",
+  "Checking…": "Verificando…",
+  "@{{v0}} is available.": "@{{v0}} está disponível.",
+  "That username is taken.": "Esse nome de usuário já está em uso.",
+  "We’ll check it when you save.": "Vamos verificar quando você salvar.",
+  "Usernames use 3–24 lowercase letters, numbers, dots or underscores.": "Nomes de usuário usam de 3 a 24 letras minúsculas, números, pontos ou sublinhados.",
+  "Username": "Nome de usuário",
+  "Welcome to the table, @{{v0}}.": "Boas-vindas à mesa, @{{v0}}.",
+  "Pick your username": "Escolha seu nome de usuário",
+  "It’s how other cooks find you and see your recipes. You can change it anytime in My kitchen.": "É assim que outros cozinheiros encontram você e veem suas receitas. Você pode mudar quando quiser em Minha cozinha.",
+  "Save username": "Salvar nome de usuário",
+  "Keep @{{v0}}": "Manter @{{v0}}"
 }

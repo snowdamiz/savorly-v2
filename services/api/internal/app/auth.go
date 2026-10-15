@@ -39,7 +39,10 @@ func (a *App) requireAuth(c fiber.Ctx) error {
 	c.Locals("userID", id)
 	return c.Next()
 }
-func (a *App) session(c fiber.Ctx, id string) error {
+
+// session signs the device in. `created` tells the app this is a brand-new kitchen, so it can offer
+// to pick a username before anything else.
+func (a *App) session(c fiber.Ctx, id string, created bool) error {
 	// Every sign-in path ends here, after the credentials were checked.
 	var suspended bool
 	if e := a.DB.QueryRow(c.Context(), `SELECT suspended_at IS NOT NULL FROM users WHERE id=$1`, id).Scan(&suspended); e != nil {
@@ -59,10 +62,14 @@ func (a *App) session(c fiber.Ctx, id string) error {
 	}
 	c.Cookie(&fiber.Cookie{Name: "savorly_session", Value: t, HTTPOnly: true, Secure: a.Config.Production, SameSite: "Lax", Path: "/", MaxAge: 30 * 86400})
 	// Browser tokens stay in HttpOnly cookies; only non-browser clients receive bearer tokens.
-	if c.Get("Origin") != "" {
-		return c.JSON(fiber.Map{"ok": true})
+	out := fiber.Map{"ok": true}
+	if created {
+		out["created"] = true
 	}
-	return c.JSON(fiber.Map{"ok": true, "token": t})
+	if c.Get("Origin") == "" {
+		out["token"] = t
+	}
+	return c.JSON(out)
 }
 func (a *App) register(c fiber.Ctx) error {
 	var in struct{ Name, Email, Password string }
@@ -82,15 +89,26 @@ func (a *App) register(c fiber.Ctx) error {
 		return e
 	}
 	id := uuid.NewString()
-	_, e = a.DB.Exec(c.Context(), `INSERT INTO users(id,email,password_hash,name,handle) VALUES($1,$2,$3,$4,$5)`, id, in.Email, string(hash), strings.TrimSpace(in.Name), newHandle(in.Name, id))
-	if e != nil {
+	// A suggested handle can be claimed by a sign-up racing this one; pick again if so.
+	for try := 0; ; try++ {
+		handle, e := freeHandle(c.Context(), a.DB, in.Name)
+		if e != nil {
+			return e
+		}
+		_, e = a.DB.Exec(c.Context(), `INSERT INTO users(id,email,password_hash,name,handle) VALUES($1,$2,$3,$4,$5)`, id, in.Email, string(hash), strings.TrimSpace(in.Name), handle)
+		if e == nil {
+			break
+		}
+		if handleConflict(e) && try < 2 {
+			continue
+		}
 		var pe *pgconn.PgError
 		if errors.As(e, &pe) && pe.Code == "23505" {
 			return fiber.NewError(409, "An account with that email already exists.")
 		}
 		return e
 	}
-	return a.session(c, id)
+	return a.session(c, id, true)
 }
 
 func (a *App) signupsOpen(ctx context.Context) error {
@@ -102,10 +120,6 @@ func (a *App) signupsOpen(ctx context.Context) error {
 		return fiber.NewError(403, signupsPausedMessage)
 	}
 	return nil
-}
-
-func newHandle(name, id string) string {
-	return strings.ToLower(strings.Join(strings.Fields(name), "")) + "-" + id[:6]
 }
 
 var dummyHash, _ = bcrypt.GenerateFromPassword([]byte("not-a-real-password"), 12)
@@ -138,7 +152,7 @@ func (a *App) login(c fiber.Ctx) error {
 	if bcrypt.CompareHashAndPassword([]byte(hash), []byte(in.Password)) != nil {
 		return fiber.NewError(401, "Email or password is incorrect.")
 	}
-	return a.session(c, id)
+	return a.session(c, id, false)
 }
 func (a *App) logout(c fiber.Ctx) error {
 	_, e := a.DB.Exec(c.Context(), `DELETE FROM sessions WHERE token_hash=$1`, hashToken(token(c)))
@@ -157,10 +171,26 @@ func (a *App) me(c fiber.Ctx) error {
 func (a *App) updateMe(c fiber.Ctx) error {
 	var in struct {
 		Name, Bio, Avatar string
-		Preferences       struct{ Diets, Allergies []string }
+		// Left out (or unchanged), the handle stays as it is, including older generated ones.
+		Handle      *string
+		Preferences struct{ Diets, Allergies []string }
 	}
 	if e := decode(c, &in); e != nil {
 		return e
+	}
+	var current string
+	if e := a.DB.QueryRow(c.Context(), `SELECT handle FROM users WHERE id=$1`, userID(c)).Scan(&current); e != nil {
+		return e
+	}
+	handle := current
+	if in.Handle != nil && normalizeHandle(*in.Handle) != current {
+		handle = normalizeHandle(*in.Handle)
+		if !validHandle(handle) {
+			return fiber.NewError(400, handleRules)
+		}
+		if reservedHandles[handle] {
+			return fiber.NewError(409, handleTaken)
+		}
 	}
 	if !validText(in.Name, 2, 70) || len(in.Bio) > 1000 || !validMedia(in.Avatar) || len(in.Preferences.Diets) > 12 || len(in.Preferences.Allergies) > 20 {
 		return fiber.NewError(400, "Check your profile fields.")
@@ -170,7 +200,10 @@ func (a *App) updateMe(c fiber.Ctx) error {
 			return fiber.NewError(400, "Preference labels are too long.")
 		}
 	}
-	_, e := a.DB.Exec(c.Context(), `UPDATE users SET name=$2,bio=$3,avatar=$4,preferences=$5 WHERE id=$1`, userID(c), strings.TrimSpace(in.Name), in.Bio, in.Avatar, jsonBytes(fiber.Map{"diets": in.Preferences.Diets, "allergies": in.Preferences.Allergies}))
+	_, e := a.DB.Exec(c.Context(), `UPDATE users SET name=$2,bio=$3,avatar=$4,preferences=$5,handle=$6 WHERE id=$1`, userID(c), strings.TrimSpace(in.Name), in.Bio, in.Avatar, jsonBytes(fiber.Map{"diets": in.Preferences.Diets, "allergies": in.Preferences.Allergies}), handle)
+	if handleConflict(e) {
+		return fiber.NewError(409, handleTaken)
+	}
 	if e != nil {
 		return e
 	}
