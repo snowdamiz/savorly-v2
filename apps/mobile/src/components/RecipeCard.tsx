@@ -1,28 +1,62 @@
 import { useI18n } from '../lib/i18n';
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Bookmark, Clock3, Play, Sparkles, Star } from 'lucide-react-native';
 import { Recipe } from '../lib/types';
 import { foodIcon } from '../lib/icons';
+import { haptic } from '../lib/haptics';
 import { useApp } from '../lib/store';
 import { color, font, radius, s, shadow } from '../lib/theme';
-import { FoodImage, IconButton, Pill, animate, usePress, useChrome } from './ui';
-function Save({ recipe, size = 38, glass }: { recipe: Recipe; size?: number; glass?: boolean }) {
+import { FoodImage, IconButton, Pill, animate, native, usePress, useChrome } from './ui';
+export function Save({
+  recipe,
+  size = 38,
+  glass,
+  plain,
+}: {
+  recipe: Recipe;
+  size?: number;
+  glass?: boolean;
+  plain?: boolean;
+}) {
   const { t: tr } = useI18n();
-  const { library, toggleSave } = useApp();
+  const { library, toggleSave, user } = useApp();
   const saved = library.savedIds.includes(recipe.id);
+  // The bookmark gives a little pop the moment it's kept.
+  const pop = useState(() => new Animated.Value(1))[0];
+  const was = useRef(saved);
+  useEffect(() => {
+    if (saved && !was.current) {
+      pop.setValue(0.72);
+      Animated.spring(pop, {
+        toValue: 1,
+        speed: 16,
+        bounciness: 14,
+        useNativeDriver: native,
+      }).start();
+    }
+    was.current = saved;
+  }, [saved, pop]);
   return (
-    <IconButton
-      icon={Bookmark}
-      label={
-        saved ? tr('Unsave {{v0}}', { v0: recipe.title }) : tr('Save {{v0}}', { v0: recipe.title })
-      }
-      onPress={() => void toggleSave(recipe)}
-      selected={saved}
-      size={size}
-      glass={glass}
-    />
+    <Animated.View style={{ transform: [{ scale: pop }] }}>
+      <IconButton
+        icon={Bookmark}
+        label={
+          saved
+            ? tr('Unsave {{v0}}', { v0: recipe.title })
+            : tr('Save {{v0}}', { v0: recipe.title })
+        }
+        onPress={() => {
+          if (user) haptic.tap();
+          void toggleSave(recipe);
+        }}
+        selected={saved}
+        size={size}
+        glass={glass}
+        plain={plain}
+      />
+    </Animated.View>
   );
 }
 function Badge({ recipe }: { recipe: Recipe }) {
@@ -95,8 +129,14 @@ export function RecipeTile({
           <FoodImage uri={recipe.image} style={StyleSheet.absoluteFill} />
         </Animated.View>
         <LinearGradient
-          colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.04)', 'rgba(0,0,0,0.78)']}
-          locations={[0, 0.42, 1]}
+          colors={[
+            'rgba(0,0,0,0.28)',
+            'rgba(0,0,0,0)',
+            'rgba(0,0,0,0.03)',
+            'rgba(0,0,0,0.4)',
+            'rgba(0,0,0,0.8)',
+          ]}
+          locations={[0, 0.26, 0.44, 0.7, 1]}
           style={StyleSheet.absoluteFill}
         />
         {!!recipe.video && (
@@ -162,8 +202,8 @@ export function RecipeRow({ recipe, onOpen }: { recipe: Recipe; onOpen: (r: Reci
           backgroundColor: color.white,
           borderRadius: radius.lg,
           padding: 10,
-          paddingRight: 14,
-          gap: 12,
+          paddingRight: 8,
+          gap: 8,
           boxShadow: shadow.card,
         },
         press.style,
@@ -178,21 +218,20 @@ export function RecipeRow({ recipe, onOpen }: { recipe: Recipe; onOpen: (r: Reci
         style={[s.row, { flex: 1, gap: 14 }]}
       >
         <FoodImage uri={recipe.image} style={{ width: 76, height: 76, borderRadius: 20 }} />
-        <View style={{ flex: 1, gap: 5 }}>
+        <View style={{ flex: 1, gap: 4 }}>
           <Text numberOfLines={1} style={s.h3}>
             {recipe.title}
           </Text>
-          <Text numberOfLines={1} style={s.small}>
-            {recipe.author.name}
+          <Text numberOfLines={1} style={[s.small, { fontFamily: font.medium }]}>
+            {tr('by {{v0}}', { v0: recipe.author.name })}
           </Text>
-          <View style={[s.row, { gap: 10 }]}>
-            <View style={[s.row, { gap: 4 }]}>
-              <Clock3 size={12} color={color.muted} strokeWidth={2} />
-              <Text style={s.small}>{tr('{{v0}} min', { v0: recipe.minutes })}</Text>
-            </View>
-            <Text style={s.small}>{tr(recipe.difficulty)}</Text>
+          <View style={[s.row, { gap: 6 }]}>
+            <Clock3 size={12} color={color.muted} strokeWidth={2} />
+            <Text style={s.small}>
+              {tr('{{v0}} min · {{v1}}', { v0: recipe.minutes, v1: tr(recipe.difficulty) })}
+            </Text>
             {recipe.rating > 0 && (
-              <View style={[s.row, { gap: 3 }]}>
+              <View style={[s.row, { gap: 3, marginLeft: 4 }]}>
                 <Star size={12} color={color.ink} fill={color.ink} />
                 <Text style={[s.small, { color: color.ink }]}>
                   {number(recipe.rating, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
@@ -202,7 +241,7 @@ export function RecipeRow({ recipe, onOpen }: { recipe: Recipe; onOpen: (r: Reci
           </View>
         </View>
       </Pressable>
-      <Save recipe={recipe} size={36} />
+      <Save recipe={recipe} size={40} plain />
     </Animated.View>
   );
 }

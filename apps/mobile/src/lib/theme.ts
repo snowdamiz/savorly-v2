@@ -47,7 +47,7 @@ export const s = StyleSheet.create({
     fontFamily: font.extra,
     color: color.ink,
     fontSize: 32,
-    letterSpacing: -1.3,
+    letterSpacing: -1.1,
     lineHeight: 38,
   },
   h1: {
