@@ -12,6 +12,7 @@
     "build": "npm --prefix apps/mobile run build",
     "test": "cd services/api && go test ./...",
     "test:integration": "python3 scripts/integration.py",
-    "deploy:staging": "sh scripts/deploy-staging.sh"
+    "deploy:staging": "sh scripts/deploy.sh staging",
+    "deploy:production": "sh scripts/deploy.sh production"
   }
 }

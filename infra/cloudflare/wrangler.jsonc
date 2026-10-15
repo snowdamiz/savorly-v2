@@ -6,8 +6,14 @@
   "name": "savorly",
   "main": "worker.ts",
   "compatibility_date": "2026-10-02",
-  // Custom domains: wrangler deploy creates their DNS records and certificates.
-  "routes": [{ "pattern": "savorly.cooking", "custom_domain": true }],
+  // Custom domains: wrangler deploy creates their DNS records and certificates. The Worker
+  // redirects www to the bare domain. No workers.dev URLs, so each site has one address.
+  "routes": [
+    { "pattern": "savorly.cooking", "custom_domain": true },
+    { "pattern": "www.savorly.cooking", "custom_domain": true }
+  ],
+  "workers_dev": false,
+  "preview_urls": false,
   "assets": {
     "directory": "../../apps/mobile/dist",
     "binding": "ASSETS",
@@ -71,6 +77,8 @@
         "SEED_DATA": "true",
         // Testing: unlimited Free for everyone, no prices or Stripe (docs/PRICING.md).
         "PAID_PLANS": "false",
+        // Keeps search engines out of staging (X-Robots-Tag).
+        "NOINDEX": "true",
         "TRUSTED_PROXY_HEADER": "X-Savorly-Client-IP",
         "S3_REGION": "auto",
         "S3_BUCKET": "savorly-staging-media",
