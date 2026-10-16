@@ -160,6 +160,7 @@ func NewWithContext(ctx context.Context, db *pgxpool.Pool, config Config) *fiber
 	v.Get("/me", a.requireAuth, a.me)
 	v.Patch("/me", a.requireAuth, a.updateMe)
 	v.Delete("/me", a.requireAuth, a.deleteMe)
+	v.Get("/handles/:handle", a.requireAuth, a.handleAvailability)
 	v.Get("/recipes", a.listRecipes)
 	v.Get("/recipes/:id", a.getRecipe)
 	v.Post("/recipes/:id/steps/:step/narration", a.requireAuth, a.prepareNarration)

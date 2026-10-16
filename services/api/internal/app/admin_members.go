@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
-	"regexp"
 	"strings"
 
 	"github.com/gofiber/fiber/v3"
@@ -151,8 +150,6 @@ func (a *App) adminWrite(c fiber.Ctx, fn func(ctx context.Context, tx pgx.Tx) er
 	return a.adminUser(c)
 }
 
-var handlePattern = regexp.MustCompile(`^[^\s@/A-Z]{2,60}$`)
-
 func (a *App) adminEditUser(c fiber.Ctx) error {
 	m, e := a.manage(c, true)
 	if e != nil {
@@ -170,8 +167,9 @@ func (a *App) adminEditUser(c fiber.Ctx) error {
 		changed = append(changed, "name")
 	}
 	if in.Handle != nil {
-		if *in.Handle = strings.ToLower(strings.TrimSpace(*in.Handle)); !handlePattern.MatchString(*in.Handle) {
-			return fiber.NewError(400, "Handles are 2–60 characters with no spaces, @ or /.")
+		// Members' rules, except that admins may hand out reserved names (an official account).
+		if *in.Handle = normalizeHandle(*in.Handle); !validHandle(*in.Handle) {
+			return fiber.NewError(400, handleRules)
 		}
 		changed = append(changed, "handle")
 	}

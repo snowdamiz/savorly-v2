@@ -4,17 +4,19 @@ Which buttons appear where:
 
 | Platform | Apple                              | Google                                   | Email |
 | -------- | ---------------------------------- | ---------------------------------------- | ----- |
-| iOS      | Yes (native button)                | Yes, when an iOS client ID is configured | Yes   |
+| iOS      | Yes                                | Yes, when an iOS client ID is configured | Yes   |
 | Android  | No                                 | Yes (Credential Manager)                 | Yes   |
-| Web      | Yes (Sign in with Apple JS, popup) | Yes (Google's own button)                | Yes   |
+| Web      | Yes (Sign in with Apple JS, popup) | Yes (Google Identity Services)           | Yes   |
 
 App Review guideline 4.8 requires Sign in with Apple wherever an iOS app offers Google, so iOS shows Google only alongside Apple. Each button appears only once the server has the provider's configuration (`/v1/capabilities`).
+
+Both buttons are drawn by the app (`ProviderFace.tsx`) as full-width pills that keep each provider's branding: Apple's black button with the Apple logo, Google's white one with the four-color mark, each titled "Continue with …". On the web, Google only returns an ID token through its own rendered button, so that button is laid invisibly over the app's face and stretched to its size: clicks, keyboard focus and the screen-reader label are Google's, and hover and focus show through the face.
 
 ## How it works
 
 - The app asks the API for a single-use nonce (`POST /v1/auth/nonce`, valid 10 minutes), hands it to the provider, and sends the provider's ID token to `POST /v1/auth/oauth`.
 - The API verifies the token's signature against the provider's published keys (go-oidc), its issuer, expiry and audience (the bundle ID or Services ID for Apple; the web client ID for Google on every platform), and consumes the nonce. People are identified by the provider's `sub`, never by email.
-- A new person gets a kitchen with the provider's verified email and no password. They can set one later with "Forgot your password?".
+- A new person gets a kitchen with the provider's verified email and no password. They can set one later with "Forgot your password?". The app then asks them to pick a username, suggesting one from their name; they can change it later in My kitchen → Edit profile.
 - **No silent merging.** If the email already belongs to a kitchen, sign-in is refused with instructions: sign in with the password, then connect Apple or Google from My kitchen → Sign-in methods. Otherwise someone who registered your email first could share your account (a "pre-hijacking" attack). Connecting from a signed-in session links the identity to that kitchen.
 - A password reset proves the email (`email_verified`) and signs out every session.
 - Deleting a kitchen without a password asks for a fresh sign-in with one of its providers. Deletion cancels any subscription first and revokes Sign in with Apple through Apple's REST API.

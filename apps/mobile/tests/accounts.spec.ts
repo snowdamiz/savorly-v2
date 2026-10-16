@@ -58,7 +58,7 @@ const appleScript = `window.AppleID = { auth: {
   init(o) { window.__apple = o; },
   async signIn() { return { authorization: { id_token: 'apple-id-token:' + window.__apple.nonce, code: 'apple-code' }, user: { name: { firstName: 'Alex', lastName: 'Cook' } } }; } } };`;
 
-async function mockAccounts(page: Page, signedIn: boolean, catalogLive = true) {
+async function mockAccounts(page: Page, signedIn: boolean, catalogLive = true, created = false) {
   const posts: { path: string; body: unknown }[] = [];
   let nonces = 0;
   let session = signedIn;
@@ -78,6 +78,10 @@ async function mockAccounts(page: Page, signedIn: boolean, catalogLive = true) {
     const fulfill = (body: unknown, status = 200) =>
       route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
     if (method === 'POST') posts.push({ path, body: route.request().postDataJSON() });
+    if (path === '/me' && method === 'PATCH') {
+      Object.assign(user, { handle: route.request().postDataJSON().handle });
+      return fulfill(user);
+    }
     if (path === '/me') return session ? fulfill(user) : fulfill({ error: 'Sign in' }, 401);
     if (path === '/capabilities')
       return fulfill({
@@ -96,7 +100,11 @@ async function mockAccounts(page: Page, signedIn: boolean, catalogLive = true) {
     if (path === '/auth/nonce') return fulfill({ nonce: `nonce-${++nonces}` });
     if (path === '/auth/oauth') {
       session = true;
-      return fulfill({ ok: true });
+      return fulfill(created ? { ok: true, created: true } : { ok: true });
+    }
+    if (path.startsWith('/handles/')) {
+      const handle = decodeURIComponent(path.slice('/handles/'.length));
+      return fulfill({ handle, valid: true, available: handle !== 'alex.rivera' });
     }
     if (path === '/library')
       return fulfill({ savedIds: [], saves: [], collections: [], followingIds: [], recipes: [] });
@@ -156,6 +164,25 @@ test('Google’s own button signs in with its ID token', async ({ page }) => {
       provider: 'google',
       token: expect.stringMatching(/^google-id-token:nonce-\d+$/),
     });
+});
+
+test('a new Google kitchen picks its username before anything else', async ({ page }) => {
+  const posts = await mockAccounts(page, false, true, true);
+  await page.goto('/?page=profile');
+  await page.getByRole('button', { name: 'Sign in or join' }).click();
+  await page.getByRole('button', { name: 'Sign in with Google (test)' }).click();
+  await expect(page.getByText('Pick your username', { exact: true })).toBeVisible();
+  const username = page.getByRole('textbox', { name: 'Username', exact: true });
+  await username.fill('Alex.Rivera');
+  await expect(page.getByText('That username is taken.', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Save username' })).toBeDisabled();
+  await username.fill('@Alex.Cooks');
+  await expect(username).toHaveValue('alex.cooks');
+  await expect(page.getByText('@alex.cooks is available.', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Save username' }).click();
+  await expect(page.getByText('Welcome to the table, @alex.cooks.', { exact: true })).toBeVisible();
+  await expect(page.getByText('@alex.cooks', { exact: true })).toBeVisible();
+  expect(posts.find((p) => p.path === '/auth/oauth')).toBeTruthy();
 });
 
 test('plans show usage and sell through Stripe checkout on the web', async ({ page }) => {

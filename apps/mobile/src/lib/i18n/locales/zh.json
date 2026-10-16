@@ -680,5 +680,16 @@
   "Dismiss announcement": "关闭公告",
   "This account is suspended. Contact Savorly support if you think this is a mistake.": "此账号已被停用。如果你认为这是误操作，请联系 Savorly 客服。",
   "New sign-ups are paused right now. Please try again later.": "新用户注册目前已暂停，请稍后再试。",
-  "AI features are paused for maintenance. Your conversation and drafts are saved; please try again later.": "AI 功能因维护暂停。你的对话和草稿已保存，请稍后再试。"
+  "AI features are paused for maintenance. Your conversation and drafts are saved; please try again later.": "AI 功能因维护暂停。你的对话和草稿已保存，请稍后再试。",
+  "Checking…": "正在检查…",
+  "@{{v0}} is available.": "@{{v0}} 可以使用。",
+  "That username is taken.": "这个用户名已被占用。",
+  "We’ll check it when you save.": "保存时我们会再检查。",
+  "Usernames use 3–24 lowercase letters, numbers, dots or underscores.": "用户名由 3–24 个小写字母、数字、句点或下划线组成。",
+  "Username": "用户名",
+  "Welcome to the table, @{{v0}}.": "欢迎入席，@{{v0}}。",
+  "Pick your username": "选择你的用户名",
+  "It’s how other cooks find you and see your recipes. You can change it anytime in My kitchen.": "其他厨友会通过它找到你、看到你的菜谱。你可以随时在“我的厨房”中修改。",
+  "Save username": "保存用户名",
+  "Keep @{{v0}}": "保留 @{{v0}}"
 }

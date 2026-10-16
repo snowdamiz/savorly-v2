@@ -37,6 +37,7 @@ import { RecipeGrid, RecipeRow } from '../components/RecipeCard';
 import { SousChefHistory } from '../components/SousChef';
 import { PlanSettings } from '../components/PlanSettings';
 import { SocialButtons } from '../components/SocialButtons';
+import { HandleField, useHandle } from '../components/Username';
 import { DangerButton } from './Kitchen';
 import { foodIcon } from '../lib/icons';
 import { AdminPending } from './admin';
@@ -202,6 +203,7 @@ export function Profile({
   const [avatar, setAvatar] = useState(app.user?.avatar || '');
   const [diets, setDiets] = useState<string[]>(app.user?.preferences.diets || []);
   const [allergies, setAllergies] = useState(app.user?.preferences.allergies?.join(', ') || '');
+  const handle = useHandle(app.user?.handle || '');
   const [edit, setEdit] = useState(false);
   const [remove, setRemove] = useState(false);
   const [history, setHistory] = useState(false);
@@ -419,6 +421,7 @@ export function Profile({
       <SousChefHistory visible={history} onClose={() => setHistory(false)} onRecipe={onRecipe} />
       <Dialog visible={edit} onClose={() => setEdit(false)} title={tr('Edit profile')}>
         <Field label={tr('Your name')} value={name} onChangeText={setName} maxLength={70} />
+        <HandleField handle={handle} />
         <Field
           label={tr('About you')}
           value={bio}
@@ -463,6 +466,7 @@ export function Profile({
           title={tr('Save profile')}
           icon={Check}
           busy={busy}
+          disabled={!handle.ready}
           onPress={() => {
             setBusy(true);
             void app
@@ -473,6 +477,7 @@ export function Profile({
                     name,
                     bio,
                     avatar,
+                    handle: handle.value,
                     preferences: {
                       diets,
                       allergies: allergies

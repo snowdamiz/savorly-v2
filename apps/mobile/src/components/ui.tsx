@@ -34,6 +34,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GlassView, isGlassEffectAPIAvailable, isLiquidGlassAvailable } from 'expo-glass-effect';
 import { LinearGradient } from 'expo-linear-gradient';
+import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import {
   ArrowRight,
   Check,
@@ -886,6 +887,154 @@ export function Dialog({
   });
   return null;
 }
+// Phones drag the sheet like a native one. The grabber and title strip move it either way (with
+// rubber-band resistance upward). A downward pull in the content moves it once the content is at its
+// top: straight away if it already was, or from the moment a scroll back up reaches it, so one
+// gesture can scroll to the top and carry on pulling the sheet down. On release the sheet springs
+// back, or carries on at the finger's speed and closes.
+type SheetDragHost = {
+  compact: boolean;
+  height: number;
+  close: () => void;
+  busy: () => boolean;
+  lockScroll: (locked: boolean) => void;
+};
+const HEADER = 64;
+function sheetDrag(y: Animated.Value, backdrop: Animated.Value) {
+  let host: SheetDragHost = {
+    compact: false,
+    height: 0,
+    close: () => {},
+    busy: () => true,
+    lockScroll: () => {},
+  };
+  let size = 0;
+  let scrollY = 0;
+  let pulled = 0;
+  // Whether the current touch moves the sheet, and the finger's travel when it started to.
+  let claimed = false;
+  let from = 0;
+  // Set while a sheet the finger sent away waits for its owner to close it.
+  let flung = false;
+  const off = () => !host.compact || host.busy() || flung;
+  const spring = (velocity = 0) =>
+    Animated.spring(y, {
+      toValue: 0,
+      velocity,
+      damping: 28,
+      stiffness: 320,
+      mass: 0.9,
+      useNativeDriver: native,
+    }).start();
+  const follow = (dy: number) => {
+    // UIKit's rubber band: the further you pull past the edge, the less it gives.
+    pulled = dy >= 0 ? dy : -(1 - 1 / ((-dy * 0.55) / 80 + 1)) * 80;
+    y.setValue(pulled);
+    backdrop.setValue(1 - Math.max(0, Math.min(1, pulled / (size || host.height))));
+  };
+  const settle = (vy: number) => {
+    const dy = pulled;
+    pulled = 0;
+    const sheet = size || host.height;
+    const away = (dy > Math.min(sheet * 0.3, 180) && vy > -0.2) || (vy > 0.9 && dy > 12);
+    if (!away) {
+      spring(vy);
+      animate(backdrop, 1, 220).start();
+      return;
+    }
+    // Leave at the finger's speed: an ease-out whose opening velocity matches the flick.
+    const rest = host.height - Math.max(0, dy);
+    const duration = Math.min(320, Math.max(160, (3 * rest) / Math.max(vy, 0.8)));
+    flung = true;
+    Animated.parallel([
+      Animated.timing(y, {
+        toValue: host.height,
+        duration,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: native,
+      }),
+      animate(backdrop, 0, duration),
+    ]).start(() => {
+      host.close();
+      // An owner that keeps its sheet open gets it back rather than an invisible, blocking one.
+      setTimeout(() => {
+        if (!flung) return;
+        flung = false;
+        spring();
+        animate(backdrop, 1, 200).start();
+      }, 160);
+    });
+  };
+  const begin = (at = 0) => {
+    claimed = true;
+    from = at;
+    y.stopAnimation();
+    backdrop.stopAnimation();
+    pulled = 0;
+  };
+  const move = (dy: number) => claimed && follow(dy - from);
+  const release = (vy: number) => {
+    if (claimed) settle(vy);
+    claimed = false;
+  };
+  const header = Gesture.Pan()
+    .runOnJS(true)
+    .hitSlop({ top: 0, height: HEADER })
+    .activeOffsetY([-6, 6])
+    .failOffsetX([-24, 24])
+    .onStart(() => {
+      if (!off()) begin();
+    })
+    .onUpdate((e) => move(e.translationY))
+    .onEnd((e) => release(e.velocityY / 1000))
+    .onFinalize(() => (claimed = false));
+  const scroll = Gesture.Native();
+  const claim = (at: number) => {
+    if (off() || scrollY > 0.5) return;
+    begin(at);
+    // The content holds still while the sheet follows a pull that began in it.
+    host.lockScroll(true);
+  };
+  const content = Gesture.Pan()
+    .runOnJS(true)
+    .hitSlop({ top: -HEADER })
+    .activeOffsetY(6)
+    .failOffsetY(-6)
+    .failOffsetX([-24, 24])
+    .simultaneousWithExternalGesture(scroll)
+    .onStart(() => claim(0))
+    .onUpdate((e) => {
+      if (!claimed) claim(e.translationY);
+      move(Math.max(from, e.translationY));
+    })
+    .onEnd((e) => release(e.velocityY / 1000))
+    .onFinalize(() => {
+      claimed = false;
+      host.lockScroll(false);
+    });
+  return {
+    scroll,
+    sync: (next: SheetDragHost) => {
+      host = next;
+    },
+    measured: (height: number) => {
+      size = height;
+    },
+    scrolled: (offset: number) => {
+      scrollY = offset;
+    },
+    gesture: Gesture.Race(header, content),
+    reset: () => {
+      scrollY = 0;
+    },
+    /** Whether a drag just sent the sheet away; answers true only once. */
+    takeFlung: () => {
+      const was = flung;
+      flung = false;
+      return was;
+    },
+  };
+}
 // Centered card on desktop; a bottom sheet with a grabber on phones and tablets.
 export function SheetHost() {
   const { t: tr } = useI18n();
@@ -916,8 +1065,23 @@ export function SheetHost() {
   const maxHeight = compact ? height - insets.top - 20 : height - 60;
   const show = (next: string) => {
     m.current.page = next;
+    dragger.reset();
     setPage(next);
   };
+  const [dragger] = useState(() => sheetDrag(y, backdrop));
+  // While the sheet follows a pull that began in the content, the content holds still.
+  const [scrollLocked, setScrollLocked] = useState(false);
+  useLayoutEffect(
+    () =>
+      dragger.sync({
+        compact,
+        height,
+        close: () => top?.onClose(),
+        busy: () => m.current.phase === 'closed' || m.current.phase === 'closing',
+        lockScroll: setScrollLocked,
+      }),
+    [dragger, compact, height, top],
+  );
   const reveal = () => {
     const st = m.current;
     st.phase = 'open';
@@ -978,20 +1142,31 @@ export function SheetHost() {
             animate(fade, 1, 160).start();
           }
         }
+        if (dragger.takeFlung()) {
+          Animated.spring(y, {
+            toValue: 0,
+            damping: 30,
+            stiffness: 300,
+            useNativeDriver: native,
+          }).start();
+          animate(backdrop, 1, 200).start();
+        }
         if (topPage !== st.page) swap(topPage);
       }
     } else if (st.phase !== 'closed') {
       // A beat of grace so "close this, open that" in quick succession still reads as one sheet.
       st.timer = setTimeout(() => {
         st.phase = 'closing';
+        // A sheet dragged away has already left the screen.
+        const gone = dragger.takeFlung();
         Animated.parallel([
           Animated.timing(y, {
             toValue: compact ? height : 16,
-            duration: motionReduced() ? 0 : 240,
+            duration: motionReduced() || gone ? 0 : 240,
             easing: Easing.in(Easing.cubic),
             useNativeDriver: native,
           }),
-          animate(backdrop, 0, 220),
+          animate(backdrop, 0, gone ? 0 : 220),
         ]).start(({ finished }) => {
           if (!finished || st.phase !== 'closing') return;
           st.phase = 'closed';
@@ -1023,6 +1198,11 @@ export function SheetHost() {
     }
   };
   const close = () => top?.onClose();
+  // Phones get the drag; the desktop card stays put.
+  const draggable = (
+    gesture: typeof dragger.gesture | typeof dragger.scroll,
+    child: React.ReactElement,
+  ) => (compact ? <GestureDetector gesture={gesture}>{child}</GestureDetector> : child);
   return (
     <Modal
       visible={open}
@@ -1031,89 +1211,122 @@ export function SheetHost() {
       onRequestClose={close}
       statusBarTranslucent
     >
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={{
-          flex: 1,
-          justifyContent: compact ? 'flex-end' : 'center',
-          alignItems: 'center',
-          padding: compact ? 0 : 30,
-        }}
-      >
-        <Animated.View
-          style={[StyleSheet.absoluteFill, { backgroundColor: color.scrim, opacity: backdrop }]}
-        />
-        <Pressable
-          accessible={false}
-          focusable={false}
-          onPress={close}
-          style={StyleSheet.absoluteFill}
-        />
-        <Animated.View
-          accessibilityViewIsModal
-          // Slide and fade run on the native driver; height can't, so it lives on the inner view.
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={{
-            width: '100%',
-            maxWidth: compact ? (width > 700 ? 640 : undefined) : 520,
-            flexShrink: 1,
-            opacity: compact ? 1 : backdrop,
-            transform: [{ translateY: y }],
+            flex: 1,
+            justifyContent: compact ? 'flex-end' : 'center',
+            alignItems: 'center',
+            padding: compact ? 0 : 30,
           }}
         >
           <Animated.View
-            style={{
-              maxHeight,
-              height: sized ? h : undefined,
-              flexShrink: 1,
-              backgroundColor: color.bg,
-              borderTopLeftRadius: radius.xl,
-              borderTopRightRadius: radius.xl,
-              borderBottomLeftRadius: compact ? 0 : radius.xl,
-              borderBottomRightRadius: compact ? 0 : radius.xl,
-              overflow: 'hidden',
-              paddingBottom: compact ? insets.bottom + 6 : 0,
-              boxShadow: shadow.float,
-            }}
-          >
-            {compact && (
-              <View
-                style={{
-                  alignSelf: 'center',
-                  width: 40,
-                  height: 5,
-                  borderRadius: 3,
-                  backgroundColor: color.line,
-                  marginTop: 10,
-                  marginBottom: 6,
-                }}
-              />
-            )}
-            <View style={{ position: 'absolute', top: compact ? 18 : 20, right: 18, zIndex: 20 }}>
-              <IconButton icon={X} label={tr('Close dialog')} onPress={close} size={38} glass />
-            </View>
-            {entry && (
-              <Animated.ScrollView
-                key={page}
-                keyboardShouldPersistTaps="handled"
-                showsVerticalScrollIndicator={false}
-                onContentSizeChange={(_, content) => measure(content)}
-                style={{ opacity: fade }}
-              >
+            style={[StyleSheet.absoluteFill, { backgroundColor: color.scrim, opacity: backdrop }]}
+          />
+          <Pressable
+            accessible={false}
+            focusable={false}
+            onPress={close}
+            style={StyleSheet.absoluteFill}
+          />
+          {draggable(
+            dragger.gesture,
+            <Animated.View
+              accessibilityViewIsModal
+              onLayout={(e) => dragger.measured(e.nativeEvent.layout.height)}
+              // Slide and fade run on the native driver; height can't, so it lives on the inner view.
+              style={{
+                width: '100%',
+                maxWidth: compact ? (width > 700 ? 640 : undefined) : 520,
+                flexShrink: 1,
+                opacity: compact ? 1 : backdrop,
+                transform: [{ translateY: y }],
+              }}
+            >
+              {/* Fills in below the sheet when a spring or an upward pull lifts it off the bottom. */}
+              {compact && (
                 <View
-                  style={{ padding: compact ? 22 : 30, paddingTop: compact ? 12 : 30, gap: 18 }}
+                  style={{
+                    position: 'absolute',
+                    left: 0,
+                    right: 0,
+                    bottom: -160,
+                    height: 160,
+                    backgroundColor: color.bg,
+                  }}
+                />
+              )}
+              <Animated.View
+                style={{
+                  maxHeight,
+                  height: sized ? h : undefined,
+                  flexShrink: 1,
+                  backgroundColor: color.bg,
+                  borderTopLeftRadius: radius.xl,
+                  borderTopRightRadius: radius.xl,
+                  borderBottomLeftRadius: compact ? 0 : radius.xl,
+                  borderBottomRightRadius: compact ? 0 : radius.xl,
+                  overflow: 'hidden',
+                  paddingBottom: compact ? insets.bottom + 6 : 0,
+                  boxShadow: shadow.float,
+                }}
+              >
+                {compact && (
+                  <View
+                    style={{
+                      alignSelf: 'center',
+                      width: 40,
+                      height: 5,
+                      borderRadius: 3,
+                      backgroundColor: color.line,
+                      marginTop: 10,
+                      marginBottom: 6,
+                    }}
+                  />
+                )}
+                <View
+                  style={{ position: 'absolute', top: compact ? 18 : 20, right: 18, zIndex: 20 }}
                 >
-                  {entry.title && (
-                    <Text style={[s.h2, { paddingRight: 50, fontSize: 22, lineHeight: 28 }]}>
-                      {entry.title}
-                    </Text>
-                  )}
-                  {entry.children}
+                  <IconButton icon={X} label={tr('Close dialog')} onPress={close} size={38} glass />
                 </View>
-              </Animated.ScrollView>
-            )}
-          </Animated.View>
-        </Animated.View>
-      </KeyboardAvoidingView>
+                {entry &&
+                  draggable(
+                    dragger.scroll,
+                    <Animated.ScrollView
+                      key={page}
+                      scrollEnabled={!scrollLocked}
+                      keyboardShouldPersistTaps="handled"
+                      showsVerticalScrollIndicator={false}
+                      // Pulling down at the top drags the sheet, so the content doesn't bounce there.
+                      bounces={false}
+                      overScrollMode="never"
+                      scrollEventThrottle={16}
+                      onScroll={(e) => dragger.scrolled(e.nativeEvent.contentOffset.y)}
+                      onContentSizeChange={(_, content) => measure(content)}
+                      style={{ opacity: fade }}
+                    >
+                      <View
+                        style={{
+                          padding: compact ? 22 : 30,
+                          paddingTop: compact ? 12 : 30,
+                          gap: 18,
+                        }}
+                      >
+                        {entry.title && (
+                          <Text style={[s.h2, { paddingRight: 50, fontSize: 22, lineHeight: 28 }]}>
+                            {entry.title}
+                          </Text>
+                        )}
+                        {entry.children}
+                      </View>
+                    </Animated.ScrollView>,
+                  )}
+              </Animated.View>
+            </Animated.View>,
+          )}
+        </KeyboardAvoidingView>
+      </GestureHandlerRootView>
     </Modal>
   );
 }

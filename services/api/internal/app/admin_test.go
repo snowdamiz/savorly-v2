@@ -347,8 +347,8 @@ func TestAdminManagesPlansAccountsReviewsAndJobs(t *testing.T) {
 	expect(t, f, 400, "PUT", "/v1/admin/users/"+cookID+"/plan", owner, fiber.Map{"plan": "gold"})
 
 	expect(t, f, 400, "PATCH", "/v1/admin/users/"+cookID, owner, fiber.Map{"bio": "", "handle": "Clean Handle"})
-	out = expect(t, f, 200, "PATCH", "/v1/admin/users/"+cookID, owner, fiber.Map{"bio": "", "handle": "clean-handle"})
-	if out["handle"] != "clean-handle" || out["bio"] != "" {
+	out = expect(t, f, 200, "PATCH", "/v1/admin/users/"+cookID, owner, fiber.Map{"bio": "", "handle": "clean_handle"})
+	if out["handle"] != "clean_handle" || out["bio"] != "" {
 		t.Fatalf("edited profile: %v", out)
 	}
 	expect(t, f, 200, "POST", "/v1/admin/users/"+cookID+"/verify", owner, nil)
