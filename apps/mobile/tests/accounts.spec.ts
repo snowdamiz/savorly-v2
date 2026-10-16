@@ -266,6 +266,13 @@ test('a new Google kitchen sets itself up before anything else', async ({ page }
   await page.getByRole('textbox', { name: 'Allergies (comma separated)' }).fill('peanuts, sesame');
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await expect(page.getByText('Cooks to follow', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  // Last, the sous-chef: what to ask it and where to find it.
+  await expect(page.getByText('Just ask your sous-chef', { exact: true })).toBeVisible();
+  await expect(
+    page.getByText('Plan my week and add the groceries.', { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText('One tap away, on every screen', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Let’s get started', exact: true }).click();
   await expect(page.getByText('Welcome to the table, @alex.cooks.', { exact: true })).toBeVisible();
   await expect(page.getByText('@alex.cooks', { exact: true })).toBeVisible();

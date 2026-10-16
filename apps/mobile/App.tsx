@@ -371,6 +371,12 @@ function Shell() {
     outputRange: [0, 1],
     extrapolate: 'clamp',
   });
+  // The desktop header floats over the page, and frosts over as content scrolls under it.
+  const frosted = scrollY.interpolate({
+    inputRange: [0, 24],
+    outputRange: [0, 1],
+    extrapolate: 'clamp',
+  });
   const onScroll = Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], {
     useNativeDriver: native,
     listener: (e: { nativeEvent: { contentOffset: { y: number } } }) => {
@@ -495,6 +501,11 @@ function Shell() {
           {desktop && (
             <View
               style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                right: 0,
+                zIndex: 10,
                 height: DESKTOP_HEADER,
                 paddingHorizontal: gutter,
                 flexDirection: 'row',
@@ -504,6 +515,22 @@ function Shell() {
                 borderColor: color.line,
               }}
             >
+              {/* A recipe page opens below the header, so the feed must not show through it then. */}
+              <Animated.View
+                style={[
+                  StyleSheet.absoluteFill,
+                  { pointerEvents: 'none' },
+                  webPage && recipePage
+                    ? { backgroundColor: color.bg }
+                    : [
+                        {
+                          opacity: frosted,
+                          backgroundColor: native ? color.bg : 'rgba(244,244,244,0.72)',
+                        },
+                        frost(24),
+                      ],
+                ]}
+              />
               <View style={{ flex: 1 }}>
                 <View style={{ maxWidth: 560, flexDirection: 'row' }}>
                   <SearchBar
@@ -560,7 +587,7 @@ function Shell() {
             }}
             contentContainerStyle={{
               paddingHorizontal: gutter,
-              paddingTop: top,
+              paddingTop: desktop ? DESKTOP_HEADER + top : top,
               // Clears the tab bar and the sous-chef button above it, or in a desktop browser its
               // panel while it's out, so everything on the page can still scroll into view beside it.
               paddingBottom: Math.max(
@@ -597,7 +624,15 @@ function Shell() {
           </Animated.ScrollView>
           {webPage && recipePage && (
             <View
-              style={{ position: 'absolute', top: DESKTOP_HEADER, left: 0, right: 0, bottom: 0 }}
+              // Above the header, so cooking mode inside it covers the whole window.
+              style={{
+                position: 'absolute',
+                top: DESKTOP_HEADER,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                zIndex: 20,
+              }}
             >
               {recipePage}
             </View>

@@ -239,7 +239,7 @@ test('admins replay the kitchen setup and the welcome to try them', async ({ pag
   // The setup opens at once, and skipping through it marks it done again.
   await page.getByRole('button', { name: 'Replay my kitchen setup' }).click();
   await expect(page.getByText('Set up your kitchen', { exact: true })).toBeVisible();
-  for (const next of ['How do you like to eat?', 'Cooks to follow']) {
+  for (const next of ['How do you like to eat?', 'Cooks to follow', 'Just ask your sous-chef']) {
     await page.getByRole('button', { name: 'Skip', exact: true }).click();
     await expect(page.getByText(next, { exact: true })).toBeVisible();
   }
