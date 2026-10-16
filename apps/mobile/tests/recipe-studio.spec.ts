@@ -372,6 +372,18 @@ test('voice starts on one tap, supports mute, releases microphone, and retains c
   await page.goto('/');
   await startRecipe(page, 'Speak a recipe');
   await expect(page.getByText('I’m listening. Take your time.', { exact: true })).toBeVisible();
+  await expect(page.getByText('Tell me your recipe', { exact: true })).toBeVisible();
+  // The caption follows whoever spoke last, rather than running both voices together.
+  await page.evaluate(() => {
+    const channel = (window as unknown as { __voiceChannel: EventTarget }).__voiceChannel;
+    for (const [type, delta] of [
+      ['session.input_transcript.delta', 'Two slices of sourdough.'],
+      ['session.output_transcript.delta', 'Do you butter it first?'],
+    ])
+      channel.dispatchEvent(new MessageEvent('message', { data: JSON.stringify({ type, delta }) }));
+  });
+  await expect(page.getByText('Do you butter it first?', { exact: true })).toBeVisible();
+  await expect(page.getByText(/sourdough/)).toHaveCount(0);
   await page.evaluate(() => {
     (window as unknown as { __voiceChannel: EventTarget }).__voiceChannel.dispatchEvent(
       new MessageEvent('message', {
@@ -430,6 +442,18 @@ test('in-app camera captures, retakes, and submits an actual image', async ({ pa
   if (await allow.isVisible()) await allow.click();
   const capture = page.getByRole('button', { name: 'Take photo', exact: true });
   await expect(capture).toBeEnabled();
+  // The preview fills a portrait frame the full width of the panel. Measured in one go, since the
+  // panel may still be scaling in.
+  const frame = await page.evaluate(() => {
+    const preview = document.querySelector('video')!.getBoundingClientRect();
+    const hint = [...document.querySelectorAll('div')]
+      .filter((node) => node.textContent?.startsWith('Fit the whole recipe in the frame'))
+      .at(-1)!
+      .getBoundingClientRect();
+    return { width: preview.width, height: preview.height, room: hint.width };
+  });
+  expect(Math.abs(frame.width - frame.room)).toBeLessThan(1);
+  expect(frame.height).toBeGreaterThan(frame.width);
   await capture.click();
   await page.getByRole('button', { name: 'Retake recipe photo', exact: true }).click();
   await expect(capture).toBeEnabled();
@@ -457,7 +481,13 @@ test('the sous-chef is one tap away, shows recipe cards, and refreshes the kitch
   await expect(page.getByText('Toast the bread until golden.').first()).toBeVisible();
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/?page=planner');
-  await expect(page.getByRole('button', { name: 'Ask your sous-chef' })).toBeInViewport();
+  const launcher = page.getByRole('button', { name: 'Ask your sous-chef' });
+  await expect(launcher).toBeInViewport();
+  // On a phone the sheet covers the launcher rather than removing it, so it doesn't pop back in
+  // after the sheet slides away.
+  await launcher.click();
+  await expect(page.getByRole('textbox', { name: 'Message your sous-chef' })).toBeVisible();
+  await expect(launcher).toHaveCount(1);
 });
 
 test('the sous-chef knows the open recipe and cooking step, and acts on screen', async ({

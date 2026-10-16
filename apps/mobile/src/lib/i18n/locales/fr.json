@@ -760,5 +760,13 @@
   "Save": "Enregistrer",
   "In your cookbooks": "Dans vos carnets",
   "Link copied to your clipboard.": "Lien copié dans le presse-papiers.",
-  "Use ← and → to move between steps, and Esc to close.": "Utilisez ← et → pour passer d’une étape à l’autre, et Échap pour fermer."
+  "Use ← and → to move between steps, and Esc to close.": "Utilisez ← et → pour passer d’une étape à l’autre, et Échap pour fermer.",
+  "Mute": "Couper",
+  "Unmute": "Réactiver",
+  "Tell me your recipe": "Racontez-moi votre recette",
+  "Talk it through like you would to a friend. I’ll write it up and ask about anything I missed.": "Racontez-la comme à un ami. Je la mets par écrit et je vous demande ce qui manque.",
+  "What it is, and how many it serves": "Le plat, et pour combien de personnes",
+  "The ingredients, with amounts if you know them": "Les ingrédients, avec les quantités si vous les connaissez",
+  "The steps, in order": "Les étapes, dans l’ordre",
+  "Say “that’s everything” when you’re done.": "Dites « c’est tout » quand vous avez fini."
 }

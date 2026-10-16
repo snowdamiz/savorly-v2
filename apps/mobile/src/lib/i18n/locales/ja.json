@@ -760,5 +760,13 @@
   "Save": "保存",
   "In your cookbooks": "レシピ集に保存済み",
   "Link copied to your clipboard.": "リンクをクリップボードにコピーしました。",
-  "Use ← and → to move between steps, and Esc to close.": "← と → でステップを移動、Esc で閉じます。"
+  "Use ← and → to move between steps, and Esc to close.": "← と → でステップを移動、Esc で閉じます。",
+  "Mute": "ミュート",
+  "Unmute": "ミュート解除",
+  "Tell me your recipe": "レシピを聞かせてください",
+  "Talk it through like you would to a friend. I’ll write it up and ask about anything I missed.": "友達に話すように教えてください。レシピにまとめて、足りないところは質問します。",
+  "What it is, and how many it serves": "どんな料理で、何人分か",
+  "The ingredients, with amounts if you know them": "材料と、わかれば分量",
+  "The steps, in order": "手順を順番に",
+  "Say “that’s everything” when you’re done.": "話し終えたら「以上です」と言ってください。"
 }
