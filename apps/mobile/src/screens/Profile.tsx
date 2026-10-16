@@ -18,7 +18,7 @@ import {
   Users,
 } from 'lucide-react-native';
 import { useApp } from '../lib/store';
-import { BrandMark, brandColors } from '../components/Brand';
+import { BrandMark } from '../components/Brand';
 import { api, persistSession } from '../lib/api';
 import { Creator, Recipe, RecipeInput, Screen } from '../lib/types';
 import { color, font, radius, s } from '../lib/theme';
@@ -294,8 +294,6 @@ export function Profile({
         style={{
           width: 72,
           height: 72,
-          borderRadius: 24,
-          backgroundColor: brandColors.sage,
           alignItems: 'center',
           justifyContent: 'center',
           marginBottom: 6,

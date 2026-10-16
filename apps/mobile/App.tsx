@@ -76,7 +76,7 @@ import { AuthDialog } from './src/components/AuthDialog';
 import { KitchenSetup, Welcome } from './src/components/Onboarding';
 import { finishWelcome, useWelcomePending } from './src/lib/welcome';
 import { useGoogleReturn } from './src/lib/auth/googleRedirect';
-import { BrandMark } from './src/components/Brand';
+import { BrandMark, BrandWordmark } from './src/components/Brand';
 import { RecipeDetail } from './src/components/RecipeDetail';
 import { RecipeStart } from './src/components/RecipeStart';
 import { RecipeStudio } from './src/components/RecipeStudio';
@@ -412,9 +412,10 @@ function Shell() {
               accessibilityRole="button"
               accessibilityLabel={tr('Savorly home')}
               onPress={() => navigate('discover')}
-              style={[s.row, { marginLeft: 10, marginBottom: 28 }]}
+              style={[s.row, { gap: 10, marginLeft: 10, marginBottom: 28 }]}
             >
               <BrandMark size={42} />
+              {Platform.OS === 'web' && <BrandWordmark />}
             </Pressable>
             <View style={{ gap: 4 }}>
               {navigation.map((item) => (
