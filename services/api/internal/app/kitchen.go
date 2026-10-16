@@ -138,19 +138,21 @@ func (a *App) recipeGroceries(c fiber.Ctx) error {
 	if e := a.DB.QueryRow(c.Context(), `SELECT ingredients,servings FROM recipes WHERE id=$1 AND published`, c.Params("id")).Scan(&ingredients, &servings); e != nil {
 		return fiber.NewError(404, "Recipe not found.")
 	}
-	tx, e := a.DB.Begin(c.Context())
-	if e != nil {
-		return e
+	// One statement is atomic and keeps the number of round trips independent of recipe size.
+	ids := make([]string, len(ingredients))
+	names := make([]string, len(ingredients))
+	quantities := make([]string, len(ingredients))
+	categories := make([]string, len(ingredients))
+	for n, i := range ingredients {
+		ids[n], names[n], categories[n] = uuid.NewString(), i.Name, i.Category
+		quantities[n] = fmt.Sprintf("%g %s", i.Amount*float64(in.Servings)/float64(servings), i.Unit)
 	}
-	defer tx.Rollback(c.Context())
-	for _, i := range ingredients {
-		_, e = tx.Exec(c.Context(), `INSERT INTO groceries(id,user_id,name,quantity,category) VALUES($1,$2,$3,$4,$5)`, uuid.NewString(), userID(c), i.Name, fmt.Sprintf("%g %s", i.Amount*float64(in.Servings)/float64(servings), i.Unit), i.Category)
-		if e != nil {
+	if len(ingredients) > 0 {
+		if _, e := a.DB.Exec(c.Context(), `INSERT INTO groceries(id,user_id,name,quantity,category)
+ SELECT id,$1,name,quantity,category FROM unnest($2::text[],$3::text[],$4::text[],$5::text[]) AS items(id,name,quantity,category)`,
+			userID(c), ids, names, quantities, categories); e != nil {
 			return e
 		}
-	}
-	if e = tx.Commit(c.Context()); e != nil {
-		return e
 	}
 	return c.JSON(fiber.Map{"added": len(ingredients)})
 }

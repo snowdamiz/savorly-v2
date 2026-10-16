@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { api, ApiError, initSession, persistSession } from './api';
 import { Capabilities, Creator, Kitchen, Library, Recipe, User } from './types';
+import { NotificationsProvider, useNotify } from './notifications';
 const emptyLibrary: Library = {
   savedIds: [],
   saves: [],
@@ -23,7 +24,7 @@ function useAppState() {
   const [capabilities, setCapabilities] = useState<Capabilities | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [toast, setToast] = useState('');
+  const notify = useNotify();
   const [authOpen, setAuthShown] = useState(false);
   // Which side of the sign-in sheet opens: signing in, or creating an account.
   const [authMode, setAuthMode] = useState<'signin' | 'register'>('signin');
@@ -31,25 +32,25 @@ function useAppState() {
     setAuthMode(mode);
     setAuthShown(open);
   }, []);
-  const notify = useCallback((message: string) => setToast(message), []);
-  useEffect(() => {
-    if (!toast) return;
-    const t = setTimeout(() => setToast(''), 4500);
-    return () => clearTimeout(t);
-  }, [toast]);
   // Saves and follows show at once. Until the server confirms one, it is laid over every library
   // refresh, so a slower request finishing first can't flip it back.
   const pending = useRef(new Map<string, Toggle>());
-  const refreshPrivate = useCallback(async () => {
-    const [l, k] = await Promise.all([api<Library>('/library'), api<Kitchen>('/kitchen')]);
+  const refreshLibrary = useCallback(async () => {
+    const l = await api<Library>('/library');
     setLibrary([...pending.current.values()].reduce(toggled, l));
-    setKitchen(k);
+  }, []);
+  const refreshKitchen = useCallback(async () => {
+    setKitchen(await api<Kitchen>('/kitchen'));
+  }, []);
+  const refreshPrivate = useCallback(async () => {
+    await Promise.all([refreshLibrary(), refreshKitchen()]);
+  }, [refreshLibrary, refreshKitchen]);
+  const refreshCreators = useCallback(async () => {
+    setCreators(await api<Creator[]>('/creators'));
   }, []);
   const refreshRecipes = useCallback(async () => {
-    const [r, c] = await Promise.all([api<Recipe[]>('/recipes'), api<Creator[]>('/creators')]);
-    setRecipes(r);
-    setCreators(c);
-  }, []);
+    await Promise.all([api<Recipe[]>('/recipes').then(setRecipes), refreshCreators()]);
+  }, [refreshCreators]);
   const refreshUser = useCallback(async () => {
     const u = await api<User>('/me');
     setUser(u);
@@ -138,12 +139,12 @@ function useAppState() {
             method: saved ? 'DELETE' : 'PUT',
             body: saved ? undefined : {},
           });
-          await refreshPrivate();
+          await refreshLibrary();
         },
         saved ? 'Removed from your cookbook' : 'Saved to your cookbook',
       );
     },
-    [library.savedIds, requireUser, optimistic, refreshPrivate],
+    [library.savedIds, requireUser, optimistic, refreshLibrary],
   );
   const toggleFollow = useCallback(
     async (creator: Creator) => {
@@ -153,14 +154,14 @@ function useAppState() {
         { key: 'followingIds', id: creator.id, on: !following },
         async () => {
           await api(`/creators/${creator.id}/follow`, { method: following ? 'DELETE' : 'PUT' });
-          await Promise.all([refreshPrivate(), refreshRecipes()]);
+          await Promise.all([refreshLibrary(), refreshCreators()]);
         },
         following
           ? 'You’ve unfollowed this kitchen.'
           : 'Following. Their recipes will show up for you.',
       );
     },
-    [library.followingIds, requireUser, optimistic, refreshPrivate, refreshRecipes],
+    [library.followingIds, requireUser, optimistic, refreshLibrary, refreshCreators],
   );
   const signOut = useCallback(async () => {
     await api('/auth/logout', { method: 'POST' });
@@ -180,12 +181,14 @@ function useAppState() {
     capabilities,
     loading,
     error,
-    toast,
     notify,
     authOpen,
     authMode,
     setAuthOpen,
     refreshPrivate,
+    refreshLibrary,
+    refreshKitchen,
+    refreshCreators,
     refreshRecipes,
     refreshUser,
     requireUser,
@@ -198,6 +201,13 @@ function useAppState() {
 }
 const Context = createContext<ReturnType<typeof useAppState> | null>(null);
 export function AppProvider({ children }: { children: React.ReactNode }) {
+  return (
+    <NotificationsProvider>
+      <AppStateProvider>{children}</AppStateProvider>
+    </NotificationsProvider>
+  );
+}
+function AppStateProvider({ children }: { children: React.ReactNode }) {
   const value = useAppState();
   return <Context.Provider value={value}>{children}</Context.Provider>;
 }

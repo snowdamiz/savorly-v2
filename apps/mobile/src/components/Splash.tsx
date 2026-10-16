@@ -14,9 +14,6 @@ import { color } from '../lib/theme';
 import { brandColors } from './Brand';
 
 const native = Platform.OS !== 'web';
-// One clock for every stage of loading (fonts, language, the kitchen itself), so the chef
-// carries on mid-hop as each stage hands over instead of starting again.
-const started = Date.now();
 const HOP = 1100;
 const BLINK = 3300;
 // Long enough to see one hop rather than a flash.
@@ -24,10 +21,9 @@ const SHORTEST = 1000;
 const size = 112;
 // Where the eyes sit in the artwork, so a blink closes them in place.
 const eyes = artwork.mascot.eyeOrigin;
-const phase = (period: number) => ((Date.now() - started) % period) / period;
-// Starts a looping 0→1 timeline where the shared clock is, then keeps it on the beat.
+// The splash stays mounted across all startup stages, so each loop has one lifetime.
 function useLoop(period: number, easing: (t: number) => number) {
-  const [v] = useState(() => new Animated.Value(phase(period)));
+  const [v] = useState(() => new Animated.Value(0));
   useEffect(() => {
     let alive = true;
     const run = (from: number) => {
@@ -39,7 +35,7 @@ function useLoop(period: number, easing: (t: number) => number) {
         useNativeDriver: native,
       }).start(({ finished }) => alive && finished && run(0));
     };
-    run(phase(period));
+    run(0);
     return () => {
       alive = false;
       v.stopAnimation();
@@ -54,6 +50,20 @@ const linear = Easing.linear;
  * once it has been up long enough to read as a moment rather than a flicker.
  */
 export function Splash({ done = false, label = 'Savorly' }: { done?: boolean; label?: string }) {
+  const [gone, setGone] = useState(false);
+  // Unmount the animated child so its looping effects stop when the splash is hidden.
+  return gone ? null : <SplashContent done={done} label={label} onHidden={setGone} />;
+}
+function SplashContent({
+  done,
+  label,
+  onHidden,
+}: {
+  done: boolean;
+  label: string;
+  onHidden: (hidden: boolean) => void;
+}) {
+  const [started] = useState(Date.now);
   const [reduced, setReduced] = useState(false);
   useEffect(() => {
     void AccessibilityInfo.isReduceMotionEnabled().then(setReduced);
@@ -61,9 +71,11 @@ export function Splash({ done = false, label = 'Savorly' }: { done?: boolean; la
   const hop = useLoop(HOP, linear);
   const blink = useLoop(BLINK, linear);
   const [fade] = useState(() => new Animated.Value(1));
-  const [gone, setGone] = useState(false);
   useEffect(() => {
-    if (!done) return;
+    if (!done) {
+      fade.setValue(1);
+      return;
+    }
     const wait = Math.max(0, SHORTEST - (Date.now() - started));
     const timer = setTimeout(
       () =>
@@ -72,12 +84,16 @@ export function Splash({ done = false, label = 'Savorly' }: { done?: boolean; la
           duration: 320,
           easing: Easing.out(Easing.cubic),
           useNativeDriver: native,
-        }).start(() => setGone(true)),
+        }).start(({ finished }) => {
+          if (finished) onHidden(true);
+        }),
       wait,
     );
-    return () => clearTimeout(timer);
-  }, [done, fade]);
-  if (gone) return null;
+    return () => {
+      clearTimeout(timer);
+      fade.stopAnimation();
+    };
+  }, [done, fade, onHidden, started]);
   // Up and down on a sine, with a little squash where it lands.
   const lift = hop.interpolate({
     inputRange: [0, 0.12, 0.5, 0.88, 1],
