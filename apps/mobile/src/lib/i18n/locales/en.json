@@ -760,5 +760,13 @@
   "Save": "Save",
   "In your cookbooks": "In your cookbooks",
   "Link copied to your clipboard.": "Link copied to your clipboard.",
-  "Use ← and → to move between steps, and Esc to close.": "Use ← and → to move between steps, and Esc to close."
+  "Use ← and → to move between steps, and Esc to close.": "Use ← and → to move between steps, and Esc to close.",
+  "Mute": "Mute",
+  "Unmute": "Unmute",
+  "Tell me your recipe": "Tell me your recipe",
+  "Talk it through like you would to a friend. I’ll write it up and ask about anything I missed.": "Talk it through like you would to a friend. I’ll write it up and ask about anything I missed.",
+  "What it is, and how many it serves": "What it is, and how many it serves",
+  "The ingredients, with amounts if you know them": "The ingredients, with amounts if you know them",
+  "The steps, in order": "The steps, in order",
+  "Say “that’s everything” when you’re done.": "Say “that’s everything” when you’re done."
 }

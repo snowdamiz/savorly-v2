@@ -760,5 +760,13 @@
   "Save": "Сохранить",
   "In your cookbooks": "В ваших сборниках",
   "Link copied to your clipboard.": "Ссылка скопирована в буфер обмена.",
-  "Use ← and → to move between steps, and Esc to close.": "Используйте ← и →, чтобы переходить между шагами, и Esc, чтобы закрыть."
+  "Use ← and → to move between steps, and Esc to close.": "Используйте ← и →, чтобы переходить между шагами, и Esc, чтобы закрыть.",
+  "Mute": "Без звука",
+  "Unmute": "Включить",
+  "Tell me your recipe": "Расскажите свой рецепт",
+  "Talk it through like you would to a friend. I’ll write it up and ask about anything I missed.": "Расскажите, как другу. Я всё запишу и уточню, если чего-то не хватает.",
+  "What it is, and how many it serves": "Что это за блюдо и на сколько порций",
+  "The ingredients, with amounts if you know them": "Ингредиенты, с количеством, если знаете",
+  "The steps, in order": "Шаги по порядку",
+  "Say “that’s everything” when you’re done.": "Когда закончите, скажите «это всё»."
 }
