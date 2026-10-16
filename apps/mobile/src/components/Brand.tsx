@@ -1,4 +1,5 @@
 import React from 'react';
+import { Platform } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import artwork from '../../assets/brand-artwork.json';
 
@@ -11,9 +12,9 @@ export function BrandMark({ size = 40 }: { size?: number }) {
       width={size}
       height={size}
       viewBox={artwork.clove.viewBox}
-      accessible={false}
+      accessible={Platform.OS === 'web' ? undefined : false}
       aria-hidden
-      pointerEvents="none"
+      style={{ pointerEvents: 'none' }}
     >
       <Path d={artwork.clove.path} fill={brandColors.ink} fillRule="evenodd" />
       <Path d={artwork.clove.eyes} fill={brandColors.cream} />
@@ -29,9 +30,9 @@ export function BrandWordmark({ width = 134 }: { width?: number }) {
       width={width}
       height={(width * sourceHeight) / sourceWidth}
       viewBox={artwork.wordmark.viewBox}
-      accessible={false}
+      accessible={Platform.OS === 'web' ? undefined : false}
       aria-hidden
-      pointerEvents="none"
+      style={{ pointerEvents: 'none' }}
     >
       <Path d={artwork.wordmark.path} fill={brandColors.ink} fillRule="evenodd" />
     </Svg>

@@ -219,7 +219,7 @@ test('cooking UI plays cloud audio, preloads next, and stops on navigation', asy
         contentType: 'audio/wav',
         body: wav,
         headers: {
-          'Access-Control-Allow-Origin': 'http://localhost:8081',
+          'Access-Control-Allow-Origin': new URL(page.url()).origin,
           'Access-Control-Allow-Credentials': 'true',
         },
       });

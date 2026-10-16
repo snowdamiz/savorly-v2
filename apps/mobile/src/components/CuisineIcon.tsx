@@ -1,4 +1,5 @@
 import React from 'react';
+import { Platform } from 'react-native';
 import Svg, { Circle, Ellipse, G, Path, Rect } from 'react-native-svg';
 import { Cuisine, allCuisines, cuisineFilters } from '../lib/cuisines';
 
@@ -740,7 +741,14 @@ const illustrations: Record<Cuisine | typeof allCuisines, React.ReactNode> = {
 export function CuisineIcon({ name, size = 28 }: { name: string; size?: number }) {
   const key = cuisineFilters.find((c) => c.toLowerCase() === name.trim().toLowerCase()) || 'Other';
   return (
-    <Svg width={size} height={size} viewBox="0 0 64 64" fill="none" accessible={false} aria-hidden>
+    <Svg
+      width={size}
+      height={size}
+      viewBox="0 0 64 64"
+      fill="none"
+      accessible={Platform.OS === 'web' ? undefined : false}
+      aria-hidden
+    >
       <G>{illustrations[key]}</G>
     </Svg>
   );
