@@ -75,6 +75,7 @@ import { haptic } from './src/lib/haptics';
 import { AuthDialog } from './src/components/AuthDialog';
 import { KitchenSetup, Welcome } from './src/components/Onboarding';
 import { finishWelcome, useWelcomePending } from './src/lib/welcome';
+import { useGoogleReturn } from './src/lib/auth/googleRedirect';
 import { BrandMark } from './src/components/Brand';
 import { RecipeDetail } from './src/components/RecipeDetail';
 import { RecipeStart } from './src/components/RecipeStart';
@@ -117,6 +118,7 @@ const DESKTOP_HEADER = 84;
 function Shell() {
   const { t: tr, locale, setLanguage } = useI18n();
   const app = useApp();
+  useGoogleReturn();
   const { desktop, compact, gutter, top, insets, width, webPage } = useChrome();
   const [screen, setScreen] = useState<Screen>('discover');
   const [selected, setSelected] = useState<Recipe | null>(null);

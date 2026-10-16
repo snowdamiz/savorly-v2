@@ -378,6 +378,7 @@ export function Profile({
           </View>
           <SocialButtons
             only={(['apple', 'google'] as const).filter((p) => !identities.includes(p))}
+            purpose="connect"
             onError={app.notify}
             onToken={(t) =>
               void app.act(async () => {
@@ -584,6 +585,7 @@ export function Profile({
             </Text>
             <SocialButtons
               only={identities}
+              purpose="delete"
               onError={app.notify}
               onToken={(t) => void deleteAccount({ provider: t.provider, token: t.token })}
             />
