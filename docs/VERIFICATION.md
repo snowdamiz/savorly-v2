@@ -56,3 +56,37 @@ See [deployment limitations and operational work](DEPLOYMENT.md) for the remaini
 - Voice-session expiry/automatic renewal is covered by the mocked WebRTC browser test, including device release before reconnecting. The new studio, camera, entry component, and voice transport pass ESLint without warnings.
 - Expo native config introspection confirms camera/microphone permission strings. Cloudflare Wrangler's final dry run passes with the exported assets and same-origin device permissions; nothing was deployed.
 - The existing real HTTP/Postgres integration suite still passes all 43 checks after the studio migrations.
+
+## Local checks update — 2026-10-15
+
+This update supersedes the older lint, dependency and test-count notes above. Verification used an isolated local application database, the existing local Postgres/SeaweedFS services, and separate API/Expo ports (8180/8181). No external AI providers were called.
+
+- App and Cloudflare Worker TypeScript checks pass. ESLint passes with **zero errors and warnings**, with the former React Compiler rule exceptions removed and `--max-warnings 0` enforced.
+- Go vet, race tests, isolated-schema database tests, and public/private object-storage tests pass. The real HTTP integration script passes all **46 checks**, both against the host API and the built Docker container.
+- All **53 Playwright tests** pass, including regressions for delayed search responses, automatic AI submission/idempotency and guest sign-in, discarded profile edits, and browser console diagnostics on desktop/mobile. The final icon change also passes the focused console regression.
+- Web, Android Hermes and iOS Hermes exports pass. Native config introspection passes, including the Xcode UUID override. These are bundles/config checks, not signed native builds or physical-device tests.
+- The Docker API image builds and boots with healthy `/health`. The Cloudflare Worker/container dry run passes via `npm --prefix infra/cloudflare run build`; it explicitly targets the default environment and does not publish.
+- Expo SDK dependency validation passes after updating the compatible SDK 57 patches.
+
+To include the opt-in Go suites with the checked-in local service configuration, start `make services`, then run from the repository root:
+
+```sh
+set -a
+. ./.env
+set +a
+export TEST_DATABASE_URL="$DATABASE_URL"
+export TEST_OBJECT_STORAGE=true
+export TEST_S3_ENDPOINT="$S3_ENDPOINT"
+make check
+```
+
+Use only a local development `.env` for this command: the public storage suite requires the local SeaweedFS endpoint. Tests create and drop isolated database schemas and clean up their test objects. The app and Expo must also be running for `npm run test:integration` and `npm --prefix apps/mobile run test:e2e`.
+
+### Remaining upstream diagnostics
+
+- `npm audit` reports **17 high-severity entries**, all propagated from `braces@3.0.3` and `node-forge@1.4.0`. Both published advisories still list no patched release: [braces](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm), [node-forge](https://github.com/advisories/GHSA-86w9-cpqp-85rv). No forced Expo downgrade or audit suppression was applied. The Worker dependency audit is clean.
+- Xcode's transitive UUID is pinned to the CommonJS-compatible `11.1.1`, removing its deprecation notice and all seven moderate audit entries. Xcode uses the compatible `uuid.v4()` API; Expo native config introspection validates the resolved dependency.
+- A fresh install still reports the ESLint 9 deprecation notice. The current `eslint-plugin-react@7.37.5` and `eslint-plugin-import@2.32.0` shipped through Expo's lint configuration declare ESLint support through version 9; forcing ESLint 10 would violate those peer requirements. See [ESLint version support](https://eslint.org/version-support/).
+- Expo Doctor passes **20/21 checks**. The remaining warning is React Native Directory marking `react-native-webrtc` untested on New Architecture. It remains visible pending native-device validation. Only `storefront` is excluded from directory lookup because it is this repository's own local Expo module, not a public package with directory metadata.
+
+The execution environment supplied both `NO_COLOR` and `FORCE_COLOR`, which produces a Node warning in Playwright/Metro child processes. Final runs used `env -u NO_COLOR` to resolve that environment conflict; no warning filters were added to the app or tests.

@@ -1,6 +1,7 @@
 .PHONY: setup db services api web check test build
 setup:
 	npm --prefix apps/mobile ci
+	npm --prefix infra/cloudflare ci
 	cd services/api && go mod download
 	@test -f .env || cp .env.example .env
 

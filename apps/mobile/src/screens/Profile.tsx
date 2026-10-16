@@ -214,13 +214,6 @@ export function Profile({
   const saveProfile = useSaveProfile();
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
-  useEffect(() => {
-    setName(app.user?.name || '');
-    setBio(app.user?.bio || '');
-    setAvatar(app.user?.avatar || '');
-    setDiets(app.user?.preferences.diets || []);
-    setAllergies(app.user?.preferences.allergies?.join(', ') || '');
-  }, [app.user]);
   const mine = app.library.recipes.filter((r) => r.author.id === app.user?.id);
   // An app can update before the API does, so missing account fields mean "none".
   const identities = app.user?.identities ?? [];
@@ -352,7 +345,15 @@ export function Profile({
             icon={Settings2}
             variant="secondary"
             small
-            onPress={() => setEdit(true)}
+            onPress={() => {
+              setName(app.user?.name || '');
+              setBio(app.user?.bio || '');
+              setAvatar(app.user?.avatar || '');
+              setDiets(app.user?.preferences.diets || []);
+              setAllergies(app.user?.preferences.allergies?.join(', ') || '');
+              handle.setValue(app.user?.handle || '');
+              setEdit(true);
+            }}
           />
         </View>
       )}
