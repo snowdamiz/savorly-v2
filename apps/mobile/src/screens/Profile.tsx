@@ -5,7 +5,6 @@ import { StyleSheet, Text, View } from 'react-native';
 import {
   Bookmark,
   CalendarDays,
-  ChefHat,
   Check,
   ChevronRight,
   Leaf,
@@ -18,6 +17,7 @@ import {
   Users,
 } from 'lucide-react-native';
 import { useApp } from '../lib/store';
+import { BrandMark, brandColors } from '../components/Brand';
 import { api, persistSession } from '../lib/api';
 import { Creator, Recipe, RecipeInput, Screen } from '../lib/types';
 import { color, font, radius, s } from '../lib/theme';
@@ -284,14 +284,14 @@ export function Profile({
             style={{
               width: 72,
               height: 72,
-              borderRadius: 36,
-              backgroundColor: color.ink,
+              borderRadius: 24,
+              backgroundColor: brandColors.sage,
               alignItems: 'center',
               justifyContent: 'center',
               marginBottom: 6,
             }}
           >
-            <ChefHat size={30} color={color.white} strokeWidth={1.7} />
+            <BrandMark size={54} />
           </View>
           <Text style={[s.h2, { textAlign: 'center' }]}>{tr('A kitchen to call your own')}</Text>
           <Text style={[s.muted, { textAlign: 'center', maxWidth: 340 }]}>

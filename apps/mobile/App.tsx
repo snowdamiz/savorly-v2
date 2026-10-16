@@ -28,7 +28,6 @@ import {
   Bell,
   Bookmark,
   CalendarDays,
-  ChefHat,
   ChevronRight,
   Compass,
   House,
@@ -73,6 +72,7 @@ import {
 import { AnnouncementBanner } from './src/components/Announcement';
 import { haptic } from './src/lib/haptics';
 import { AuthDialog } from './src/components/AuthDialog';
+import { BrandMark } from './src/components/Brand';
 import { RecipeDetail } from './src/components/RecipeDetail';
 import { RecipeStart } from './src/components/RecipeStart';
 import { RecipeStudio } from './src/components/RecipeStudio';
@@ -377,30 +377,9 @@ function Shell() {
               accessibilityRole="button"
               accessibilityLabel={tr('Savorly home')}
               onPress={() => navigate('discover')}
-              style={[s.row, { gap: 10, marginLeft: 10, marginBottom: 36 }]}
+              style={[s.row, { marginLeft: 10, marginBottom: 28 }]}
             >
-              <View
-                style={{
-                  backgroundColor: color.ink,
-                  width: 34,
-                  height: 34,
-                  borderRadius: 17,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                <ChefHat size={19} color="white" strokeWidth={2} />
-              </View>
-              <Text
-                style={{
-                  fontFamily: font.extra,
-                  fontSize: 24,
-                  color: color.ink,
-                  letterSpacing: -1.2,
-                }}
-              >
-                savorly
-              </Text>
+              <BrandMark size={42} />
             </Pressable>
             <View style={{ gap: 4 }}>
               {navigation.map((item) => (

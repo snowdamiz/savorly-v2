@@ -1,6 +1,6 @@
 import { useI18n } from '../lib/i18n';
 import React, { useEffect, useState } from 'react';
-import { Animated, Pressable, ScrollView, StyleSheet, Text, View, ViewStyle } from 'react-native';
+import { Animated, Pressable, StyleSheet, Text, View, ViewStyle } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
   ArrowRight,
@@ -112,10 +112,16 @@ export function Discover({
   const [filters, setFilters] = useState(false);
   const [sort, setSort] = useState('For you');
   const [quick, setQuick] = useState(false);
-  const search = useRecipeSearch({ query, category, cuisine, quick, sort });
+  // Filtering belongs to Explore. Home only searches, so returning to it never leaves the feed
+  // stuck as a filtered list, while Explore keeps its filters for the next visit.
+  const search = useRecipeSearch(
+    explore
+      ? { query, category, cuisine, quick, sort }
+      : { query, category: 'All recipes', cuisine: allCuisines, quick: false, sort: 'For you' },
+  );
   const filtered = search.recipes;
-  const refined = cuisine !== allCuisines || quick || sort !== 'For you';
-  const listing = !!query || !!explore || category !== 'All recipes' || refined;
+  const refined = !!explore && (cuisine !== allCuisines || quick || sort !== 'For you');
+  const listing = !!query || !!explore;
   const hero = recipes.find((r) => r.id === 'lemon-ricotta-pasta') || recipes[0];
   const trending = recipes
     .filter((r) => r.id !== hero?.id)
@@ -143,6 +149,24 @@ export function Discover({
   const tileWidth = Math.min(250, Math.round(width * 0.6));
   // On phones the feed is a light sheet that rises over the black header on rounded top corners.
   const sheet = compact && !explore;
+  const filter = compact ? (
+    <IconButton
+      icon={SlidersHorizontal}
+      label={tr('Filter recipes')}
+      selected={refined}
+      size={52}
+      onPress={() => setFilters(true)}
+    />
+  ) : (
+    <Button
+      title={tr('Filters')}
+      label={tr('Filter recipes')}
+      icon={SlidersHorizontal}
+      variant={refined ? 'primary' : 'secondary'}
+      small
+      onPress={() => setFilters(true)}
+    />
+  );
   return (
     <View style={{ gap: 30 }}>
       {sheet ? (
@@ -214,11 +238,31 @@ export function Discover({
                 ? tr('Search by dish, ingredient or cuisine, then narrow it down.')
                 : undefined
             }
-          />
+          >
+            {explore && !compact && filter}
+          </PageHeading>
           {compact && (
-            <View style={{ flexDirection: 'row' }}>
+            <View style={[s.row, { gap: 10 }]}>
               <SearchBar value={query} onChangeText={onQuery} />
+              {explore && filter}
             </View>
+          )}
+          {/* Categories narrow a search, so they sit with it rather than atop the home feed. */}
+          {explore && (
+            <Rail gap={8}>
+              {categories.map(([value, title]) => (
+                <Chip
+                  key={value}
+                  title={tr(title)}
+                  icon={foodIcon(value)}
+                  active={category === value}
+                  onPress={() => {
+                    if (category !== value) haptic.select();
+                    setCategory(value);
+                  }}
+                />
+              ))}
+            </Rail>
           )}
         </FadeIn>
       )}
@@ -236,35 +280,22 @@ export function Discover({
           },
         ]}
       >
-        <View style={[s.row, { gap: 8 }]}>
-          <IconButton
-            icon={SlidersHorizontal}
-            label={tr('Filter recipes')}
-            selected={refined}
-            size={40}
-            onPress={() => setFilters(true)}
+        {explore ? (
+          <CuisineBrowser value={cuisine} onChange={setCuisine} onSeeAll={() => setFilters(true)} />
+        ) : (
+          // On home a cuisine is a way into Explore, already narrowed to it.
+          <CuisineBrowser
+            onChange={(next) => {
+              reset();
+              setCuisine(next);
+              navigate('explore');
+            }}
+            onSeeAll={() => {
+              setFilters(true);
+              navigate('explore');
+            }}
           />
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={[{ flex: 1 }, compact && { marginRight: -gutter }]}
-            contentContainerStyle={{ gap: 8, paddingRight: compact ? gutter : 0 }}
-          >
-            {categories.map(([value, title]) => (
-              <Chip
-                key={value}
-                title={tr(title)}
-                icon={foodIcon(value)}
-                active={category === value}
-                onPress={() => {
-                  if (category !== value) haptic.select();
-                  setCategory(value);
-                }}
-              />
-            ))}
-          </ScrollView>
-        </View>
-        <CuisineBrowser value={cuisine} onChange={setCuisine} onSeeAll={() => setFilters(true)} />
+        )}
         {listing ? (
           <FadeIn key={category} offset={10}>
             <SectionTitle
@@ -488,6 +519,7 @@ export function Discover({
                   title={tr('Weeknight winners')}
                   subtitle={tr('Fast, forgiving and full of flavor.')}
                   action={() => {
+                    reset();
                     setSort('Quickest');
                     navigate('explore');
                   }}
@@ -882,12 +914,6 @@ export function FeedSkeleton() {
           },
         ]}
       >
-        <View style={[s.row, { gap: 8, overflow: 'hidden' }]}>
-          {bone({ width: 40, height: 40 })}
-          {[70, 116, 112, 104, 120].map((w, i) => (
-            <React.Fragment key={i}>{bone({ width: w, height: 40 })}</React.Fragment>
-          ))}
-        </View>
         <View style={{ gap: 16 }}>
           {bone({ width: 104, height: 20 })}
           <View style={[s.row, { gap: 18, overflow: 'hidden' }]}>

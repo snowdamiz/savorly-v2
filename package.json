@@ -10,6 +10,7 @@
     "db:down": "docker compose down",
     "typecheck": "npm --prefix apps/mobile run typecheck",
     "build": "npm --prefix apps/mobile run build",
+    "brand": "node scripts/render-brand.mjs",
     "test": "cd services/api && go test ./...",
     "test:integration": "python3 scripts/integration.py",
     "deploy:staging": "sh scripts/deploy.sh staging",

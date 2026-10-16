@@ -7,23 +7,26 @@ import { color, font } from '../lib/theme';
 import { CuisineIcon } from './CuisineIcon';
 import { Rail, SectionTitle } from './ui';
 
-// Illustrated tiles rather than a second row of chips, so cuisines read as places to browse and the
-// category chips above stay the only filter strip.
+// Illustrated tiles rather than a row of chips, so cuisines read as places to browse and Explore's
+// category chips stay the only filter strip. Without a value nothing is selected and there is no
+// "All" tile: each cuisine is just a way in.
 export function CuisineBrowser({
   value,
   onChange,
   onSeeAll,
 }: {
-  value: string;
+  value?: string;
   onChange: (cuisine: string) => void;
   onSeeAll: () => void;
 }) {
   const { t: tr } = useI18n();
+  const names =
+    value === undefined ? cuisineFilters.filter((n) => n !== allCuisines) : cuisineFilters;
   return (
     <View>
       <SectionTitle title={tr('Cuisines')} action={onSeeAll} actionTitle={tr('See all cuisines')} />
       <Rail gap={6} pad={12}>
-        {cuisineFilters.map((name) => {
+        {names.map((name) => {
           const active = value === name;
           return (
             <Pressable

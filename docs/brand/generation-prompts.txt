@@ -1,0 +1,15 @@
+Built-in image generation was used to refine approved concept 08, The Happy Clove.
+The resulting transparent PNG masters are preserved beside this file.
+The production artwork is traced, flat-color vector geometry in apps/mobile/assets/brand-artwork.json.
+
+MASCOT MASTER
+Use case: background-extraction / logo-brand.
+Input image: approved concept board; ONLY concept "08 / THE HAPPY CLOVE" in the BOTTOM LEFT is the edit target. All other panels are irrelevant.
+Deliver a single production master of ONLY the garlic-clove mascot from concept 08, centered large on a genuinely transparent background, square image. Preserve its exact recognizable design: a plump asymmetric charcoal garlic clove with a gently hooked pointed tip leaning right, a single elegant curved white separation sweeping down its right side, and two small expressive white crescent eyes glancing upward/right. Preserve the warmth and proportions of the approved mascot. Clean up edge precision for logo use, smoothly flowing contours, flat solid charcoal #1B1C1A, white eye shapes and white curved separation. Do not reinvent the character. Fill most of the square but allow breathing room so nothing clips.
+No lettering, no labels, no app-icon tile, no shadows, no gradient, no texture, no extra details, no mouth, no arms or legs, no leaf. One isolated mascot only. Transparent background, not a white or checkerboard backdrop.
+
+WORDMARK MASTER
+Use case: background-extraction / logo-brand.
+Input image: approved concept board; ONLY concept "08 / THE HAPPY CLOVE" in the BOTTOM LEFT is the edit target. All other panels are irrelevant.
+Deliver a single production master of ONLY the handwritten wordmark "savorly" from concept 08, large on a genuinely transparent background. Exact text in lowercase: "savorly". Preserve the thick, playful, flowing lettering of the bottom-left approved wordmark: a rounded swooping initial s, compact readable a-v-o-r, a tall looping l, a jaunty y with a looped descending tail that sweeps right. Preserve the same letterforms and friendly hand-drawn rhythm, with careful optical kerning and clean smooth edges. Solid flat charcoal #1B1C1A. Wide horizontal composition with comfortable empty margin, entire word and descenders visible. No redesign, no generic font substitution.
+No garlic character, no mascot, no labels, no app-icon tile, no other text, no shadows, no gradient, no texture. ONLY the word savorly on a transparent background, not white or checkerboard backdrop.
