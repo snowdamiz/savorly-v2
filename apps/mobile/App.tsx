@@ -14,7 +14,6 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { LinearGradient } from 'expo-linear-gradient';
 import {
   useFonts,
   Manrope_400Regular,
@@ -342,10 +341,11 @@ function Shell() {
     outputRange: measured ? [1, 0] : [1, 1],
     extrapolate: 'clamp',
   });
-  // Scrolled content softens into the top edge instead of being sliced off by it.
+  // Once content scrolls under the status bar, the bar lifts on a soft shadow, so the content
+  // tucks under a surface instead of being sliced off (or hazed over, on dark photos) at its edge.
   const settled = darkTop && !app.loading && headerHeight ? sheetTop + radius.xl : 0;
-  const topFade = scrollY.interpolate({
-    inputRange: [settled, settled + 14],
+  const lifted = scrollY.interpolate({
+    inputRange: [settled, settled + 24],
     outputRange: [0, 1],
     extrapolate: 'clamp',
   });
@@ -632,23 +632,20 @@ function Shell() {
           )}
         </View>
       </View>
-      {compact && (
+      {compact && insets.top > 0 && (
         <Animated.View
           style={{
             position: 'absolute',
-            top: insets.top,
+            top: 0,
             left: 0,
             right: 0,
-            height: 18,
-            opacity: topFade,
+            height: insets.top,
+            backgroundColor: color.bg,
+            boxShadow: '0px 1px 0px rgba(13,13,13,0.05), 0px 8px 22px rgba(13,13,13,0.08)',
+            opacity: lifted,
             pointerEvents: 'none',
           }}
-        >
-          <LinearGradient
-            colors={[color.bg, 'rgba(244,244,244,0)']}
-            style={StyleSheet.absoluteFill}
-          />
-        </Animated.View>
+        />
       )}
       {compact && insets.top > 0 && (
         <View
