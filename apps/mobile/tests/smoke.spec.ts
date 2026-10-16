@@ -1,12 +1,12 @@
 import { test, expect, request as apiRequest } from '@playwright/test';
-test('discovery, filters, details and mobile layout', async ({ page }) => {
+test('discovery, filters, details and mobile layout', async ({ page }, testInfo) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto('/');
   await expect(page.getByText('What would you like to cook today?')).toBeVisible({
     timeout: 60000,
   });
-  await page.screenshot({ path: '../../docs/discover-desktop.png', fullPage: true });
+  await page.screenshot({ path: testInfo.outputPath('discover-desktop.png'), fullPage: true });
   await page.getByRole('textbox', { name: 'Search recipes' }).fill('lemon');
   await expect(
     page.getByRole('button', { name: 'View Lemon & ricotta pasta', exact: true }),
@@ -28,7 +28,7 @@ test('discovery, filters, details and mobile layout', async ({ page }) => {
   await page.getByRole('button', { name: 'Clear search', exact: true }).click();
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.getByRole('button', { name: 'My kitchen', exact: true })).toBeVisible();
-  await page.screenshot({ path: '../../docs/discover-mobile.png', fullPage: true });
+  await page.screenshot({ path: testInfo.outputPath('discover-mobile.png'), fullPage: true });
   expect(
     await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
   ).toBeTruthy();
@@ -130,12 +130,15 @@ test('register, save, groceries, plan and publish a recipe', async ({ page }) =>
     // A test timeout closes fixture contexts; cleanup needs its own connection.
     const cleanup = await apiRequest.newContext({ timeout: 60000 });
     try {
-      const response = await cleanup.post('http://localhost:8080/v1/auth/login', {
-        data: { email, password },
-      });
+      const response = await cleanup.post(
+        `${process.env.TEST_API_URL || 'http://localhost:8080'}/v1/auth/login`,
+        {
+          data: { email, password },
+        },
+      );
       if (response.ok()) {
         const session = await response.json();
-        await cleanup.delete('http://localhost:8080/v1/me', {
+        await cleanup.delete(`${process.env.TEST_API_URL || 'http://localhost:8080'}/v1/me`, {
           headers: { Authorization: `Bearer ${session.token}` },
           data: { password },
         });

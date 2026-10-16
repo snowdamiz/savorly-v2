@@ -32,7 +32,91 @@ const recipe: Recipe = {
   saveCount: 0,
   createdAt: new Date().toISOString(),
 };
+
+test('a late search response cannot replace the current results', async ({ page }) => {
+  await mockStudio(page);
+  let release!: () => void;
+  const delayed = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route('**/v1/recipes?**', async (route) => {
+    const query = new URL(route.request().url()).searchParams.get('q');
+    if (query === 'lemon') await delayed;
+    await route.fulfill({
+      json:
+        query === 'lemon' ? [{ ...recipe, id: 'stale', title: 'Stale lemon result' }] : [recipe],
+    });
+  });
+  await page.goto('/');
+  const search = page.getByRole('textbox', { name: 'Search recipes', exact: true });
+  const first = page.waitForRequest((r) => new URL(r.url()).searchParams.get('q') === 'lemon');
+  await search.fill('lemon');
+  await first;
+  await search.fill('toast');
+  await expect(page.getByRole('button', { name: 'View Lemon toast', exact: true })).toBeVisible();
+  const late = page.waitForResponse((r) => new URL(r.url()).searchParams.get('q') === 'lemon');
+  release();
+  await late;
+  await page.evaluate(() => new Promise(requestAnimationFrame));
+  await expect(
+    page.getByRole('button', { name: 'View Stale lemon result', exact: true }),
+  ).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'View Lemon toast', exact: true })).toBeVisible();
+});
+
+test('an automatic ingredient swap submits once and can be followed by another request', async ({
+  page,
+}) => {
+  await mockStudio(page);
+  const submissions: string[] = [];
+  const job = {
+    id: 'swap',
+    kind: 'substitute',
+    status: 'completed',
+    result: { text: 'Use a tortilla.' },
+    error: '',
+  };
+  await page.route('**/v1/ai/jobs', async (route) => {
+    if (route.request().method() === 'POST') {
+      submissions.push(route.request().headers()['idempotency-key']);
+      return route.fulfill({ json: { ...job, status: 'queued', result: {} } });
+    }
+    return route.fulfill({ json: [job] });
+  });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Let’s get cooking', exact: true }).click();
+  await page.getByRole('button', { name: 'Swap Bread', exact: true }).click();
+  await expect(page.getByText('Use a tortilla.', { exact: true })).toBeVisible();
+  expect(submissions).toHaveLength(1);
+  expect(submissions[0]).toBeTruthy();
+  await page.getByRole('button', { name: 'Ask something else', exact: true }).click();
+  await page
+    .getByRole('textbox', { name: 'Your request', exact: true })
+    .fill('Another bread substitute');
+  await page.getByRole('button', { name: 'Ask the sous-chef', exact: true }).last().click();
+  await expect(page.getByText('Use a tortilla.', { exact: true })).toBeVisible();
+  expect(submissions).toHaveLength(2);
+  expect(submissions[1]).not.toBe(submissions[0]);
+});
+
 // Recipes start from the Add a recipe sheet (the + tab on phones, Create recipe on desktop).
+test('an automatic ingredient swap asks guests to sign in before submitting', async ({ page }) => {
+  await mockStudio(page);
+  await page.route('**/v1/me', (route) =>
+    route.fulfill({ status: 401, json: { error: 'Sign in' } }),
+  );
+  const submissions: string[] = [];
+  page.on('request', (request) => {
+    if (request.url().endsWith('/ai/jobs') && request.method() === 'POST')
+      submissions.push(request.url());
+  });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Let’s get cooking', exact: true }).click();
+  await page.getByRole('button', { name: 'Swap Bread', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: 'Email address', exact: true })).toBeVisible();
+  expect(submissions).toEqual([]);
+});
+
 async function startRecipe(page: Page, option: string) {
   await page.getByRole('button', { name: 'Create recipe', exact: true }).click();
   await page.getByRole('button', { name: option, exact: true }).click();
@@ -234,7 +318,7 @@ async function fakeVoice(page: Page) {
 
 test('chat clarifies, saves a complete recipe with both media jobs, and resumes', async ({
   page,
-}) => {
+}, testInfo) => {
   const state = await mockStudio(page);
   await page.goto('/');
   await startRecipe(page, 'Chat to create a recipe');
@@ -250,14 +334,17 @@ test('chat clarifies, saves a complete recipe with both media jobs, and resumes'
   await expect(page.getByText('AI cover photo', { exact: true })).toBeVisible();
   await expect(page.getByText('AI recipe video', { exact: true })).toBeVisible();
   expect(state.messages).toHaveLength(2);
-  await page.screenshot({ path: '../../docs/recipe-studio-chat.png' });
+  await page.screenshot({ path: testInfo.outputPath('recipe-studio-chat.png') });
   await page.getByRole('button', { name: 'Close dialog', exact: true }).click();
   await startRecipe(page, 'Chat to create a recipe');
   await expect(page.getByText('Two slices, for two people.', { exact: true })).toBeVisible();
   await page.setViewportSize({ width: 390, height: 844 });
   // Allow the shared React Native modal spring to finish after changing viewport.
   await page.waitForTimeout(450);
-  await page.screenshot({ path: '../../docs/recipe-studio-mobile.png', animations: 'disabled' });
+  await page.screenshot({
+    path: testInfo.outputPath('recipe-studio-mobile.png'),
+    animations: 'disabled',
+  });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 

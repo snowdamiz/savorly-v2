@@ -30,7 +30,7 @@ function Thinking({ video }: { video: boolean }) {
     );
     loop.start();
     return () => loop.stop();
-  }, []);
+  }, [a]);
   return (
     <View accessibilityLiveRegion="polite" style={[s.card, { gap: 12 }]}>
       <View style={[s.row, { gap: 6 }]}>
@@ -147,9 +147,8 @@ export function SousChef({
   const { t: tr, number, language } = useI18n();
   const app = useApp();
   const { kind } = request;
-  const [prompt, setPrompt] = useState(request.prompt || '');
+  const [prompt, setPrompt] = useState(() => tr(request.prompt || ''));
   const [job, setJob] = useState<AIJob | null>(null);
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const enabled =
     kind === 'video'
@@ -157,34 +156,48 @@ export function SousChef({
       : kind === 'image'
         ? app.capabilities?.imageAI
         : app.capabilities?.textAI;
-  const run = async (text: string) => {
+  const prepare = (ask: string) => {
+    const prefs =
+      kind === 'image' || kind === 'video'
+        ? ''
+        : `\nDietary preferences (always verify ingredient labels): ${JSON.stringify(app.user?.preferences || {})}`;
+    const body = `${ask}\nPlease respond in ${language}.${request.context ? `\n\nContext: ${request.context}` : ''}${prefs}`;
+    return { kind, prompt: body.slice(0, 12000), key: requestKey() };
+  };
+  // Capture each submission once, including its idempotency key. Effect replay must not create
+  // another paid job, and changing language/profile while it runs must not resubmit it.
+  const [submission, setSubmission] = useState(() =>
+    prompt.trim().length >= 3 && enabled && app.user ? prepare(prompt.trim()) : null,
+  );
+  const busy = submission !== null;
+  const run = (text: string) => {
     const ask = text.trim();
     if (busy || ask.length < 3 || !enabled || !app.requireUser()) return;
     setPrompt(ask);
-    setBusy(true);
     setError('');
-    try {
-      const prefs =
-        kind === 'image' || kind === 'video'
-          ? ''
-          : `\nDietary preferences (always verify ingredient labels): ${JSON.stringify(app.user?.preferences || {})}`;
-      const body = `${ask}\nPlease respond in ${language}.${request.context ? `\n\nContext: ${request.context}` : ''}${prefs}`;
-      setJob(
-        await api<AIJob>('/ai/jobs', {
-          method: 'POST',
-          body: { kind, prompt: body.slice(0, 12000) },
-          headers: { 'Idempotency-Key': requestKey() },
-        }),
-      );
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
+    setSubmission(prepare(ask));
   };
   useEffect(() => {
-    if (request.prompt) void run(tr(request.prompt));
-  }, []);
+    if (!submission) return;
+    let active = true;
+    api<AIJob>('/ai/jobs', {
+      method: 'POST',
+      body: { kind: submission.kind, prompt: submission.prompt },
+      headers: { 'Idempotency-Key': submission.key },
+    })
+      .then((next) => {
+        if (active) setJob(next);
+      })
+      .catch((e: Error) => {
+        if (active) setError(e.message);
+      })
+      .finally(() => {
+        if (active) setSubmission(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [submission]);
   useEffect(() => {
     if (!job || finished(job)) return;
     let alive = true;
@@ -203,7 +216,7 @@ export function SousChef({
       alive = false;
       clearInterval(timer);
     };
-  }, [job?.id, job?.status]);
+  }, [job]);
   return (
     <Dialog visible onClose={onClose}>
       <View style={{ gap: 8, paddingRight: 48 }}>
@@ -398,10 +411,19 @@ export function SousChefHistory({
   const [error, setError] = useState('');
   useEffect(() => {
     if (!visible || !app.user) return;
-    setError('');
+    let active = true;
     api<AIJob[]>('/ai/jobs')
-      .then(setJobs)
-      .catch((e) => setError(e.message));
+      .then((next) => {
+        if (!active) return;
+        setJobs(next);
+        setError('');
+      })
+      .catch((e) => {
+        if (active) setError(e.message);
+      });
+    return () => {
+      active = false;
+    };
   }, [visible, app.user]);
   return (
     <Dialog visible={visible} onClose={onClose} title={tr('Sous-chef history')}>

@@ -1,5 +1,5 @@
 import { useI18n } from '../lib/i18n';
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import {
   BookOpen,
@@ -789,8 +789,15 @@ export function Pantry({
   const [name, setName] = useState('');
   const [quantity, setQuantity] = useState('');
   const [expires, setExpires] = useState('');
-  const today = localDate(new Date());
-  const soonDate = localDate(new Date(Date.now() + 3 * 86400000));
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 60_000);
+    return () => clearInterval(timer);
+  }, []);
+  const today = localDate(now);
+  const soon = new Date(now);
+  soon.setDate(soon.getDate() + 3);
+  const soonDate = localDate(soon);
   const matching = useMemo(
     () =>
       app.recipes

@@ -274,6 +274,14 @@ function Shell() {
         .catch(() => setSelected((s) => (s?.id === selected.id ? null : s)));
   };
   const ai = (request: AIRequest) => {
+    const enabled =
+      request.kind === 'video'
+        ? app.capabilities?.videoAI
+        : request.kind === 'image'
+          ? app.capabilities?.imageAI
+          : app.capabilities?.textAI;
+    // Automatic requests ask for sign-in in the originating press event, before mounting a job.
+    if (request.prompt && enabled && !app.requireUser()) return;
     setAsk(request);
     setAskKey((v) => v + 1);
   };

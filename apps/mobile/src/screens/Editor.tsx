@@ -74,25 +74,27 @@ function Section({
   );
 }
 const inset = { backgroundColor: color.bg, borderColor: color.bg };
-export function Editor({
-  initial,
-  onPublished,
-  onAI,
-}: {
+type EditorProps = {
   initial?: Recipe | RecipeInput;
   onPublished: (r: Recipe) => void;
   onAI: (r: AIRequest) => void;
-}) {
+};
+export function Editor(props: EditorProps) {
+  const { user } = useApp();
+  const id = props.initial && 'id' in props.initial ? props.initial.id : 'new';
+  return <EditorForm key={`${user?.id || 'guest'}.${id}`} {...props} />;
+}
+function EditorForm({ initial, onPublished, onAI }: EditorProps) {
   const { t: tr } = useI18n();
   const app = useApp();
   const { desktop, compact } = useChrome();
-  const [r, setR] = useState<RecipeInput>(initial || emptyRecipe());
+  const [r, setR] = useState<RecipeInput>(() => initial || emptyRecipe());
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
   // The photo being touched up: the cover, or an extra photo by its place in the gallery.
   const [touching, setTouching] = useState<'cover' | number | null>(null);
   const [error, setError] = useState('');
-  const [draftReady, setDraftReady] = useState(false);
+  const [draftReady, setDraftReady] = useState(!!initial);
   const [remove, setRemove] = useState(false);
   const [choosingCuisine, setChoosingCuisine] = useState(false);
   const saved = useRef(false);
@@ -100,11 +102,7 @@ export function Editor({
   const draftKey = `savorly.draft.${app.user?.id || 'guest'}.${id || 'new'}`;
   useEffect(() => {
     let alive = true;
-    if (initial) {
-      setR(initial);
-      setDraftReady(true);
-      return;
-    }
+    if (initial) return;
     AsyncStorage.getItem(draftKey)
       .then((value) => {
         if (!alive) return;
