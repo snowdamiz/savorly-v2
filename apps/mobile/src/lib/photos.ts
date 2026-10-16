@@ -8,18 +8,13 @@ import { requestKey } from './utils';
 
 /**
  * A photo from the camera or the library, or null if the cook changes their mind. Portraits open
- * the front camera and, on phones, the system's square crop.
+ * the front camera; they're framed afterwards in Savorly's own crop (PhotoCrop), not the system's.
  */
 export async function pickPhoto(
   from: 'camera' | 'library',
   portrait?: boolean,
 ): Promise<string | null> {
-  const options: ImagePicker.ImagePickerOptions = {
-    mediaTypes: ['images'],
-    quality: 1,
-    allowsEditing: !!portrait && Platform.OS !== 'web',
-    aspect: [1, 1],
-  };
+  const options: ImagePicker.ImagePickerOptions = { mediaTypes: ['images'], quality: 1 };
   let result: ImagePicker.ImagePickerResult;
   if (from === 'camera') {
     if (Platform.OS !== 'web') {
@@ -40,36 +35,29 @@ export async function pickPhoto(
   return result.canceled ? null : (result.assets?.[0]?.uri ?? null);
 }
 
-/** A JPEG no larger than `max` on its long side; portraits are cropped square around the middle. */
+/** A photo on this device, upright, with its size in pixels. */
+export type Photo = { uri: string; width: number; height: number };
+/** The part of a photo to keep, in its pixels. */
+export type Crop = { originX: number; originY: number; width: number; height: number };
+
+/** A JPEG no larger than `max` on its long side, cut down to `crop` first when there is one. */
 export async function preparePhoto(
   uri: string,
-  { max, square }: { max: number; square?: boolean },
-) {
+  { max, crop }: { max: number; crop?: Crop },
+): Promise<Photo> {
   const context = ImageManipulator.manipulate(uri);
+  if (crop) context.crop(crop);
   let rendered = await context.renderAsync();
   const { width, height } = rendered;
-  const side = Math.min(width, height);
-  const crop = !!square && width !== height;
-  const long = crop ? side : Math.max(width, height);
-  if (crop || long > max) {
+  if (Math.max(width, height) > max) {
     rendered.release();
-    if (crop)
-      context.crop({
-        originX: Math.floor((width - side) / 2),
-        originY: Math.floor((height - side) / 2),
-        width: side,
-        height: side,
-      });
-    if (long > max)
-      context.resize(
-        width >= height || crop ? { width: max, height: null } : { width: null, height: max },
-      );
+    context.resize(width >= height ? { width: max, height: null } : { width: null, height: max });
     rendered = await context.renderAsync();
   }
   const result = await rendered.saveAsync({ format: SaveFormat.JPEG, compress: 0.88 });
   rendered.release();
   context.release();
-  return result.uri;
+  return { uri: result.uri, width: result.width, height: result.height };
 }
 
 /**
