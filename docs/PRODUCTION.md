@@ -1,6 +1,6 @@
 # Production
 
-Production is Savorly at [savorly.cooking](https://savorly.cooking). Pushing to the `release` branch deploys it; `main` keeps deploying [staging](STAGING.md).
+Production is Savorly at [savorly.cooking](https://savorly.cooking). Pushing to the `release` branch deploys it; the `staging` branch deploys [staging](STAGING.md).
 
 | Piece                                     | Where                                                                                                                                                       |
 | ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -13,7 +13,7 @@ Production is Savorly at [savorly.cooking](https://savorly.cooking). Pushing to 
 
 ## Releasing
 
-Release what is on `main` (already verified there and tried on staging):
+Release what is on `main` (already verified there and tried on staging with `git push origin main:staging`):
 
 ```sh
 git push origin main:release

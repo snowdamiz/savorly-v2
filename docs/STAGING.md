@@ -10,7 +10,13 @@ Staging is a full copy of Savorly for testing on real devices, at [staging.savor
 | Email                                     | Cloudflare Email Service on `savorly.cooking`, sending as `noreply@savorly.cooking`                                                     |
 | Android app                               | EAS profile `staging`: "Savorly Staging", package `app.savorly.mobile.staging`, installs beside production                              |
 
-Every push to `main` that passes verification redeploys the backend and queues an Android build ([ci.yml](../.github/workflows/ci.yml)). [Production](PRODUCTION.md) deploys from the `release` branch.
+Every push to the `staging` branch that passes verification redeploys the backend and queues an Android build ([ci.yml](../.github/workflows/ci.yml)). To put what is on `main` on staging:
+
+```sh
+git push origin main:staging
+```
+
+Pushes to `main` only run verification. [Production](PRODUCTION.md) deploys from the `release` branch.
 
 ## One-time setup
 
@@ -60,4 +66,4 @@ Email/password accounts work without any of these.
 - `savorly.cooking` publishes DMARC `p=reject`: mail claiming to be from it is rejected unless Cloudflare Email Service sent it. Add any other sender (a mailbox provider, a newsletter tool) to SPF/DKIM before using it.
 - Paid plans are off (`PAID_PLANS=false`): every tester has unlimited Free use, the app shows no plans or prices, and no Stripe keys are needed. The shared daily ceilings (`AI_FREE_DAILY_BUDGET_USD` and `AI_DAILY_BUDGET_USD`, $10 each) are the only spend guard; adjust them in `wrangler.jsonc`, or override them without a redeploy from the [admin console](ADMIN.md)'s Settings. With `REAPI_API_KEY` set, each sous-chef recipe also generates a video (about $1.50).
 - The [admin console](ADMIN.md) opens for `yurlovandrew@gmail.com` once that account's email is verified, because staging runs in production mode. Sign in or connect Google with that address, reset the password (when email is configured), or set `email_verified` in Neon's SQL editor.
-- Each push to `main` uses one EAS build from your plan's quota. Builds are queued with `--no-wait`; their status is on expo.dev, not in the GitHub check.
+- Each push to `staging` uses one EAS build from your plan's quota. Builds are queued with `--no-wait`; their status is on expo.dev, not in the GitHub check.
