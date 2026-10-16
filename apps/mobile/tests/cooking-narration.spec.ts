@@ -147,41 +147,41 @@ test('browser autoplay rejection preserves audio for the next tap', async () => 
   h.controller.dispose();
 });
 
+const user = {
+  id: 'cook',
+  name: 'Alex',
+  handle: 'alex',
+  avatar: '',
+  bio: '',
+  email: 'alex@example.test',
+  preferences: { diets: [], allergies: [] },
+};
+const recipe = {
+  id: 'toast',
+  title: 'Narration test toast',
+  description: 'A simple toast.',
+  cuisine: 'Italian',
+  minutes: 5,
+  servings: 1,
+  difficulty: 'Easy',
+  image: '',
+  video: '',
+  ingredients: [{ name: 'Bread', amount: 1, unit: 'slice', category: 'Bakery' }],
+  steps: [
+    { title: 'Toast', text: 'Toast the bread.', seconds: 0 },
+    { title: 'Serve', text: 'Serve the toast.', seconds: 0 },
+  ],
+  tags: [],
+  calories: 100,
+  aiGenerated: false,
+  published: true,
+  author: user,
+  rating: 0,
+  reviewCount: 0,
+  saveCount: 0,
+  createdAt: new Date().toISOString(),
+};
 test('cooking UI plays cloud audio, preloads next, and stops on navigation', async ({ page }) => {
-  const user = {
-    id: 'cook',
-    name: 'Alex',
-    handle: 'alex',
-    avatar: '',
-    bio: '',
-    email: 'alex@example.test',
-    preferences: { diets: [], allergies: [] },
-  };
-  const recipe = {
-    id: 'toast',
-    title: 'Narration test toast',
-    description: 'A simple toast.',
-    cuisine: 'Italian',
-    minutes: 5,
-    servings: 1,
-    difficulty: 'Easy',
-    image: '',
-    video: '',
-    ingredients: [{ name: 'Bread', amount: 1, unit: 'slice', category: 'Bakery' }],
-    steps: [
-      { title: 'Toast', text: 'Toast the bread.', seconds: 0 },
-      { title: 'Serve', text: 'Serve the toast.', seconds: 0 },
-    ],
-    tags: [],
-    calories: 100,
-    aiGenerated: false,
-    published: true,
-    author: user,
-    rating: 0,
-    reviewCount: 0,
-    saveCount: 0,
-    createdAt: new Date().toISOString(),
-  };
   const prepared: string[] = [];
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
@@ -243,4 +243,35 @@ test('cooking UI plays cloud audio, preloads next, and stops on navigation', asy
   await page.getByRole('button', { name: 'Finish cooking', exact: true }).click();
   await expect(page.getByText('Dinner is served.', { exact: true })).toBeVisible();
   expect(errors).toEqual([]);
+});
+
+test('device speech fallback reads the step in the app language', async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'languages', { get: () => ['fr-FR'] });
+    const spoken: { text: string; lang: string }[] = [];
+    Object.assign(window, { spoken });
+    window.speechSynthesis.speak = (u) => void spoken.push({ text: u.text, lang: u.lang });
+  });
+  await page.route('**/v1/**', async (route) => {
+    const path = new URL(route.request().url()).pathname.replace('/v1', '');
+    const json = (body: unknown) =>
+      route.fulfill({ contentType: 'application/json', body: JSON.stringify(body) });
+    if (path === '/me') return json(user);
+    // No narration capability, so the step goes to device speech.
+    if (path === '/capabilities') return json({});
+    if (path === '/recipes') return json([recipe]);
+    if (path === '/creators') return json([user]);
+    if (path === '/library')
+      return json({ savedIds: [], saves: [], collections: [], followingIds: [], recipes: [] });
+    if (path === '/kitchen') return json({ plans: [], groceries: [], pantry: [] });
+    if (path === '/recipes/toast') return json(recipe);
+    return json([]);
+  });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'À vos fourneaux', exact: true }).click();
+  await page.getByRole('button', { name: 'Commencer à cuisiner', exact: true }).click();
+  await page.getByRole('button', { name: 'Lire cette étape à voix haute', exact: true }).click();
+  await expect
+    .poll(() => page.evaluate(() => (window as unknown as { spoken: unknown[] }).spoken))
+    .toEqual([{ text: 'Toast the bread.', lang: 'fr-FR' }]);
 });
