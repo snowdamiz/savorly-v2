@@ -140,7 +140,7 @@ func NewWithContext(ctx context.Context, db *pgxpool.Pool, config Config) *fiber
 			"voicePerMinuteUSD": 0.05,
 			"recipeChat":        a.AI.TextEnabled(), "recipePhotos": a.AI.TextEnabled() && a.Media.S3 != nil,
 			"textAI": a.AI.TextEnabled(), "textModel": a.AI.TextModel, "recipeModel": a.AI.RecipeModel, "agentModel": a.AI.AgentModel,
-			"imageAI": a.AI.TextEnabled(), "imageModel": a.AI.ImageModel,
+			"imageAI": a.AI.TextEnabled(), "imageModel": a.AI.ImageModel, "imageEditModel": a.AI.ImageEditModel,
 			"videoAI": a.AI.VideoEnabled(), "videoProvider": "reAPI", "videoModel": a.AI.VideoModel, "videoEstimateUSD": 1.005,
 			"passwordRecovery": emailEnabled(),
 			"plans":            paidPlans(), "billing": billingEnabled(), "appleSignIn": len(oauthAudiences("apple")) > 0, "googleSignIn": len(oauthAudiences("google")) > 0,

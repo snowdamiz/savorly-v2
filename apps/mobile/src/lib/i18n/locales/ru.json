@@ -724,5 +724,12 @@
   "The touch-up didn’t finish. Please try again.": "Не удалось улучшить фото. Попробуйте ещё раз.",
   "Choose a photo to touch up.": "Выберите фото для улучшения.",
   "Touch up a photo you’ve added to Savorly.": "Улучшать можно только фото, добавленные в Savorly.",
-  "AI photos are not connected yet. Add an OpenRouter key on the server.": "ИИ-фото пока не подключены. Добавьте ключ OpenRouter на сервере."
+  "AI photos are not connected yet. Add an OpenRouter key on the server.": "ИИ-фото пока не подключены. Добавьте ключ OpenRouter на сервере.",
+  "Better light, color and focus, with the same dish, plating and portions.": "Лучше свет, цвет и резкость — то же блюдо, подача и порции.",
+  "Use touched-up photo": "Использовать улучшенное фото",
+  "Keep the original": "Оставить оригинал",
+  "Touch up the cover photo": "Улучшить обложку",
+  "Touch up": "Улучшить",
+  "Touch up photo {{v0}}": "Улучшить фото {{v0}}",
+  "Photo touch-up": "Улучшение фото"
 }

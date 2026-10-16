@@ -724,5 +724,12 @@
   "The touch-up didn’t finish. Please try again.": "润色没有完成，请重试。",
   "Choose a photo to touch up.": "请选择要润色的照片。",
   "Touch up a photo you’ve added to Savorly.": "只能润色你已添加到 Savorly 的照片。",
-  "AI photos are not connected yet. Add an OpenRouter key on the server.": "AI 照片尚未接入。请在服务器上添加 OpenRouter 密钥。"
+  "AI photos are not connected yet. Add an OpenRouter key on the server.": "AI 照片尚未接入。请在服务器上添加 OpenRouter 密钥。",
+  "Better light, color and focus, with the same dish, plating and portions.": "光线、色彩和清晰度更好，菜品、摆盘和分量保持不变。",
+  "Use touched-up photo": "使用润色后的照片",
+  "Keep the original": "保留原图",
+  "Touch up the cover photo": "润色封面照片",
+  "Touch up": "润色",
+  "Touch up photo {{v0}}": "润色第 {{v0}} 张照片",
+  "Photo touch-up": "照片润色"
 }

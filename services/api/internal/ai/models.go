@@ -1,12 +1,15 @@
 package ai
 
-// Text/agent model verified on 2026-10-07; recipe/image models on 2026-10-03.
-// Source: OpenRouter model and image capability catalogs.
+// Text/agent model verified on 2026-10-07; recipe/image models on 2026-10-03; the edit model on
+// 2026-10-15. Source: OpenRouter model and image capability catalogs.
 const (
 	DefaultTextModel   = "openai/gpt-6-luna"
 	DefaultRecipeModel = "openai/gpt-6.1-sol"
 	DefaultAgentModel  = "openai/gpt-6-luna"
 	DefaultImageModel  = "openai/gpt-image-2.5-flare"
+	// Touch-ups edit a real photo, where GPT Image 2.5 Sunburst leads Flare most (Arena single-image
+	// editing) at the same per-token price; Flare stays the faster choice for new covers.
+	DefaultImageEditModel = "openai/gpt-image-2.5-sunburst"
 )
 
 func detailedTask(kind string) bool {

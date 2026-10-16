@@ -11,7 +11,7 @@ import (
 
 func clearModelEnv(t *testing.T) {
 	t.Helper()
-	for _, key := range []string{"OPENROUTER_TEXT_MODEL", "OPENROUTER_RECIPE_MODEL", "OPENROUTER_AGENT_MODEL", "OPENROUTER_VOICE_MODEL", "OPENROUTER_IMAGE_MODEL"} {
+	for _, key := range []string{"OPENROUTER_TEXT_MODEL", "OPENROUTER_RECIPE_MODEL", "OPENROUTER_AGENT_MODEL", "OPENROUTER_VOICE_MODEL", "OPENROUTER_IMAGE_MODEL", "OPENROUTER_IMAGE_EDIT_MODEL"} {
 		t.Setenv(key, "")
 	}
 }
@@ -19,7 +19,7 @@ func clearModelEnv(t *testing.T) {
 func TestModelConfiguration(t *testing.T) {
 	clearModelEnv(t)
 	c := New()
-	if c.TextModel != "openai/gpt-6-luna" || c.RecipeModel != "openai/gpt-6.1-sol" || c.AgentModel != "openai/gpt-6-luna" || c.ImageModel != "openai/gpt-image-2.5-flare" {
+	if c.TextModel != "openai/gpt-6-luna" || c.RecipeModel != "openai/gpt-6.1-sol" || c.AgentModel != "openai/gpt-6-luna" || c.ImageModel != "openai/gpt-image-2.5-flare" || c.ImageEditModel != "openai/gpt-image-2.5-sunburst" {
 		t.Fatal("model defaults drifted from the documented configuration")
 	}
 	t.Setenv("OPENROUTER_VOICE_MODEL", "legacy/agent")
@@ -30,8 +30,9 @@ func TestModelConfiguration(t *testing.T) {
 	t.Setenv("OPENROUTER_RECIPE_MODEL", "custom/recipe")
 	t.Setenv("OPENROUTER_AGENT_MODEL", "custom/agent")
 	t.Setenv("OPENROUTER_IMAGE_MODEL", "custom/image")
+	t.Setenv("OPENROUTER_IMAGE_EDIT_MODEL", "custom/edit")
 	c = New()
-	if c.TextModel != "custom/text" || c.RecipeModel != "custom/recipe" || c.AgentModel != "custom/agent" || c.ImageModel != "custom/image" {
+	if c.TextModel != "custom/text" || c.RecipeModel != "custom/recipe" || c.AgentModel != "custom/agent" || c.ImageModel != "custom/image" || c.ImageEditModel != "custom/edit" {
 		t.Fatal("explicit model overrides were ignored")
 	}
 }

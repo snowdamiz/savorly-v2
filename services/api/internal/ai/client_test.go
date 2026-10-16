@@ -28,17 +28,18 @@ func TestProviderContracts(t *testing.T) {
 			}
 			w.Write([]byte(`{"choices":[{"message":{"content":"{\"text\":\"Try a little lemon.\"}"}}]}`))
 		case "/images":
-			// A touch-up sends the photo as a reference and keeps its framing; a new cover is 4:3.
-			aspect := "4:3"
+			// A touch-up sends the photo as a reference to the edit model and keeps its framing; a new
+			// cover is 4:3.
+			aspect, model := "4:3", "openai/gpt-image-2.5-flare"
 			if refs, _ := body["input_references"].([]any); refs != nil {
-				aspect = "auto"
+				aspect, model = "auto", "openai/gpt-image-2.5-sunburst"
 				ref, _ := refs[0].(map[string]any)
 				url, _ := ref["image_url"].(map[string]any)["url"].(string)
 				if len(refs) != 1 || ref["type"] != "image_url" || url != "data:image/png;base64,cGhvdG8=" {
 					t.Errorf("incorrect touch-up reference: %v", refs)
 				}
 			}
-			if body["n"] != float64(1) || body["model"] != "openai/gpt-image-2.5-flare" || body["aspect_ratio"] != aspect || body["quality"] != "medium" || body["output_format"] != "jpeg" {
+			if body["n"] != float64(1) || body["model"] != model || body["aspect_ratio"] != aspect || body["quality"] != "medium" || body["output_format"] != "jpeg" {
 				t.Error("incorrect GPT Image contract")
 			}
 			if body["provider"].(map[string]any)["sort"] != "latency" {

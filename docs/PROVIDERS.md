@@ -1,6 +1,6 @@
 # AI provider choices
 
-GPT-6 Luna capabilities and pricing checked October 7, 2026; ElevenLabs via OpenRouter checked October 7; other model and image capabilities checked October 3, 2026. Prices below are USD and can change. Video comparison was checked October 2.
+GPT-6 Luna capabilities and pricing checked October 7, 2026; ElevenLabs via OpenRouter checked October 7; other model and image capabilities checked October 3, 2026; the image edit model October 15. Prices below are USD and can change. Video comparison was checked October 2.
 
 Savorly routes by workload. These are application choices based on current capabilities and published performance, not a cooking-specific model benchmark.
 
@@ -10,6 +10,7 @@ Savorly routes by workload. These are application choices based on current capab
 | Generate/adapt a full recipe; generate meal-plan suggestions             | `OPENROUTER_RECIPE_MODEL=openai/gpt-6.1-sol`        | More reasoning for quantities, restrictions, and a complete structured recipe; medium effort.             |
 | Conversational sous-chef, app tools, photo reading, GPT-Live delegations | `OPENROUTER_AGENT_MODEL=openai/gpt-6-luna`    | Multimodal tool use at interactive speed; low effort. Conversational recipe drafting stays in this agent. |
 | Recipe cover photos                                                      | `OPENROUTER_IMAGE_MODEL=openai/gpt-image-2.5-flare` | Current GPT Image 2.5 speed-focused variant; one medium-quality 4:3 image.                                |
+| Photo touch-ups (profile and recipe photos)                              | `OPENROUTER_IMAGE_EDIT_MODEL=openai/gpt-image-2.5-sunburst` | GPT Image 2.5's stronger variant, with its biggest lead on editing; same per-token price as Flare. The photo is sent as a reference; one medium-quality image in its own framing. |
 | Full-duplex live conversation                                            | `OPENAI_LIVE_MODEL=gpt-live-1`                      | Direct OpenAI Live WebRTC audio, interruption handling and backend delegation.                            |
 | Cooking step read-aloud                                                  | OpenRouter `elevenlabs/eleven-v4-turbo`                        | Streaming narration and reusable audio cache; see [cooking narration](COOKING-NARRATION.md).              |
 
@@ -19,7 +20,7 @@ Interactive text, agent, and image requests prefer low-latency endpoints. Larger
 
 All selections are server-side and reported by `/v1/capabilities`. `OPENROUTER_VOICE_MODEL` is accepted only as a legacy fallback when `OPENROUTER_AGENT_MODEL` is unset; it never selects the speech model. Changing `.env` requires restarting the API. Overrides must support the same JSON/tool/vision or image contract; revisit budget reservations if pricing changes.
 
-Sources: [OpenRouter catalog](https://openrouter.ai/api/v1/models), [GPT-6 Luna](https://openrouter.ai/openai/gpt-6-luna), [GPT-6.1 Sol](https://openrouter.ai/openai/gpt-6.1-sol), [GPT Image 2.5 Flare](https://openrouter.ai/openai/gpt-image-2.5-flare), [image endpoint capabilities and pricing](https://openrouter.ai/api/v1/images/models/openai/gpt-image-2.5-flare/endpoints), [provider routing](https://openrouter.ai/docs/guides/routing/provider-selection), [GPT-Live](https://developers.openai.com/api/docs/models/gpt-live-1).
+Sources: [OpenRouter catalog](https://openrouter.ai/api/v1/models), [GPT-6 Luna](https://openrouter.ai/openai/gpt-6-luna), [GPT-6.1 Sol](https://openrouter.ai/openai/gpt-6.1-sol), [GPT Image 2.5 Flare](https://openrouter.ai/openai/gpt-image-2.5-flare), [GPT Image 2.5 Sunburst](https://openrouter.ai/openai/gpt-image-2.5-sunburst) and its [endpoint record](https://openrouter.ai/api/v1/images/models/openai/gpt-image-2.5-sunburst/endpoints), [Flare vs Sunburst Arena results](https://carat.im/en/curated/gpt-image-2-5-guide), [image endpoint capabilities and pricing](https://openrouter.ai/api/v1/images/models/openai/gpt-image-2.5-flare/endpoints), [provider routing](https://openrouter.ai/docs/guides/routing/provider-selection), [GPT-Live](https://developers.openai.com/api/docs/models/gpt-live-1).
 
 For Seedance 2.5, the default is **reAPI Eco at 720p**, the lowest 720p tier directly verified in this comparison. This is not a claim that every provider on the market was compared, nor that Eco and standard have equal quality. The provider documents potentially lower quality and longer latency for Eco.
 

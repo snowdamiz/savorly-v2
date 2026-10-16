@@ -724,5 +724,12 @@
   "The touch-up didn’t finish. Please try again.": "El retoque no se completó. Inténtalo de nuevo.",
   "Choose a photo to touch up.": "Elige una foto para retocar.",
   "Touch up a photo you’ve added to Savorly.": "Retoca una foto que hayas añadido a Savorly.",
-  "AI photos are not connected yet. Add an OpenRouter key on the server.": "Las fotos con IA aún no están conectadas. Añade una clave de OpenRouter en el servidor."
+  "AI photos are not connected yet. Add an OpenRouter key on the server.": "Las fotos con IA aún no están conectadas. Añade una clave de OpenRouter en el servidor.",
+  "Better light, color and focus, with the same dish, plating and portions.": "Mejor luz, color y nitidez, con el mismo plato, emplatado y raciones.",
+  "Use touched-up photo": "Usar la foto retocada",
+  "Keep the original": "Quedarme con la original",
+  "Touch up the cover photo": "Retocar la foto de portada",
+  "Touch up": "Retocar",
+  "Touch up photo {{v0}}": "Retocar la foto {{v0}}",
+  "Photo touch-up": "Retoque de foto"
 }

@@ -724,5 +724,12 @@
   "The touch-up didn’t finish. Please try again.": "The touch-up didn’t finish. Please try again.",
   "Choose a photo to touch up.": "Choose a photo to touch up.",
   "Touch up a photo you’ve added to Savorly.": "Touch up a photo you’ve added to Savorly.",
-  "AI photos are not connected yet. Add an OpenRouter key on the server.": "AI photos are not connected yet. Add an OpenRouter key on the server."
+  "AI photos are not connected yet. Add an OpenRouter key on the server.": "AI photos are not connected yet. Add an OpenRouter key on the server.",
+  "Better light, color and focus, with the same dish, plating and portions.": "Better light, color and focus, with the same dish, plating and portions.",
+  "Use touched-up photo": "Use touched-up photo",
+  "Keep the original": "Keep the original",
+  "Touch up the cover photo": "Touch up the cover photo",
+  "Touch up": "Touch up",
+  "Touch up photo {{v0}}": "Touch up photo {{v0}}",
+  "Photo touch-up": "Photo touch-up"
 }

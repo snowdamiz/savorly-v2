@@ -258,6 +258,40 @@ test('the profile photo changes from My kitchen, with an AI touch-up', async ({ 
   expect(user.avatar).toBe('https://media.test/cook/touched.jpg');
 });
 
+test('an uploaded recipe photo can be touched up and compared before it is used', async ({
+  page,
+}) => {
+  const posts = await mockAccounts(page, true);
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Create recipe', exact: true }).click();
+  await page.getByRole('button', { name: 'Write a recipe yourself', exact: true }).click();
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: 'Upload a photo', exact: true }).click();
+  await (
+    await chooser
+  ).setFiles({
+    name: 'dish.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6dWQAAAAASUVORK5CYII=',
+      'base64',
+    ),
+  });
+  const url = page.getByRole('textbox', { name: 'Or use an image URL', exact: true });
+  await expect(url).toHaveValue('https://media.test/cook/upload.jpg');
+  await page.getByRole('button', { name: 'Touch up the cover photo', exact: true }).click();
+  // Nothing is spent until the cook asks for it.
+  expect(posts.some((p) => p.path === '/media/touch-up')).toBe(false);
+  await page.getByRole('button', { name: 'Touch up with AI', exact: true }).click();
+  await expect(page.getByRole('tab', { name: 'Touched up' })).toBeVisible({ timeout: 15000 });
+  expect(posts.find((p) => p.path === '/media/touch-up')?.body).toEqual({
+    url: 'https://media.test/cook/upload.jpg',
+    kind: 'dish',
+  });
+  await page.getByRole('button', { name: 'Use touched-up photo', exact: true }).click();
+  await expect(url).toHaveValue('https://media.test/cook/touched.jpg');
+});
+
 test('plans show usage and sell through Stripe checkout on the web', async ({ page }) => {
   const posts = await mockAccounts(page, true);
   await page.goto('/?page=profile');

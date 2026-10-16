@@ -160,7 +160,9 @@ export function ProfilePhoto({
       <View style={{ alignItems: 'center', gap: 14, paddingTop: 4 }}>
         <View style={{ width: 168, height: 168 }}>
           <Avatar name={name} uri={shown} size={168} />
-          {(busy === 'photo' || busy === 'touch') && <Working touch={busy === 'touch'} />}
+          {(busy === 'photo' || busy === 'touch') && (
+            <Working touch={busy === 'touch'} radius={84} />
+          )}
         </View>
         {busy === 'touch' ? (
           <Text accessibilityLiveRegion="polite" style={[s.small, { textAlign: 'center' }]}>
@@ -274,7 +276,7 @@ function Source({
   );
 }
 // A veil over the photo while it uploads; a touch-up also gets a slow sweep of light.
-function Working({ touch }: { touch: boolean }) {
+export function Working({ touch, radius: corner }: { touch: boolean; radius: number }) {
   const sweep = useState(() => new Animated.Value(0))[0];
   useEffect(() => {
     if (!touch || motionReduced()) return;
@@ -287,7 +289,7 @@ function Working({ touch }: { touch: boolean }) {
       style={[
         StyleSheet.absoluteFill,
         {
-          borderRadius: 84,
+          borderRadius: corner,
           overflow: 'hidden',
           backgroundColor: 'rgba(13,13,13,0.38)',
           alignItems: 'center',

@@ -724,5 +724,12 @@
   "The touch-up didn’t finish. Please try again.": "補正が完了しませんでした。もう一度お試しください。",
   "Choose a photo to touch up.": "補正する写真を選んでください。",
   "Touch up a photo you’ve added to Savorly.": "Savorlyに追加した写真を補正してください。",
-  "AI photos are not connected yet. Add an OpenRouter key on the server.": "AI写真はまだ接続されていません。サーバーにOpenRouterキーを追加してください。"
+  "AI photos are not connected yet. Add an OpenRouter key on the server.": "AI写真はまだ接続されていません。サーバーにOpenRouterキーを追加してください。",
+  "Better light, color and focus, with the same dish, plating and portions.": "光、色、ピントを整えて。料理も盛り付けも量もそのまま。",
+  "Use touched-up photo": "補正した写真を使う",
+  "Keep the original": "元の写真のままにする",
+  "Touch up the cover photo": "カバー写真を補正",
+  "Touch up": "補正",
+  "Touch up photo {{v0}}": "写真{{v0}}を補正",
+  "Photo touch-up": "写真の補正"
 }

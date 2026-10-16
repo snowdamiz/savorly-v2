@@ -96,6 +96,9 @@ export function JobResult({
         />
       </View>
     );
+  // A touch-up is already where it was asked for; history just shows it.
+  if (r.url && job.source)
+    return <FoodImage uri={r.url} style={{ height: 300, borderRadius: radius.lg }} />;
   if (r.url && (job.kind === 'image' || job.kind === 'video')) {
     const image = job.kind === 'image';
     return (
@@ -422,7 +425,7 @@ export function SousChefHistory({
         jobs.map((j) => (
           <View key={j.id} style={{ gap: 10, paddingBottom: 8 }}>
             <View style={s.between}>
-              <Text style={s.label}>{tr(kindLabel[j.kind])}</Text>
+              <Text style={s.label}>{j.source ? tr('Photo touch-up') : tr(kindLabel[j.kind])}</Text>
               <Pill
                 title={
                   j.status === 'completed'
@@ -436,9 +439,12 @@ export function SousChefHistory({
                 }
               />
             </View>
-            <Text numberOfLines={2} style={s.h3}>
-              {askOf(j.prompt)}
-            </Text>
+            {/* A touch-up's prompt is Savorly's instructions, not something the cook wrote. */}
+            {!j.source && (
+              <Text numberOfLines={2} style={s.h3}>
+                {askOf(j.prompt)}
+              </Text>
+            )}
             {j.status === 'failed' ? (
               <Text style={[s.muted, { color: color.error }]}>{j.error}</Text>
             ) : (

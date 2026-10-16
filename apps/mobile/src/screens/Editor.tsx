@@ -29,6 +29,7 @@ import {
   IconButton,
   NumberField,
   PageHeading,
+  Press,
   Segmented,
   useChrome,
 } from '../components/ui';
@@ -37,6 +38,7 @@ import { foodIcon } from '../lib/icons';
 import { fileForm } from '../lib/photos';
 import { CuisineIcon } from '../components/CuisineIcon';
 import { CuisinePicker } from '../components/CuisinePicker';
+import { PhotoTouchUp } from '../components/PhotoTouchUp';
 import { DangerButton, SignInKitchen } from './Kitchen';
 const tagOptions = [
   'Vegetarian',
@@ -87,6 +89,8 @@ export function Editor({
   const [r, setR] = useState<RecipeInput>(initial || emptyRecipe());
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
+  // The photo being touched up: the cover, or an extra photo by its place in the gallery.
+  const [touching, setTouching] = useState<'cover' | number | null>(null);
   const [error, setError] = useState('');
   const [draftReady, setDraftReady] = useState(false);
   const [remove, setRemove] = useState(false);
@@ -209,6 +213,18 @@ export function Editor({
     );
   const cover = () => void media('images', (url) => update('image', url));
   const photos = r.photos || [];
+  const canTouchUp = !!app.capabilities?.imageAI;
+  // A touched-up photo is AI-edited media, so the recipe discloses AI help as generated ones do.
+  const touchedUp = (url: string) =>
+    setR((old) =>
+      touching === 'cover'
+        ? { ...old, image: url, aiGenerated: true }
+        : {
+            ...old,
+            photos: (old.photos || []).map((p, k) => (k === touching ? url : p)),
+            aiGenerated: true,
+          },
+    );
   const addPhoto = () =>
     void media('images', (url) =>
       setR((old) => ({ ...old, photos: [...(old.photos || []), url] })),
@@ -218,32 +234,47 @@ export function Editor({
       title={tr('Photos')}
       hint="The first is the cover; swipe-through extras follow it. JPEG, PNG or WebP you have permission to share."
     >
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={tr('Choose a cover photo')}
-        onPress={cover}
-      >
-        {r.image ? (
-          <FoodImage uri={r.image} style={{ height: 240, borderRadius: radius.md }} />
-        ) : (
-          <View
-            style={{
-              height: 200,
-              borderWidth: 1.5,
-              borderStyle: 'dashed',
-              borderColor: color.line,
-              borderRadius: radius.md,
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 10,
-              backgroundColor: color.bg,
-            }}
+      <View>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={tr('Choose a cover photo')}
+          onPress={cover}
+        >
+          {r.image ? (
+            <FoodImage uri={r.image} style={{ height: 240, borderRadius: radius.md }} />
+          ) : (
+            <View
+              style={{
+                height: 200,
+                borderWidth: 1.5,
+                borderStyle: 'dashed',
+                borderColor: color.line,
+                borderRadius: radius.md,
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 10,
+                backgroundColor: color.bg,
+              }}
+            >
+              <Camera size={28} strokeWidth={1.6} color={color.muted} />
+              <Text style={s.small}>{tr('Tap to add a photo')}</Text>
+            </View>
+          )}
+        </Pressable>
+        {/* Beside the cover rather than inside it: browsers don't allow a button in a button. */}
+        {!!r.image && canTouchUp && (
+          <Press
+            accessibilityRole="button"
+            accessibilityLabel={tr('Touch up the cover photo')}
+            onPress={() => setTouching('cover')}
+            scale={0.95}
+            style={[s.row, styles.touch]}
           >
-            <Camera size={28} strokeWidth={1.6} color={color.muted} />
-            <Text style={s.small}>{tr('Tap to add a photo')}</Text>
-          </View>
+            <Sparkles size={15} color={color.white} strokeWidth={2.2} />
+            <Text style={styles.touchText}>{tr('Touch up')}</Text>
+          </Press>
         )}
-      </Pressable>
+      </View>
       <View style={[s.row, { gap: 8 }]}>
         <Button
           title={tr('Upload')}
@@ -291,6 +322,16 @@ export function Editor({
                     }
                   />
                 </View>
+                {canTouchUp && (
+                  <View style={{ position: 'absolute', bottom: -6, right: -6 }}>
+                    <IconButton
+                      icon={Sparkles}
+                      size={26}
+                      label={tr('Touch up photo {{v0}}', { v0: n + 2 })}
+                      onPress={() => setTouching(n)}
+                    />
+                  </View>
+                )}
               </View>
             ))}
             {photos.length < 8 && (
@@ -707,6 +748,11 @@ export function Editor({
           }}
         />
       </Dialog>
+      <PhotoTouchUp
+        uri={touching === null ? null : touching === 'cover' ? r.image : photos[touching] || null}
+        onClose={() => setTouching(null)}
+        onUse={touchedUp}
+      />
       <Dialog visible={remove} onClose={() => setRemove(false)} title={tr('Delete this recipe?')}>
         <Text style={s.body}>
           {tr(
@@ -738,3 +784,16 @@ export function Editor({
     </View>
   );
 }
+const styles = StyleSheet.create({
+  touch: {
+    position: 'absolute',
+    right: 12,
+    bottom: 12,
+    gap: 6,
+    height: 36,
+    paddingHorizontal: 14,
+    borderRadius: radius.pill,
+    backgroundColor: 'rgba(13,13,13,0.72)',
+  },
+  touchText: { color: color.white, fontFamily: font.bold, fontSize: 13 },
+});
