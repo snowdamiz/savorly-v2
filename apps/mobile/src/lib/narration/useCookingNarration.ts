@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import * as Speech from 'expo-speech';
 import { api } from '../api';
+import { useI18n } from '../i18n';
 import { useApp } from '../store';
 import type { Recipe } from '../types';
 import { CookingNarration, NarrationState } from './controller';
@@ -8,6 +9,7 @@ import { narrationPlayer } from './player';
 
 export function useCookingNarration(recipe: Recipe, step: number) {
   const app = useApp();
+  const { locale } = useI18n();
   const [state, setState] = useState<NarrationState>('idle');
   const controller = useRef<CookingNarration | null>(null);
   const texts = JSON.stringify(recipe.steps.map((s) => s.text));
@@ -25,7 +27,8 @@ export function useCookingNarration(recipe: Recipe, step: number) {
         return response.path;
       },
       player: narrationPlayer,
-      speak: (text, done) => Speech.speak(text, { onDone: done, onError: done, onStopped: done }),
+      speak: (text, done) =>
+        Speech.speak(text, { language: locale, onDone: done, onError: done, onStopped: done }),
       stopSpeech: () => {
         void Speech.stop();
       },
@@ -36,10 +39,10 @@ export function useCookingNarration(recipe: Recipe, step: number) {
       narration.dispose();
       controller.current = null;
     };
-  }, [recipe.id, texts, enabled, owner]);
+  }, [recipe.id, texts, enabled, owner, locale]);
   useEffect(() => {
     controller.current?.select(step);
-  }, [step, recipe.id, texts, enabled, owner]);
+  }, [step, recipe.id, texts, enabled, owner, locale]);
   const stop = useCallback(() => controller.current?.stop(), []);
   const read = useCallback(() => controller.current?.read(), []);
   return { state, speaking: state === 'playing' || state === 'loading', read, stop };
