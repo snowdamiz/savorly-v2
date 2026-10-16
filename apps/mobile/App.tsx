@@ -65,11 +65,13 @@ import {
   SearchBar,
   SheetHost,
   Toast,
+  TopBanners,
   frost,
   native,
   useChrome,
 } from './src/components/ui';
 import { AnnouncementBanner } from './src/components/Announcement';
+import { UpdateBanner } from './src/components/AppUpdates';
 import { haptic } from './src/lib/haptics';
 import { AuthDialog } from './src/components/AuthDialog';
 import { BrandMark } from './src/components/Brand';
@@ -694,7 +696,10 @@ function Shell() {
           <Sparkles size={24} color={color.white} strokeWidth={2} />
         </Press>
       )}
-      <AnnouncementBanner announcement={app.capabilities?.announcement} />
+      <TopBanners>
+        <AnnouncementBanner announcement={app.capabilities?.announcement} />
+        <UpdateBanner />
+      </TopBanners>
       <Toast message={selected ? '' : app.toast} />
       <AuthDialog />
       <RecipeStart visible={creating} onClose={() => setCreating(false)} onStart={create} />

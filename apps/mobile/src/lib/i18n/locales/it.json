@@ -691,5 +691,17 @@
   "Pick your username": "Scegli il tuo nome utente",
   "It’s how other cooks find you and see your recipes. You can change it anytime in My kitchen.": "È così che gli altri cuochi ti trovano e vedono le tue ricette. Puoi cambiarlo quando vuoi in La mia cucina.",
   "Save username": "Salva nome utente",
-  "Keep @{{v0}}": "Tieni @{{v0}}"
+  "Keep @{{v0}}": "Tieni @{{v0}}",
+  "A new version of Savorly is ready.": "È pronta una nuova versione di Savorly.",
+  "Restart": "Riavvia",
+  "Not now": "Non ora",
+  "App updates": "Aggiornamenti dell’app",
+  "Update ready. Tap to restart.": "Aggiornamento pronto. Tocca per riavviare.",
+  "Downloading an update…": "Download dell’aggiornamento…",
+  "Checking for updates…": "Ricerca di aggiornamenti…",
+  "Installed version": "Versione installata",
+  "Updated {{date}}": "Aggiornata il {{date}}",
+  "You’re on the latest version.": "Hai l’ultima versione.",
+  "Couldn’t check for updates. Try again later.": "Impossibile cercare aggiornamenti. Riprova più tardi.",
+  "Couldn’t restart. Close and reopen Savorly to update.": "Impossibile riavviare. Chiudi e riapri Savorly per aggiornarla."
 }

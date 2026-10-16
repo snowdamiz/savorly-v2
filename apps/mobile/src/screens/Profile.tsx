@@ -1,4 +1,5 @@
 import { LanguageSettings } from '../components/LanguageSettings';
+import { UpdateSettings } from '../components/AppUpdates';
 import { useI18n } from '../lib/i18n';
 import React, { useEffect, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
@@ -373,6 +374,7 @@ export function Profile({
       )}
       <View style={{ gap: 8 }}>
         <LanguageSettings />
+        <UpdateSettings />
         {menu.map((m) => (
           <MenuRow
             key={m.title}

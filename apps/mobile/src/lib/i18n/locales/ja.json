@@ -691,5 +691,17 @@
   "Pick your username": "ユーザー名を選びましょう",
   "It’s how other cooks find you and see your recipes. You can change it anytime in My kitchen.": "ほかの料理好きがあなたやレシピを見つけるときの名前です。マイキッチンでいつでも変更できます。",
   "Save username": "ユーザー名を保存",
-  "Keep @{{v0}}": "@{{v0}} のままにする"
+  "Keep @{{v0}}": "@{{v0}} のままにする",
+  "A new version of Savorly is ready.": "Savorly の新しいバージョンの準備ができました。",
+  "Restart": "再起動",
+  "Not now": "後で",
+  "App updates": "アプリのアップデート",
+  "Update ready. Tap to restart.": "アップデートの準備ができました。タップして再起動します。",
+  "Downloading an update…": "アップデートをダウンロード中…",
+  "Checking for updates…": "アップデートを確認中…",
+  "Installed version": "インストール済みのバージョン",
+  "Updated {{date}}": "{{date}} に更新",
+  "You’re on the latest version.": "最新バージョンです。",
+  "Couldn’t check for updates. Try again later.": "アップデートを確認できませんでした。しばらくしてからもう一度お試しください。",
+  "Couldn’t restart. Close and reopen Savorly to update.": "再起動できませんでした。Savorly を閉じてから開き直すとアップデートされます。"
 }

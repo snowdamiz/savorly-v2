@@ -69,7 +69,8 @@ jobs:
           name: browser-failures
           path: apps/mobile/test-results
   # After verification, the staging branch deploys to staging and release to production: the
-  # backend on Cloudflare and an EAS Android build. Setup: docs/STAGING.md and docs/PRODUCTION.md.
+  # backend on Cloudflare, then the Android app on EAS. Setup: docs/STAGING.md and
+  # docs/PRODUCTION.md.
   deploy:
     name: Deploy backend
     needs: verify
@@ -109,11 +110,15 @@ jobs:
           done
           echo "::error::$SITE_URL/api/health did not become healthy."
           exit 1
-  build-android:
-    name: Build Android app
-    needs: verify
+  ship-android:
+    name: Ship Android app
+    # After the backend, so an update never reaches phones before the API it calls.
+    needs: [verify, deploy]
     if: github.event_name == 'push' && (github.ref == 'refs/heads/staging' || github.ref == 'refs/heads/release')
     runs-on: ubuntu-latest
+    # One at a time, so a push right after a native change sees its queued build and ships as an
+    # update instead of queuing a second build.
+    concurrency: ship-android-${{ github.ref_name }}
     env:
       TARGET: ${{ github.ref == 'refs/heads/release' && 'production' || 'staging' }}
     steps:
@@ -136,7 +141,7 @@ jobs:
           token: ${{ secrets.EXPO_TOKEN }}
       - run: npm ci
         working-directory: apps/mobile
-      # Queues the build on EAS and returns; it appears on expo.dev. Staging is an installable APK,
-      # production a Play Store bundle (.aab).
-      - run: eas build --platform android --profile "$TARGET" --non-interactive --no-wait
-        working-directory: apps/mobile
+      # JavaScript-only changes publish an over-the-air update to the profile's channel. Native
+      # changes (a new fingerprint) queue a build on EAS and return; it appears on expo.dev.
+      # Staging builds are an installable APK, production a Play Store bundle (.aab).
+      - run: node scripts/ship-app.mjs "$TARGET"

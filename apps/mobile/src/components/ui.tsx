@@ -1483,6 +1483,25 @@ export function NumberField({
     />
   );
 }
+/** Stacks notices (announcements, app updates) over the top of every screen. */
+export function TopBanners({ children }: { children: React.ReactNode }) {
+  const { desktop, insets, gutter } = useChrome();
+  return (
+    <View
+      style={{
+        position: 'absolute',
+        top: desktop ? insets.top + 84 + 12 : insets.top + 8,
+        left: desktop ? 248 + gutter : 12,
+        right: desktop ? gutter : 12,
+        alignItems: 'center',
+        gap: 8,
+        pointerEvents: 'box-none',
+      }}
+    >
+      {children}
+    </View>
+  );
+}
 // Rendered by the shell and again inside full-screen modals, which sit above the shell.
 export function Toast({ message, bottom }: { message: string; bottom?: number }) {
   const { t: tr } = useI18n();

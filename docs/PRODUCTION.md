@@ -2,14 +2,14 @@
 
 Production is Savorly at [savorly.cooking](https://savorly.cooking). Pushing to the `release` branch deploys it; the `staging` branch deploys [staging](STAGING.md).
 
-| Piece                                     | Where                                                                                                                                                       |
-| ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Web app, `/api` gateway, Go API container | Cloudflare Worker `savorly` on `savorly.cooking` (top level of [wrangler.jsonc](../infra/cloudflare/wrangler.jsonc)); `www.savorly.cooking` redirects there |
-| Database                                  | Neon project `savorly-production` (PostgreSQL 17, `aws-us-east-1`); no fixture data (`SEED_DATA=false`)                                                     |
-| Media                                     | R2 `savorly-media` at `media.savorly.cooking` (CORS for `https://savorly.cooking`) and `savorly-sources` (private)                                          |
-| Email                                     | Cloudflare Email Service, `noreply@savorly.cooking` (shared with staging)                                                                                   |
-| Android app                               | EAS profile `production`: "Savorly", `app.savorly.mobile`, a Play Store bundle (`.aab`)                                                                     |
-| iOS app                                   | EAS profile `production`, `app.savorly.mobile`; needs the Apple Developer setup below                                                                       |
+| Piece                                     | Where                                                                                                                                                         |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Web app, `/api` gateway, Go API container | Cloudflare Worker `savorly` on `savorly.cooking` (top level of [wrangler.jsonc](../infra/cloudflare/wrangler.jsonc)); `www.savorly.cooking` redirects there   |
+| Database                                  | Neon project `savorly-production` (PostgreSQL 17, `aws-us-east-1`); no fixture data (`SEED_DATA=false`)                                                       |
+| Media                                     | R2 `savorly-media` at `media.savorly.cooking` (CORS for `https://savorly.cooking`) and `savorly-sources` (private)                                            |
+| Email                                     | Cloudflare Email Service, `noreply@savorly.cooking` (shared with staging)                                                                                     |
+| Android app                               | EAS profile `production`: "Savorly", `app.savorly.mobile`, a Play Store bundle (`.aab`); updates over the air on channel `production` ([updates](UPDATES.md)) |
+| iOS app                                   | EAS profile `production`, `app.savorly.mobile`; needs the Apple Developer setup below                                                                         |
 
 ## Releasing
 
@@ -19,7 +19,7 @@ Release what is on `main` (already verified there and tried on staging with `git
 git push origin main:release
 ```
 
-CI then verifies the commit again, deploys the backend and web app to `savorly.cooking` (the GitHub `production` environment; it waits for `/api/health`), and queues a production Android build on EAS. To undo a release, revert the change on `main` and push `main:release` again.
+CI then verifies the commit again, deploys the backend and web app to `savorly.cooking` (the GitHub `production` environment; it waits for `/api/health`), and ships the Android app: an over-the-air update on the `production` channel, or a new production build on EAS when native code changed ([updates](UPDATES.md)). To undo a release, revert the change on `main` and push `main:release` again; `eas update:rollback` takes an update back sooner.
 
 Backend settings live in Cloudflare as Worker secrets, uploaded from the git-ignored `.env.production` ([template](../.env.production.example)) by `npm run deploy:production`, which also deploys from your machine. CI deploys code only; deployments never delete secrets. Non-secret settings are the top-level `vars` in `wrangler.jsonc`.
 

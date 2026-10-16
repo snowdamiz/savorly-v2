@@ -691,5 +691,17 @@
   "Pick your username": "选择你的用户名",
   "It’s how other cooks find you and see your recipes. You can change it anytime in My kitchen.": "其他厨友会通过它找到你、看到你的菜谱。你可以随时在“我的厨房”中修改。",
   "Save username": "保存用户名",
-  "Keep @{{v0}}": "保留 @{{v0}}"
+  "Keep @{{v0}}": "保留 @{{v0}}",
+  "A new version of Savorly is ready.": "Savorly 新版本已准备就绪。",
+  "Restart": "重新启动",
+  "Not now": "以后再说",
+  "App updates": "应用更新",
+  "Update ready. Tap to restart.": "更新已就绪，点按即可重新启动。",
+  "Downloading an update…": "正在下载更新…",
+  "Checking for updates…": "正在检查更新…",
+  "Installed version": "已安装的版本",
+  "Updated {{date}}": "更新于 {{date}}",
+  "You’re on the latest version.": "你使用的已是最新版本。",
+  "Couldn’t check for updates. Try again later.": "无法检查更新，请稍后再试。",
+  "Couldn’t restart. Close and reopen Savorly to update.": "无法重新启动。请关闭并重新打开 Savorly 以完成更新。"
 }
