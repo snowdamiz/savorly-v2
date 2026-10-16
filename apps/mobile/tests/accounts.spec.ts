@@ -299,6 +299,10 @@ test('the profile photo changes from My kitchen, with an AI touch-up', async ({ 
       'base64',
     ),
   });
+  // The photo is framed in Savorly's own crop, and nothing uploads until it's finished.
+  await expect(page.getByRole('button', { name: 'Finish crop', exact: true })).toBeVisible();
+  expect(posts.some((p) => p.path === '/media')).toBe(false);
+  await page.getByRole('button', { name: 'Finish crop', exact: true }).click();
   await expect.poll(() => posts.some((p) => p.path === '/media')).toBe(true);
   await page.getByRole('button', { name: 'Touch up with AI', exact: true }).click();
   // The touched-up photo can be compared with the one it came from before it's kept.
