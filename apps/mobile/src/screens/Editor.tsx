@@ -1,6 +1,6 @@
 import { useI18n } from '../lib/i18n';
 import React, { useEffect, useRef, useState } from 'react';
-import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import {
@@ -34,6 +34,7 @@ import {
 } from '../components/ui';
 import { VideoPlayer } from '../components/VideoPlayer';
 import { foodIcon } from '../lib/icons';
+import { fileForm } from '../lib/photos';
 import { CuisineIcon } from '../components/CuisineIcon';
 import { CuisinePicker } from '../components/CuisinePicker';
 import { DangerButton, SignInKitchen } from './Kitchen';
@@ -144,21 +145,10 @@ export function Editor({
       const asset = result.assets[0];
       if (asset.fileSize && asset.fileSize > 50 * 1024 * 1024)
         throw new Error('Choose a file smaller than 50 MB.');
-      const data = new FormData();
-      if (Platform.OS === 'web') {
-        const blob = await (await fetch(asset.uri)).blob();
-        data.append(
-          'file',
-          blob,
-          asset.fileName || (type === 'images' ? 'image.jpg' : 'video.mp4'),
-        );
-      } else {
-        data.append('file', {
-          uri: asset.uri,
-          name: asset.fileName || (type === 'images' ? 'image.jpg' : 'video.mp4'),
-          type: asset.mimeType || (type === 'images' ? 'image/jpeg' : 'video/mp4'),
-        } as unknown as Blob);
-      }
+      const data = await fileForm(
+        asset.uri,
+        asset.fileName || (type === 'images' ? 'image.jpg' : 'video.mp4'),
+      );
       const response = await api<{ url: string }>('/media', { method: 'POST', body: data });
       apply(response.url);
     } catch (e) {

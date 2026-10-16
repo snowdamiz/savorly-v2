@@ -3,9 +3,8 @@ import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Platform, Text, TextInput, TextStyle, View } from 'react-native';
 import { AtSign, Check, X } from 'lucide-react-native';
 import { api } from '../lib/api';
-import { useApp } from '../lib/store';
+import { useRevealFocus } from '../lib/keyboard';
 import { color, font, s } from '../lib/theme';
-import { Avatar, Button, Dialog } from './ui';
 
 // The API's rule: 3–24 lowercase letters, digits, dots or underscores, starting and ending with a
 // letter or digit, and no two dots in a row.
@@ -63,6 +62,7 @@ export function HandleField({ handle }: { handle: ReturnType<typeof useHandle> }
   const { t: tr } = useI18n();
   const { state, value } = handle;
   const [focused, setFocused] = useState(false);
+  const reveal = useRevealFocus();
   const bad = state === 'taken' || (state === 'invalid' && value.length >= 3);
   const note =
     state === 'checking'
@@ -94,7 +94,10 @@ export function HandleField({ handle }: { handle: ReturnType<typeof useHandle> }
           accessibilityLabel={tr('Username')}
           value={value}
           onChangeText={handle.setValue}
-          onFocus={() => setFocused(true)}
+          onFocus={() => {
+            setFocused(true);
+            reveal();
+          }}
           onBlur={() => setFocused(false)}
           autoCapitalize="none"
           autoCorrect={false}
@@ -132,70 +135,5 @@ export function HandleField({ handle }: { handle: ReturnType<typeof useHandle> }
         {note}
       </Text>
     </View>
-  );
-}
-
-/** Saves a new username with the rest of the profile as it is (the API replaces it whole). */
-export function useSaveHandle() {
-  const app = useApp();
-  return (handle: string) => {
-    const u = app.user!;
-    return api('/me', {
-      method: 'PATCH',
-      body: { name: u.name, bio: u.bio, avatar: u.avatar, preferences: u.preferences, handle },
-    }).then(() => app.refreshUser());
-  };
-}
-
-// A brand-new kitchen gets a suggested username; this is the moment to make it their own.
-export function UsernamePrompt({ visible, onDone }: { visible: boolean; onDone: () => void }) {
-  const { t: tr } = useI18n();
-  const app = useApp();
-  const handle = useHandle(app.user?.handle || '');
-  const save = useSaveHandle();
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const finish = async () => {
-    setError('');
-    if (!handle.changed) {
-      app.notify(tr('Welcome to the table, @{{v0}}.', { v0: handle.value }));
-      return onDone();
-    }
-    setBusy(true);
-    try {
-      await save(handle.value);
-      app.notify(tr('Welcome to the table, @{{v0}}.', { v0: handle.value }));
-      onDone();
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <Dialog visible={visible} onClose={onDone}>
-      <View style={{ gap: 16, paddingTop: 10 }}>
-        <Avatar name={app.user?.name || ''} uri={app.user?.avatar} size={64} />
-        <Text style={[s.h1, { paddingRight: 40 }]}>{tr('Pick your username')}</Text>
-        <Text style={s.muted}>
-          {tr(
-            'It’s how other cooks find you and see your recipes. You can change it anytime in My kitchen.',
-          )}
-        </Text>
-        <HandleField handle={handle} />
-        {!!error && (
-          <Text accessibilityRole="alert" style={[s.body, { color: color.error }]}>
-            {tr(error)}
-          </Text>
-        )}
-        <Button
-          title={handle.changed ? tr('Save username') : tr('Keep @{{v0}}', { v0: handle.value })}
-          busy={busy}
-          disabled={!handle.ready}
-          large
-          onPress={() => void finish()}
-        />
-      </View>
-    </Dialog>
   );
 }

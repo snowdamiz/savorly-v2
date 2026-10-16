@@ -1,8 +1,8 @@
 {
   "ios": {
     "CFBundleDisplayName": "Savorly",
-    "NSCameraUsageDescription": "Autorisez Savorly à photographier une recette pour votre assistant culinaire.",
+    "NSCameraUsageDescription": "Autorisez Savorly à utiliser l’appareil photo pour photographier des recettes pour votre assistant culinaire et prendre votre photo de profil.",
     "NSMicrophoneUsageDescription": "Autorisez Savorly à vous écouter pendant que vous décrivez votre recette.",
-    "NSPhotoLibraryUsageDescription": "Autorisez Savorly à accéder à vos photos pour illustrer vos recettes avec des images et vidéos."
+    "NSPhotoLibraryUsageDescription": "Autorisez Savorly à accéder à vos photos pour illustrer vos recettes avec des images et vidéos, et choisir votre photo de profil."
   }
 }

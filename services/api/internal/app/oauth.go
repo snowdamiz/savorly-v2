@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -75,7 +76,9 @@ func (a *App) authNonce(c fiber.Ctx) error {
 
 type providerIdentity struct {
 	Provider, Subject, Email, Name, ClientID string
-	EmailVerified                            bool
+	// Google's profile photo, which starts a new kitchen's own.
+	Picture       string
+	EmailVerified bool
 }
 
 func (a *App) verifyIdentity(ctx context.Context, provider, raw string) (providerIdentity, error) {
@@ -94,8 +97,8 @@ func (a *App) verifyIdentity(ctx context.Context, provider, raw string) (provide
 		}
 	}
 	var claims struct {
-		Email, Name, Nonce string
-		EmailVerified      json.RawMessage `json:"email_verified"` // Apple sends "true" as a string
+		Email, Name, Nonce, Picture string
+		EmailVerified               json.RawMessage `json:"email_verified"` // Apple sends "true" as a string
 	}
 	if e = tok.Claims(&claims); e != nil || id.ClientID == "" || tok.Subject == "" {
 		return providerIdentity{}, fiber.NewError(401, "That sign-in couldn't be verified. Please try again.")
@@ -107,7 +110,7 @@ func (a *App) verifyIdentity(ctx context.Context, provider, raw string) (provide
 	if claims.Nonce == "" || r.RowsAffected() == 0 {
 		return providerIdentity{}, fiber.NewError(401, "That sign-in expired. Please try again.")
 	}
-	id.Email, id.Name = strings.ToLower(strings.TrimSpace(claims.Email)), claims.Name
+	id.Email, id.Name, id.Picture = strings.ToLower(strings.TrimSpace(claims.Email)), claims.Name, providerPhoto(claims.Picture)
 	id.EmailVerified = string(claims.EmailVerified) == "true" || string(claims.EmailVerified) == `"true"`
 	return id, nil
 }
@@ -118,6 +121,17 @@ func (a *App) signedInUser(c fiber.Ctx) string {
 	_ = a.DB.QueryRow(c.Context(), `SELECT user_id FROM sessions WHERE token_hash=$1 AND expires_at>now()`, hashToken(token(c))).Scan(&id)
 	return id
 }
+
+// providerPhoto keeps a provider's HTTPS profile photo, asking Google for a size that stays
+// sharp at profile scale (its URLs end in a size such as "=s96-c").
+func providerPhoto(raw string) string {
+	if !strings.HasPrefix(raw, "https://") || len(raw) > 2000 || !validMedia(raw) {
+		return ""
+	}
+	return googleSize.ReplaceAllString(raw, "=s512-c")
+}
+
+var googleSize = regexp.MustCompile(`=s\d+(-c)?$`)
 
 func providerName(p string) string {
 	if p == "apple" {
@@ -221,7 +235,7 @@ func (a *App) insertProviderUser(ctx context.Context, id providerIdentity, name 
 		return "", e
 	}
 	// "!" is never a bcrypt hash: no password works until the owner sets one by email.
-	if _, e = tx.Exec(ctx, `INSERT INTO users(id,email,password_hash,name,handle,email_verified) VALUES($1,$2,'!',$3,$4,true)`, owner, id.Email, name, handle); e != nil {
+	if _, e = tx.Exec(ctx, `INSERT INTO users(id,email,password_hash,name,handle,avatar,email_verified) VALUES($1,$2,'!',$3,$4,$5,true)`, owner, id.Email, name, handle, id.Picture); e != nil {
 		return "", e
 	}
 	if _, e = tx.Exec(ctx, `INSERT INTO identities(provider,subject,user_id,email) VALUES($1,$2,$3,$4)`, id.Provider, id.Subject, owner, id.Email); e != nil {

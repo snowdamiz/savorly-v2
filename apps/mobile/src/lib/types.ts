@@ -42,6 +42,8 @@ export type User = Creator & {
   hasPassword: boolean;
   identities: ('apple' | 'google')[];
   plan: PlanID;
+  /** False until a new kitchen finishes or skips its setup. */
+  onboarded?: boolean;
   /** Can open the admin console. */
   admin?: boolean;
   /** An admin listed in ADMIN_EMAILS, who also appoints other admins. */
@@ -117,6 +119,8 @@ export type AIJob = {
   id: string;
   kind: AIKind;
   prompt: string;
+  /** The photo a touch-up started from; empty for everything made from a prompt. */
+  source?: string;
   status: 'queued' | 'running' | 'processing' | 'completed' | 'failed';
   result: { text?: string; recipe?: RecipeInput; url?: string };
   error: string;

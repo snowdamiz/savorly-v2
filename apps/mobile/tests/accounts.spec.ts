@@ -11,6 +11,7 @@ const user = {
   hasPassword: false,
   identities: ['google'],
   plan: 'free',
+  onboarded: true,
 };
 const plans = [
   {
@@ -62,6 +63,13 @@ async function mockAccounts(page: Page, signedIn: boolean, catalogLive = true, c
   const posts: { path: string; body: unknown }[] = [];
   let nonces = 0;
   let session = signedIn;
+  // A kitchen made by this sign-in has its setup ahead of it.
+  Object.assign(user, {
+    onboarded: !created,
+    avatar: '',
+    preferences: { diets: [], allergies: [] },
+  });
+  let job = 0;
   await page.route('https://accounts.google.com/gsi/client', (r) =>
     r.fulfill({ contentType: 'text/javascript', body: googleScript }),
   );
@@ -77,15 +85,38 @@ async function mockAccounts(page: Page, signedIn: boolean, catalogLive = true, c
     const method = route.request().method();
     const fulfill = (body: unknown, status = 200) =>
       route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
-    if (method === 'POST') posts.push({ path, body: route.request().postDataJSON() });
+    if (method === 'POST')
+      posts.push({
+        path,
+        // Uploads are multipart, not JSON.
+        body: path === '/media' ? null : route.request().postDataJSON(),
+      });
     if (path === '/me' && method === 'PATCH') {
-      Object.assign(user, { handle: route.request().postDataJSON().handle });
+      const { name, handle, avatar, preferences } = route.request().postDataJSON();
+      Object.assign(user, { name, handle, avatar, preferences });
       return fulfill(user);
     }
+    if (path === '/me/onboarded') {
+      user.onboarded = true;
+      return fulfill(user);
+    }
+    if (path === '/media') return fulfill({ url: 'https://media.test/cook/upload.jpg' }, 201);
+    // A touch-up finishes on the second look.
+    if (path === '/media/touch-up')
+      return fulfill({ id: 'touch', kind: 'image', status: 'queued', result: {}, error: '' }, 202);
+    if (path === '/ai/jobs/touch')
+      return fulfill({
+        id: 'touch',
+        kind: 'image',
+        status: ++job > 1 ? 'completed' : 'running',
+        result: job > 1 ? { url: 'https://media.test/cook/touched.jpg' } : {},
+        error: '',
+      });
     if (path === '/me') return session ? fulfill(user) : fulfill({ error: 'Sign in' }, 401);
     if (path === '/capabilities')
       return fulfill({
         textAI: true,
+        imageAI: true,
         plans: catalogLive,
         billing: true,
         appleSignIn: true,
@@ -166,23 +197,65 @@ test('Google’s own button signs in with its ID token', async ({ page }) => {
     });
 });
 
-test('a new Google kitchen picks its username before anything else', async ({ page }) => {
+test('a new Google kitchen sets itself up before anything else', async ({ page }) => {
   const posts = await mockAccounts(page, false, true, true);
   await page.goto('/?page=profile');
   await page.getByRole('button', { name: 'Sign in or join' }).click();
   await page.getByRole('button', { name: 'Sign in with Google (test)' }).click();
-  await expect(page.getByText('Pick your username', { exact: true })).toBeVisible();
+  // Photo, name and username first; the username is checked as it's typed.
+  await expect(page.getByText('Set up your kitchen', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Add a photo' }).first()).toBeVisible();
   const username = page.getByRole('textbox', { name: 'Username', exact: true });
   await username.fill('Alex.Rivera');
   await expect(page.getByText('That username is taken.', { exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Save username' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Continue', exact: true })).toBeDisabled();
   await username.fill('@Alex.Cooks');
   await expect(username).toHaveValue('alex.cooks');
   await expect(page.getByText('@alex.cooks is available.', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Save username' }).click();
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  // Then tastes, saved as the step is left.
+  await expect(page.getByText('How do you like to eat?', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Vegetarian', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Allergies (comma separated)' }).fill('peanuts, sesame');
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  await expect(page.getByText('Cooks to follow', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Let’s get started', exact: true }).click();
   await expect(page.getByText('Welcome to the table, @alex.cooks.', { exact: true })).toBeVisible();
   await expect(page.getByText('@alex.cooks', { exact: true })).toBeVisible();
+  await expect(page.getByText('Set up your kitchen', { exact: true })).toHaveCount(0);
+  expect(user.preferences).toEqual({ diets: ['Vegetarian'], allergies: ['peanuts', 'sesame'] });
   expect(posts.find((p) => p.path === '/auth/oauth')).toBeTruthy();
+  expect(posts.find((p) => p.path === '/me/onboarded')).toBeTruthy();
+});
+
+test('the profile photo changes from My kitchen, with an AI touch-up', async ({ page }) => {
+  const posts = await mockAccounts(page, true);
+  await page.goto('/?page=profile');
+  await page.getByRole('button', { name: 'Add a photo' }).first().click();
+  await expect(page.getByText('Profile photo', { exact: true })).toBeVisible();
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: 'Choose a photo', exact: true }).click();
+  await (
+    await chooser
+  ).setFiles({
+    name: 'me.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6dWQAAAAASUVORK5CYII=',
+      'base64',
+    ),
+  });
+  await expect.poll(() => posts.some((p) => p.path === '/media')).toBe(true);
+  await page.getByRole('button', { name: 'Touch up with AI', exact: true }).click();
+  // The touched-up photo can be compared with the one it came from before it's kept.
+  await expect(page.getByRole('tab', { name: 'Touched up' })).toBeVisible({ timeout: 15000 });
+  expect(posts.find((p) => p.path === '/media/touch-up')?.body).toEqual({
+    url: 'https://media.test/cook/upload.jpg',
+    kind: 'avatar',
+  });
+  await page.getByRole('button', { name: 'Use this photo', exact: true }).click();
+  await expect(page.getByText('Your photo is updated.', { exact: true })).toBeVisible();
+  expect(user.avatar).toBe('https://media.test/cook/touched.jpg');
 });
 
 test('plans show usage and sell through Stripe checkout on the web', async ({ page }) => {

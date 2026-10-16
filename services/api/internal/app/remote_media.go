@@ -12,14 +12,23 @@ import (
 )
 
 // Generated provider URLs are copied into our storage so recipe media does not expire.
-// The download transport resolves and dials only public addresses, including on redirects.
 func (s *MediaStore) Import(ctx context.Context, owner, source string) (string, error) {
+	data, e := download(ctx, source, 50*1024*1024)
+	if e != nil {
+		return "", e
+	}
+	return s.Put(ctx, owner, data)
+}
+
+// download fetches a public HTTPS file of at most limit bytes. The transport resolves and dials
+// only public addresses, including on redirects.
+func download(ctx context.Context, source string, limit int64) ([]byte, error) {
 	valid := func(raw string) bool {
 		u, e := url.Parse(raw)
 		return e == nil && u.Scheme == "https" && u.User == nil && (u.Port() == "" || u.Port() == "443")
 	}
 	if !valid(source) {
-		return "", fmt.Errorf("invalid generated media URL")
+		return nil, fmt.Errorf("invalid media URL")
 	}
 	transport := &http.Transport{DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 		host, port, e := net.SplitHostPort(addr)
@@ -50,24 +59,27 @@ func (s *MediaStore) Import(ctx context.Context, owner, source string) (string, 
 	}}
 	req, e := http.NewRequestWithContext(ctx, "GET", source, nil)
 	if e != nil {
-		return "", e
+		return nil, e
 	}
 	res, e := client.Do(req)
 	if e != nil {
-		return "", e
+		return nil, e
 	}
 	defer res.Body.Close()
 	if res.StatusCode != 200 {
-		return "", fmt.Errorf("media download status %d", res.StatusCode)
+		return nil, fmt.Errorf("media download status %d", res.StatusCode)
 	}
-	if res.ContentLength > 50*1024*1024 {
-		return "", fmt.Errorf("generated media exceeds 50 MB")
+	if res.ContentLength > limit {
+		return nil, fmt.Errorf("media exceeds %d bytes", limit)
 	}
-	data, e := io.ReadAll(io.LimitReader(res.Body, 50*1024*1024+1))
+	data, e := io.ReadAll(io.LimitReader(res.Body, limit+1))
 	if e != nil {
-		return "", e
+		return nil, e
 	}
-	return s.Put(ctx, owner, data)
+	if int64(len(data)) > limit {
+		return nil, fmt.Errorf("media exceeds %d bytes", limit)
+	}
+	return data, nil
 }
 func publicIP(ip net.IP) bool {
 	if !ip.IsGlobalUnicast() || ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() {

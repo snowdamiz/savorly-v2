@@ -164,9 +164,16 @@ func (a *App) logout(c fiber.Ctx) error {
 }
 func (a *App) me(c fiber.Ctx) error {
 	// adminPending: an owner's address that hasn't been proven yet, so the console stays closed.
-	return a.queryOne(c, `SELECT jsonb_build_object('id',u.id,'name',u.name,'email',u.email,'handle',u.handle,'bio',u.bio,'avatar',u.avatar,'preferences',u.preferences,
+	// onboarded: false until a new kitchen finishes or skips its setup.
+	return a.queryOne(c, `SELECT jsonb_build_object('id',u.id,'name',u.name,'email',u.email,'handle',u.handle,'bio',u.bio,'avatar',u.avatar,'preferences',u.preferences,'onboarded',u.onboarded_at IS NOT NULL,
  'hasPassword',NOT starts_with(u.password_hash,'!'),'identities',COALESCE((SELECT jsonb_agg(provider ORDER BY provider) FROM identities WHERE user_id=u.id),'[]'),'plan',`+effectivePlanSQL+`,
  'admin',`+adminSQL(2, 3)+`,'adminOwner',`+ownerSQL(2, 3)+`,'adminPending',(NOT `+adminSQL(2, 3)+` AND u.email=ANY($2::text[]))) FROM users u WHERE u.id=$1`, userID(c), ownerEmails(), a.Config.Production)
+}
+func (a *App) onboarded(c fiber.Ctx) error {
+	if _, e := a.DB.Exec(c.Context(), `UPDATE users SET onboarded_at=COALESCE(onboarded_at,now()) WHERE id=$1`, userID(c)); e != nil {
+		return e
+	}
+	return a.me(c)
 }
 func (a *App) updateMe(c fiber.Ctx) error {
 	var in struct {

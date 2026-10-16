@@ -28,7 +28,17 @@ func TestProviderContracts(t *testing.T) {
 			}
 			w.Write([]byte(`{"choices":[{"message":{"content":"{\"text\":\"Try a little lemon.\"}"}}]}`))
 		case "/images":
-			if body["n"] != float64(1) || body["model"] != "openai/gpt-image-2.5-flare" || body["aspect_ratio"] != "4:3" || body["quality"] != "medium" || body["output_format"] != "jpeg" {
+			// A touch-up sends the photo as a reference and keeps its framing; a new cover is 4:3.
+			aspect := "4:3"
+			if refs, _ := body["input_references"].([]any); refs != nil {
+				aspect = "auto"
+				ref, _ := refs[0].(map[string]any)
+				url, _ := ref["image_url"].(map[string]any)["url"].(string)
+				if len(refs) != 1 || ref["type"] != "image_url" || url != "data:image/png;base64,cGhvdG8=" {
+					t.Errorf("incorrect touch-up reference: %v", refs)
+				}
+			}
+			if body["n"] != float64(1) || body["model"] != "openai/gpt-image-2.5-flare" || body["aspect_ratio"] != aspect || body["quality"] != "medium" || body["output_format"] != "jpeg" {
 				t.Error("incorrect GPT Image contract")
 			}
 			if body["provider"].(map[string]any)["sort"] != "latency" {
@@ -62,6 +72,10 @@ func TestProviderContracts(t *testing.T) {
 	b, mime, e := c.Image(ctx, "pasta")
 	if e != nil || string(b) != "image" || mime != "image/jpeg" {
 		t.Fatalf("image: %v", e)
+	}
+	b, mime, e = c.EditImage(ctx, "Retouch it", []byte("photo"), "image/png")
+	if e != nil || string(b) != "image" || mime != "image/jpeg" {
+		t.Fatalf("touch-up: %v", e)
 	}
 	task, e := c.Video(ctx, "pasta")
 	if e != nil || task.ID != "task_123" {

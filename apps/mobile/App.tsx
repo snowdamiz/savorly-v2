@@ -14,6 +14,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
   useFonts,
@@ -72,6 +73,7 @@ import {
 import { AnnouncementBanner } from './src/components/Announcement';
 import { haptic } from './src/lib/haptics';
 import { AuthDialog } from './src/components/AuthDialog';
+import { KitchenSetup, Welcome } from './src/components/Onboarding';
 import { BrandMark } from './src/components/Brand';
 import { RecipeDetail } from './src/components/RecipeDetail';
 import { RecipeStart } from './src/components/RecipeStart';
@@ -109,6 +111,27 @@ const screenNames: Record<Screen, string> = {
   admin: 'Admin console',
 };
 const tabScreens: Screen[] = ['discover', 'explore', 'create', 'saved', 'profile'];
+const WELCOMED_KEY = 'savorly.welcomed';
+// Phones greet a first launch with language and sign-up choices. The web opens straight onto the
+// recipes (often from a shared link), with the language taken from the browser.
+function useWelcome(signedIn: boolean) {
+  const [welcomed, setWelcomed] = useState<boolean | null>(Platform.OS === 'web' ? true : null);
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    AsyncStorage.getItem(WELCOMED_KEY)
+      .then((v) => setWelcomed(v === '1'))
+      .catch(() => setWelcomed(true));
+  }, []);
+  const done = () => {
+    setWelcomed(true);
+    void AsyncStorage.setItem(WELCOMED_KEY, '1').catch(() => {});
+  };
+  // Signing in, from the welcome or anywhere else, counts as having been welcomed.
+  useEffect(() => {
+    if (signedIn && welcomed === false) done();
+  }, [signedIn, welcomed]);
+  return { pending: welcomed === false, done };
+}
 function Shell() {
   const { t: tr, locale, setLanguage } = useI18n();
   const app = useApp();
@@ -133,6 +156,7 @@ function Shell() {
   const [cookCommand, setCookCommand] = useState<CookCommand | null>(null);
   const [pendingStudio, setPendingStudio] = useState<StudioMode | null>(null);
   const [creating, setCreating] = useState(false);
+  const welcome = useWelcome(!!app.user);
   const startStudio = (mode: StudioMode) => {
     if (!app.user) {
       setPendingStudio(mode);
@@ -737,6 +761,10 @@ function Shell() {
         <CreatorDialog creator={creator} onClose={() => setCreator(null)} onOpen={open} />
       )}
       {ask && <SousChef key={askKey} request={ask} onClose={() => setAsk(null)} onRecipe={edit} />}
+      {welcome.pending && !app.loading && !app.error && !app.user && !selected && (
+        <Welcome onDone={welcome.done} />
+      )}
+      {app.user?.onboarded === false && <KitchenSetup />}
       <Dialog
         visible={activity}
         onClose={() => setActivity(false)}

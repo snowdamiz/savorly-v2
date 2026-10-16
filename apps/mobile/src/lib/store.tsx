@@ -24,7 +24,13 @@ function useAppState() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [toast, setToast] = useState('');
-  const [authOpen, setAuthOpen] = useState(false);
+  const [authOpen, setAuthShown] = useState(false);
+  // Which side of the sign-in sheet opens: signing in, or creating an account.
+  const [authMode, setAuthMode] = useState<'signin' | 'register'>('signin');
+  const setAuthOpen = useCallback((open: boolean, mode: 'signin' | 'register' = 'signin') => {
+    setAuthMode(mode);
+    setAuthShown(open);
+  }, []);
   const notify = useCallback((message: string) => setToast(message), []);
   useEffect(() => {
     if (!toast) return;
@@ -174,6 +180,7 @@ function useAppState() {
     toast,
     notify,
     authOpen,
+    authMode,
     setAuthOpen,
     refreshPrivate,
     refreshRecipes,

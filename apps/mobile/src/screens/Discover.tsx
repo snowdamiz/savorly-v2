@@ -149,12 +149,14 @@ export function Discover({
   const tileWidth = Math.min(250, Math.round(width * 0.6));
   // On phones the feed is a light sheet that rises over the black header on rounded top corners.
   const sheet = compact && !explore;
+  // On phones the filters live inside the search bar, so Explore opens with one control, not two.
   const filter = compact ? (
     <IconButton
       icon={SlidersHorizontal}
       label={tr('Filter recipes')}
       selected={refined}
-      size={52}
+      plain={!refined}
+      size={40}
       onPress={() => setFilters(true)}
     />
   ) : (
@@ -168,7 +170,7 @@ export function Discover({
     />
   );
   return (
-    <View style={{ gap: 30 }}>
+    <View style={{ gap: explore ? 24 : 30 }}>
       {sheet ? (
         <View
           onLayout={(e) => onHeader?.(e.nativeEvent.layout.height)}
@@ -229,22 +231,21 @@ export function Discover({
           </View>
         </View>
       ) : (
-        <FadeIn offset={10} style={{ gap: 18 }}>
+        <FadeIn offset={10} style={{ gap: compact ? 16 : 18 }}>
+          {/* Explore is a tool, not a story: its name, the search, and the ways to narrow it. */}
           <PageHeading
-            eyebrow={explore ? tr('Every craving, every occasion') : hello}
+            eyebrow={explore ? undefined : hello}
             title={explore ? tr('Explore') : tr('What would you like to cook today?')}
-            subtitle={
-              explore
-                ? tr('Search by dish, ingredient or cuisine, then narrow it down.')
-                : undefined
-            }
           >
             {explore && !compact && filter}
           </PageHeading>
           {compact && (
-            <View style={[s.row, { gap: 10 }]}>
-              <SearchBar value={query} onChangeText={onQuery} />
-              {explore && filter}
+            <View style={{ flexDirection: 'row' }}>
+              <SearchBar
+                value={query}
+                onChangeText={onQuery}
+                accessory={explore ? filter : undefined}
+              />
             </View>
           )}
           {/* Categories narrow a search, so they sit with it rather than atop the home feed. */}
@@ -268,7 +269,7 @@ export function Discover({
       )}
       <View
         style={[
-          { gap: 30 },
+          { gap: explore ? 24 : 30 },
           sheet && {
             marginHorizontal: -gutter,
             marginTop: -30 - radius.xl,
@@ -281,7 +282,7 @@ export function Discover({
         ]}
       >
         {explore ? (
-          <CuisineBrowser value={cuisine} onChange={setCuisine} onSeeAll={() => setFilters(true)} />
+          <CuisineBrowser value={cuisine} onChange={setCuisine} />
         ) : (
           // On home a cuisine is a way into Explore, already narrowed to it.
           <CuisineBrowser
@@ -298,26 +299,55 @@ export function Discover({
         )}
         {listing ? (
           <FadeIn key={category} offset={10}>
-            <SectionTitle
-              title={
-                query
-                  ? tr('Results for “{{v0}}”', { v0: query })
-                  : category !== 'All recipes'
-                    ? tr(category)
-                    : cuisine !== allCuisines
-                      ? tr('{{v0}} recipes', { v0: tr(cuisine) })
-                      : explore
-                        ? tr('All recipes')
-                        : tr('Recipes')
-              }
-              subtitle={
-                search.loading && !filtered.length
-                  ? tr('Searching…')
-                  : tr('recipeCount', { count: filtered.length, more: search.hasMore ? '+' : '' })
-              }
-              action={refined ? reset : undefined}
-              actionTitle={tr('Clear filters')}
-            />
+            {explore ? (
+              // The search, chips and tiles above already say what is shown; this only counts it.
+              <View style={[s.between, { marginBottom: 14, minHeight: 26 }]}>
+                <Text
+                  accessibilityLiveRegion="polite"
+                  style={[s.muted, { fontFamily: font.semibold }]}
+                >
+                  {search.loading && !filtered.length
+                    ? tr('Searching…')
+                    : tr('recipeCount', {
+                        count: filtered.length,
+                        more: search.hasMore ? '+' : '',
+                      })}
+                </Text>
+                {refined && (
+                  <Press
+                    accessibilityRole="button"
+                    accessibilityLabel={tr('Clear filters')}
+                    onPress={reset}
+                    hitSlop={10}
+                  >
+                    <Text style={{ fontFamily: font.bold, fontSize: 14, color: color.ink }}>
+                      {tr('Clear filters')}
+                    </Text>
+                  </Press>
+                )}
+              </View>
+            ) : (
+              <SectionTitle
+                title={
+                  query
+                    ? tr('Results for “{{v0}}”', { v0: query })
+                    : category !== 'All recipes'
+                      ? tr(category)
+                      : cuisine !== allCuisines
+                        ? tr('{{v0}} recipes', { v0: tr(cuisine) })
+                        : explore
+                          ? tr('All recipes')
+                          : tr('Recipes')
+                }
+                subtitle={
+                  search.loading && !filtered.length
+                    ? tr('Searching…')
+                    : tr('recipeCount', { count: filtered.length, more: search.hasMore ? '+' : '' })
+                }
+                action={refined ? reset : undefined}
+                actionTitle={tr('Clear filters')}
+              />
+            )}
             {!!search.error && (
               <Text style={[s.muted, { color: color.error }]}>{tr(search.error)}</Text>
             )}

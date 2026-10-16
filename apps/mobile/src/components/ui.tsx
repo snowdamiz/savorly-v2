@@ -15,7 +15,7 @@ import {
   BackHandler,
   Easing,
   Image,
-  KeyboardAvoidingView,
+  Keyboard,
   Modal,
   Platform,
   Pressable,
@@ -48,6 +48,7 @@ import {
 } from 'lucide-react-native';
 import { color, font, radius, s, shadow } from '../lib/theme';
 import { haptic } from '../lib/haptics';
+import { RevealFocus, useKeyboardLift, useKeyboardScroll, useRevealFocus } from '../lib/keyboard';
 export const native = Platform.OS !== 'web';
 // Browsers frost whatever sits behind translucent chrome; native keeps its own materials.
 export const frost = (px: number) =>
@@ -440,6 +441,7 @@ export function Pill({
   );
 }
 export function Field({ label, style, ...props }: TextInputProps & { label?: string }) {
+  const reveal = useRevealFocus();
   return (
     <View style={{ gap: 8, flexGrow: 1, flexShrink: 1, flexBasis: 'auto' }}>
       {label && (
@@ -449,6 +451,10 @@ export function Field({ label, style, ...props }: TextInputProps & { label?: str
         accessibilityLabel={label || props.placeholder}
         placeholderTextColor={color.soft}
         {...props}
+        onFocus={(e) => {
+          reveal();
+          props.onFocus?.(e);
+        }}
         style={[s.input, props.multiline && { minHeight: 110, textAlignVertical: 'top' }, style]}
       />
     </View>
@@ -459,11 +465,14 @@ export function SearchBar({
   onChangeText,
   placeholder = 'Search recipes, ingredients…',
   bare,
+  accessory,
 }: {
   value: string;
   onChangeText: (v: string) => void;
   placeholder?: string;
   bare?: boolean;
+  /** A control at the end of the bar, such as filters. */
+  accessory?: React.ReactNode;
 }) {
   const { t: tr } = useI18n();
   return (
@@ -501,6 +510,7 @@ export function SearchBar({
           onPress={() => onChangeText('')}
         />
       )}
+      {accessory}
     </View>
   );
 }
@@ -968,6 +978,8 @@ function sheetDrag(y: Animated.Value, backdrop: Animated.Value) {
   const begin = (at = 0) => {
     claimed = true;
     from = at;
+    // A sheet on its way down takes the keyboard with it.
+    Keyboard.dismiss();
     y.stopAnimation();
     backdrop.stopAnimation();
     pulled = 0;
@@ -1035,6 +1047,47 @@ function sheetDrag(y: Animated.Value, backdrop: Animated.Value) {
     },
   };
 }
+// Android draws modal windows edge to edge, so they no longer shrink for the keyboard and its events
+// never reach the app. There the sheet is a plain layer over the app's own window instead, with the
+// back button wired up as a modal's would be.
+const inWindow = Platform.OS === 'android';
+function SheetLayer({
+  visible,
+  onRequestClose,
+  children,
+}: {
+  visible: boolean;
+  onRequestClose: () => void;
+  children: React.ReactNode;
+}) {
+  const close = useRef(onRequestClose);
+  useEffect(() => {
+    close.current = onRequestClose;
+  });
+  useEffect(() => {
+    if (!inWindow || !visible) return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      close.current();
+      return true;
+    });
+    return () => sub.remove();
+  }, [visible]);
+  if (inWindow)
+    return visible ? (
+      <View style={[StyleSheet.absoluteFill, { zIndex: 1000 }]}>{children}</View>
+    ) : null;
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="none"
+      onRequestClose={onRequestClose}
+      statusBarTranslucent
+    >
+      {children}
+    </Modal>
+  );
+}
 // Centered card on desktop; a bottom sheet with a grabber on phones and tablets.
 export function SheetHost() {
   const { t: tr } = useI18n();
@@ -1063,6 +1116,12 @@ export function SheetHost() {
   });
   const chrome = compact ? 21 + insets.bottom + 6 : 0;
   const maxHeight = compact ? height - insets.top - 20 : height - 60;
+  // The sheet rises above the keyboard and gives up height to it, so its content scrolls instead
+  // of hiding behind it; the focused field scrolls into view.
+  const lift = useKeyboardLift();
+  const rise = open && compact ? lift : 0;
+  const scroller = useRef<ScrollView>(null);
+  const keyboard = useKeyboardScroll(scroller, rise);
   const show = (next: string) => {
     m.current.page = next;
     dragger.reset();
@@ -1204,21 +1263,15 @@ export function SheetHost() {
     child: React.ReactElement,
   ) => (compact ? <GestureDetector gesture={gesture}>{child}</GestureDetector> : child);
   return (
-    <Modal
-      visible={open}
-      transparent
-      animationType="none"
-      onRequestClose={close}
-      statusBarTranslucent
-    >
+    <SheetLayer visible={open} onRequestClose={close}>
       <GestureHandlerRootView style={{ flex: 1 }}>
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        <View
           style={{
             flex: 1,
             justifyContent: compact ? 'flex-end' : 'center',
             alignItems: 'center',
             padding: compact ? 0 : 30,
+            paddingBottom: compact ? rise : 30,
           }}
         >
           <Animated.View
@@ -1259,7 +1312,7 @@ export function SheetHost() {
               )}
               <Animated.View
                 style={{
-                  maxHeight,
+                  maxHeight: maxHeight - rise,
                   height: sized ? h : undefined,
                   flexShrink: 1,
                   backgroundColor: color.bg,
@@ -1295,6 +1348,7 @@ export function SheetHost() {
                     dragger.scroll,
                     <Animated.ScrollView
                       key={page}
+                      ref={scroller}
                       scrollEnabled={!scrollLocked}
                       keyboardShouldPersistTaps="handled"
                       showsVerticalScrollIndicator={false}
@@ -1302,7 +1356,11 @@ export function SheetHost() {
                       bounces={false}
                       overScrollMode="never"
                       scrollEventThrottle={16}
-                      onScroll={(e) => dragger.scrolled(e.nativeEvent.contentOffset.y)}
+                      onScroll={(e) => {
+                        dragger.scrolled(e.nativeEvent.contentOffset.y);
+                        keyboard.onScroll(e);
+                      }}
+                      onLayout={keyboard.onLayout}
                       onContentSizeChange={(_, content) => measure(content)}
                       style={{ opacity: fade }}
                     >
@@ -1318,16 +1376,18 @@ export function SheetHost() {
                             {entry.title}
                           </Text>
                         )}
-                        {entry.children}
+                        <RevealFocus.Provider value={keyboard.reveal}>
+                          {entry.children}
+                        </RevealFocus.Provider>
                       </View>
                     </Animated.ScrollView>,
                   )}
               </Animated.View>
             </Animated.View>,
           )}
-        </KeyboardAvoidingView>
+        </View>
       </GestureHandlerRootView>
-    </Modal>
+    </SheetLayer>
   );
 }
 // Full-screen pages slide over the app as plain views rather than native modals, so a sheet can

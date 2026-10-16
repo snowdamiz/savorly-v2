@@ -38,6 +38,8 @@ import { SousChefHistory } from '../components/SousChef';
 import { PlanSettings } from '../components/PlanSettings';
 import { SocialButtons } from '../components/SocialButtons';
 import { HandleField, useHandle } from '../components/Username';
+import { PhotoButton, ProfilePhoto } from '../components/ProfilePhoto';
+import { dietOptions, useSaveProfile } from '../lib/profile';
 import { DangerButton } from './Kitchen';
 import { foodIcon } from '../lib/icons';
 import { AdminPending } from './admin';
@@ -207,6 +209,9 @@ export function Profile({
   const [edit, setEdit] = useState(false);
   const [remove, setRemove] = useState(false);
   const [history, setHistory] = useState(false);
+  // The photo sheet either saves the profile photo at once, or fills in the Edit profile form.
+  const [photo, setPhoto] = useState<'profile' | 'form' | null>(null);
+  const saveProfile = useSaveProfile();
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   useEffect(() => {
@@ -305,7 +310,12 @@ export function Profile({
         </View>
       ) : (
         <View style={[s.card, { alignItems: 'center', gap: 14, paddingVertical: 28 }]}>
-          <Avatar name={app.user.name} uri={app.user.avatar} size={88} />
+          <PhotoButton
+            name={app.user.name}
+            uri={app.user.avatar}
+            size={88}
+            onPress={() => setPhoto('profile')}
+          />
           <View style={{ alignItems: 'center', gap: 2 }}>
             <Text style={[s.h1, { fontSize: 24, textAlign: 'center' }]}>{app.user.name}</Text>
             <Text style={s.small}>@{app.user.handle}</Text>
@@ -420,6 +430,18 @@ export function Profile({
       )}
       <SousChefHistory visible={history} onClose={() => setHistory(false)} onRecipe={onRecipe} />
       <Dialog visible={edit} onClose={() => setEdit(false)} title={tr('Edit profile')}>
+        <View style={[s.row, { gap: 16 }]}>
+          <PhotoButton name={name} uri={avatar} size={68} onPress={() => setPhoto('form')} />
+          <View style={{ flex: 1, alignItems: 'flex-start', gap: 6 }}>
+            <Text style={s.h3}>{tr('Profile photo')}</Text>
+            <Button
+              title={avatar ? tr('Change photo') : tr('Add a photo')}
+              variant="secondary"
+              small
+              onPress={() => setPhoto('form')}
+            />
+          </View>
+        </View>
         <Field label={tr('Your name')} value={name} onChangeText={setName} maxLength={70} />
         <HandleField handle={handle} />
         <Field
@@ -430,16 +452,9 @@ export function Profile({
           maxLength={1000}
           placeholder={tr('What do you love to cook?')}
         />
-        <Field
-          label={tr('Profile photo URL')}
-          value={avatar}
-          onChangeText={setAvatar}
-          placeholder="https://…"
-          autoCapitalize="none"
-        />
         <Text style={s.label}>{tr('Food preferences')}</Text>
         <View style={[s.wrap, { gap: 8 }]}>
-          {['Vegetarian', 'Vegan', 'Gluten free', 'Dairy free', 'High protein'].map((d) => (
+          {dietOptions.map((d) => (
             <Chip
               key={d}
               title={tr(d)}
@@ -494,6 +509,17 @@ export function Profile({
           }}
         />
       </Dialog>
+      <ProfilePhoto
+        visible={!!photo}
+        onClose={() => setPhoto(null)}
+        name={photo === 'form' ? name : app.user?.name || ''}
+        value={photo === 'form' ? avatar : app.user?.avatar || ''}
+        onSave={async (url) => {
+          if (photo === 'form') return setAvatar(url);
+          await saveProfile({ avatar: url });
+          app.notify(url ? 'Your photo is updated.' : 'Your photo is removed.');
+        }}
+      />
       <Dialog visible={remove} onClose={() => setRemove(false)} title={tr('Delete your account?')}>
         <View style={{ backgroundColor: color.errorBg, borderRadius: radius.md, padding: 16 }}>
           <Text style={[s.body, { color: color.error }]}>
