@@ -588,11 +588,11 @@ function Shell() {
             contentContainerStyle={{
               paddingHorizontal: gutter,
               paddingTop: desktop ? DESKTOP_HEADER + top : top,
-              // Clears the tab bar and the sous-chef button above it, or its panel while it's out,
-              // so everything on the page can still scroll into view beside it.
+              // Clears the tab bar and the sous-chef button above it, or in a desktop browser its
+              // panel while it's out, so everything on the page can still scroll into view beside it.
               paddingBottom: Math.max(
                 compact ? Math.max(16, insets.bottom) + 170 : 100,
-                studioOpen ? dock.bottom + dock.panel.height + 24 : 0,
+                studioOpen && dock.panel ? dock.bottom + dock.panel.height + 24 : 0,
               ),
               maxWidth: 1600,
               width: '100%',
@@ -753,9 +753,10 @@ function Shell() {
           )}
         </View>
       )}
-      {/* The sous-chef is one tap away everywhere; recipe pages, sheets and cooking cover it. It
-          pops out of here and folds back into it, or into a pill while voice keeps going. */}
-      {(!studio || (studioHidden && !studioLive)) && cookingStep === null && (
+      {/* The sous-chef is one tap away everywhere; recipe pages, sheets and cooking cover it. In a
+          desktop browser its panel pops out of here and folds back into it, or into a pill while
+          voice keeps going; elsewhere a minimized sheet leaves its own pill. */}
+      {(!studio || (!!dock.panel && studioHidden && !studioLive)) && cookingStep === null && (
         <Press
           accessibilityRole="button"
           accessibilityLabel={tr('Ask your sous-chef')}
@@ -784,11 +785,7 @@ function Shell() {
         <AnnouncementBanner announcement={app.capabilities?.announcement} />
         <UpdateBanner />
       </TopBanners>
-      <Toast
-        message={selected ? '' : app.toast}
-        // Phones lift it over the sous-chef's panel; a desktop's sits clear of it already.
-        bottom={studioOpen && compact ? dock.bottom + dock.panel.height + 12 : undefined}
-      />
+      <Toast message={selected ? '' : app.toast} />
       <AuthDialog />
       <RecipeStart visible={creating} onClose={() => setCreating(false)} onStart={create} />
       {!webPage && recipePage}
