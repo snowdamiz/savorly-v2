@@ -51,11 +51,6 @@ function Thinking({ video }: { video: boolean }) {
         ))}
       </View>
       <Text style={s.h3}>{video ? tr('Filming your clip…') : tr('Thinking it through…')}</Text>
-      <Text style={s.muted}>
-        {tr('{{v0}} You can close this. Results are kept in My kitchen → Sous-chef history.', {
-          v0: video ? tr('Short films take a few minutes. ') : '',
-        })}
-      </Text>
     </View>
   );
 }

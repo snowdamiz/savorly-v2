@@ -1,6 +1,6 @@
 import { useI18n } from '../lib/i18n';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Platform, Text, TextInput, TextStyle, View } from 'react-native';
+import { ActivityIndicator, Text, TextInput, View } from 'react-native';
 import { AtSign, Check, X } from 'lucide-react-native';
 import { api } from '../lib/api';
 import { useRevealFocus } from '../lib/keyboard';
@@ -10,8 +10,6 @@ import { color, font, s } from '../lib/theme';
 // letter or digit, and no two dots in a row.
 const pattern = /^[a-z0-9][a-z0-9._]{1,22}[a-z0-9]$/;
 const valid = (h: string) => pattern.test(h) && !h.includes('..');
-// The pill shows focus itself, so the browser's rectangular ring around the inner input goes.
-const bare = (Platform.OS === 'web' ? { outlineStyle: 'none' } : {}) as unknown as TextStyle;
 const clean = (v: string) =>
   v
     .toLowerCase()
@@ -112,7 +110,6 @@ export function HandleField({ handle }: { handle: ReturnType<typeof useHandle> }
             fontFamily: font.medium,
             fontSize: 15,
             color: color.ink,
-            ...bare,
           }}
         />
         {state === 'checking' ? (
