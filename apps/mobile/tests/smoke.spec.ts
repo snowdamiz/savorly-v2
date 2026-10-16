@@ -60,6 +60,10 @@ test('register, save, groceries, plan and publish a recipe', async ({ page }) =>
     await page.getByRole('button', { name: 'Continue', exact: true }).click();
     await expect(page.getByText('How do you like to eat?', { exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'Skip', exact: true }).click();
+    // The feed behind the setup has a “Cooks to follow” section too.
+    await expect(page.getByRole('heading', { name: 'Cooks to follow', exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Skip', exact: true }).click();
+    await expect(page.getByText('Just ask your sous-chef', { exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'Let’s get started', exact: true }).click();
     await expect(
       page.getByText(`Welcome to the table, @${handle}.`, { exact: true }),

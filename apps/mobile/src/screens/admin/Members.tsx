@@ -564,8 +564,8 @@ export function MemberDialog({ id, onClose }: { id: string; onClose: () => void 
             title={me ? 'Restart your kitchen setup?' : 'Restart kitchen setup?'}
             text={
               me
-                ? 'The new-kitchen setup (photo, name and username, food preferences, cooks to follow) opens straight away, so you can try it. Your profile stays as it is; each step starts from what you have.'
-                : `${m.name} sees the new-kitchen setup (photo, name and username, food preferences, cooks to follow) the next time they open Savorly. Their profile stays as it is until they save a step.`
+                ? 'The new-kitchen setup (photo, name and username, food preferences, cooks to follow, meeting the sous-chef) opens straight away, so you can try it. Your profile stays as it is; each step starts from what you have.'
+                : `${m.name} sees the new-kitchen setup (photo, name and username, food preferences, cooks to follow, meeting the sous-chef) the next time they open Savorly. Their profile stays as it is until they save a step.`
             }
             action="Restart setup"
             busy={action.busy === 'setup'}
