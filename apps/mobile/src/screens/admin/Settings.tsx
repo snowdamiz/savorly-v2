@@ -204,7 +204,8 @@ function OnboardingTests() {
         />
         <Text style={s.small}>
           Opens the new-kitchen setup now: photo, name and username, food preferences, cooks to
-          follow. Your profile stays as it is, and the restart is recorded in the audit log.
+          follow, meeting the sous-chef. Your profile stays as it is, and the restart is recorded in
+          the audit log.
         </Text>
       </View>
       <View style={{ gap: 8 }}>

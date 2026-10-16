@@ -371,6 +371,12 @@ function Shell() {
     outputRange: [0, 1],
     extrapolate: 'clamp',
   });
+  // The desktop header floats over the page, and frosts over as content scrolls under it.
+  const frosted = scrollY.interpolate({
+    inputRange: [0, 24],
+    outputRange: [0, 1],
+    extrapolate: 'clamp',
+  });
   const onScroll = Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], {
     useNativeDriver: native,
     listener: (e: { nativeEvent: { contentOffset: { y: number } } }) => {
@@ -495,6 +501,11 @@ function Shell() {
           {desktop && (
             <View
               style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                right: 0,
+                zIndex: 10,
                 height: DESKTOP_HEADER,
                 paddingHorizontal: gutter,
                 flexDirection: 'row',
@@ -504,6 +515,22 @@ function Shell() {
                 borderColor: color.line,
               }}
             >
+              {/* A recipe page opens below the header, so the feed must not show through it then. */}
+              <Animated.View
+                style={[
+                  StyleSheet.absoluteFill,
+                  { pointerEvents: 'none' },
+                  webPage && recipePage
+                    ? { backgroundColor: color.bg }
+                    : [
+                        {
+                          opacity: frosted,
+                          backgroundColor: native ? color.bg : 'rgba(244,244,244,0.72)',
+                        },
+                        frost(24),
+                      ],
+                ]}
+              />
               <View style={{ flex: 1 }}>
                 <View style={{ maxWidth: 560, flexDirection: 'row' }}>
                   <SearchBar
@@ -560,12 +587,12 @@ function Shell() {
             }}
             contentContainerStyle={{
               paddingHorizontal: gutter,
-              paddingTop: top,
-              // Clears the tab bar and the sous-chef button above it, or its panel while it's out,
-              // so everything on the page can still scroll into view beside it.
+              paddingTop: desktop ? DESKTOP_HEADER + top : top,
+              // Clears the tab bar and the sous-chef button above it, or in a desktop browser its
+              // panel while it's out, so everything on the page can still scroll into view beside it.
               paddingBottom: Math.max(
                 compact ? Math.max(16, insets.bottom) + 170 : 100,
-                studioOpen ? dock.bottom + dock.panel.height + 24 : 0,
+                studioOpen && dock.panel ? dock.bottom + dock.panel.height + 24 : 0,
               ),
               maxWidth: 1600,
               width: '100%',
@@ -597,7 +624,15 @@ function Shell() {
           </Animated.ScrollView>
           {webPage && recipePage && (
             <View
-              style={{ position: 'absolute', top: DESKTOP_HEADER, left: 0, right: 0, bottom: 0 }}
+              // Above the header, so cooking mode inside it covers the whole window.
+              style={{
+                position: 'absolute',
+                top: DESKTOP_HEADER,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                zIndex: 20,
+              }}
             >
               {recipePage}
             </View>
@@ -718,9 +753,10 @@ function Shell() {
           )}
         </View>
       )}
-      {/* The sous-chef is one tap away everywhere; recipe pages, sheets and cooking cover it. It
-          pops out of here and folds back into it, or into a pill while voice keeps going. */}
-      {(!studio || (studioHidden && !studioLive)) && cookingStep === null && (
+      {/* The sous-chef is one tap away everywhere; recipe pages, sheets and cooking cover it. In a
+          desktop browser its panel pops out of here and folds back into it, or into a pill while
+          voice keeps going; elsewhere a minimized sheet leaves its own pill. */}
+      {(!studio || (!!dock.panel && studioHidden && !studioLive)) && cookingStep === null && (
         <Press
           accessibilityRole="button"
           accessibilityLabel={tr('Ask your sous-chef')}
@@ -749,11 +785,7 @@ function Shell() {
         <AnnouncementBanner announcement={app.capabilities?.announcement} />
         <UpdateBanner />
       </TopBanners>
-      <Toast
-        message={selected ? '' : app.toast}
-        // Phones lift it over the sous-chef's panel; a desktop's sits clear of it already.
-        bottom={studioOpen && compact ? dock.bottom + dock.panel.height + 12 : undefined}
-      />
+      <Toast message={selected ? '' : app.toast} />
       <AuthDialog />
       <RecipeStart visible={creating} onClose={() => setCreating(false)} onStart={create} />
       {!webPage && recipePage}

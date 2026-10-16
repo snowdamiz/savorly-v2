@@ -26,7 +26,7 @@ A handle is 3–24 lowercase letters, digits, dots or underscores that starts an
 
 ## Kitchen setup
 
-`GET /me` includes `onboarded`: `false` for a new kitchen until it finishes or skips its setup (photo, name and username, food preferences, cooks to follow), which the app shows on every platform and resumes after a restart. `POST /me/onboarded` marks it done and answers like `GET /me`. Kitchens from before the setup existed count as set up. A first Google sign-in starts the profile photo from the Google account's picture.
+`GET /me` includes `onboarded`: `false` for a new kitchen until it finishes or skips its setup (photo, name and username, food preferences, cooks to follow, meeting the sous-chef), which the app shows on every platform and resumes after a restart. `POST /me/onboarded` marks it done and answers like `GET /me`. Kitchens from before the setup existed count as set up. A first Google sign-in starts the profile photo from the Google account's picture.
 
 ## Discovery
 

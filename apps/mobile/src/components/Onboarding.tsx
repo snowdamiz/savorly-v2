@@ -16,7 +16,7 @@ import { RevealFocus, useKeyboardLift, useKeyboardScroll } from '../lib/keyboard
 import { dietOptions, useSaveProfile } from '../lib/profile';
 import { foodIcon } from '../lib/icons';
 import { haptic } from '../lib/haptics';
-import { color, font, radius, s } from '../lib/theme';
+import { color, font, radius, s, shadow } from '../lib/theme';
 import { Creator } from '../lib/types';
 import { BrandMark } from './Brand';
 import { PhotoButton, ProfilePhoto } from './ProfilePhoto';
@@ -286,8 +286,9 @@ export function Welcome({ onDone }: { onDone: () => void }) {
 }
 
 /**
- * A new kitchen's setup: photo, name and username; food preferences; cooks to follow. Each step is
- * saved as it is left, and finishing or skipping the last one marks the kitchen as set up.
+ * A new kitchen's setup: photo, name and username; food preferences; cooks to follow; then meeting
+ * the sous-chef. Each step is saved as it is left, and finishing or skipping the last one marks the
+ * kitchen as set up.
  */
 export function KitchenSetup() {
   const { t: tr } = useI18n();
@@ -310,6 +311,7 @@ export function KitchenSetup() {
       .sort((a, b) => (b.recipeCount ?? 0) - (a.recipeCount ?? 0))
       .slice(0, 8),
   );
+  const last = step === 3;
   const go = (next: number) => {
     setError('');
     setStep(next);
@@ -342,7 +344,7 @@ export function KitchenSetup() {
         : step === 1
           ? { preferences }
           : null;
-    if (!changes) return finish();
+    if (!changes) return last ? finish() : go(step + 1);
     setBusy(true);
     setError('');
     try {
@@ -363,7 +365,7 @@ export function KitchenSetup() {
         </Text>
       )}
       <Button
-        title={step === 2 ? tr('Let’s get started') : tr('Continue')}
+        title={last ? tr('Let’s get started') : tr('Continue')}
         icon={ArrowRight}
         large
         busy={busy}
@@ -375,9 +377,9 @@ export function KitchenSetup() {
   return (
     <Page
       step={step}
-      steps={3}
+      steps={4}
       onBack={step > 0 && !busy ? () => go(step - 1) : undefined}
-      onSkip={busy ? undefined : () => (step === 2 ? void finish() : go(step + 1))}
+      onSkip={busy ? undefined : () => (last ? void finish() : go(step + 1))}
       footer={footer}
     >
       {step === 0 && (
@@ -462,7 +464,53 @@ export function KitchenSetup() {
           </View>
         </>
       )}
+      {step === 3 && <MeetSousChef />}
     </Page>
+  );
+}
+
+// A few things to say, from a cooking question to work done for you, so "anything" feels concrete.
+const asks = [
+  'What can I make with what’s in my fridge?',
+  'Make it vegetarian, for six.',
+  'Plan my week and add the groceries.',
+  'Turn this photo into a recipe.',
+];
+// The app is built around the sous-chef, so the last step says so: ask for anything, in any way,
+// from anywhere, and it helps or simply does it.
+function MeetSousChef() {
+  const { t: tr } = useI18n();
+  return (
+    <>
+      <Heading
+        title={tr('Just ask your sous-chef')}
+        text={tr(
+          'Savorly is built around AI. Your sous-chef helps with anything you can imagine, and can do everything in the app for you.',
+        )}
+      />
+      <View style={{ gap: 8 }}>
+        {asks.map((ask, i) => (
+          <FadeIn key={ask} delay={200 + i * 140} offset={10} style={styles.ask}>
+            <Text style={[s.body, { color: color.white }]}>{tr(ask)}</Text>
+          </FadeIn>
+        ))}
+      </View>
+      <FadeIn delay={200 + asks.length * 140} offset={10}>
+        <View style={[s.card, s.row, { gap: 16, padding: 16 }]}>
+          <View style={styles.souschef}>
+            <Sparkles size={22} color={color.white} strokeWidth={2} />
+          </View>
+          <View style={{ flex: 1, gap: 2 }}>
+            <Text style={s.h3}>{tr('One tap away, on every screen')}</Text>
+            <Text style={s.muted}>
+              {tr(
+                'Type, talk or show it a photo. It sees what you’re looking at, and checks with you before anything big.',
+              )}
+            </Text>
+          </View>
+        </View>
+      </FadeIn>
+    </>
   );
 }
 function Cook({ creator }: { creator: Creator }) {
@@ -533,6 +581,26 @@ const styles = StyleSheet.create({
     backgroundColor: color.ink,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  // Requests look like your own messages in the sous-chef.
+  ask: {
+    alignSelf: 'flex-end',
+    maxWidth: '86%',
+    paddingHorizontal: 16,
+    paddingVertical: 11,
+    borderRadius: radius.md,
+    borderBottomRightRadius: 6,
+    backgroundColor: color.ink,
+  },
+  // The floating sous-chef button, as it appears on every screen.
+  souschef: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: color.ink,
+    alignItems: 'center',
+    justifyContent: 'center',
+    boxShadow: shadow.float,
   },
   follow: {
     gap: 5,

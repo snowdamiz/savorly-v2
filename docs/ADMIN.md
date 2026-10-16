@@ -34,7 +34,7 @@ No one can mark an address in `ADMIN_EMAILS` as verified from the console, or ap
 
 - **Suspend** (with a reason only admins see): signs them out everywhere, ends live voice, cancels AI work that hasn't reached a provider (releasing its reservation), and blocks sign-in with a "contact support" message. Their recipes, reviews, profile, and the sous-chef's search results stop showing them. Nothing is deleted; **Lift suspension** restores everything.
 - **Sign out everywhere**, **Mark email as verified**, **Edit profile** (for clearing offensive names, handles, bios or photos).
-- **Restart kitchen setup**: the new-kitchen setup (photo, name and username, food preferences, cooks to follow) opens for them the next time they open Savorly, starting from the profile they have. It works on your own record too, and opens yours straight away.
+- **Restart kitchen setup**: the new-kitchen setup (photo, name and username, food preferences, cooks to follow, meeting the sous-chef) opens for them the next time they open Savorly, starting from the profile they have. It works on your own record too, and opens yours straight away.
 - **Complimentary plan**: put a member on Plus or Pro (or back to Free) outside Stripe. Members who pay through Stripe are changed in the Stripe dashboard instead. While `PAID_PLANS` is off, everyone is unlimited anyway; the plan applies once paid plans launch.
 - **Delete account**: type their email to confirm. As when members delete themselves, any subscription is cancelled first and Sign in with Apple is revoked.
 
