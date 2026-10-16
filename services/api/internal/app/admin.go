@@ -29,6 +29,7 @@ func (a *App) adminRoutes(v fiber.Router) {
 	g.Delete("/users/:id/suspend", a.adminUnsuspend)
 	g.Post("/users/:id/sign-out", a.adminSignOut)
 	g.Post("/users/:id/verify", a.adminVerify)
+	g.Post("/users/:id/setup", a.adminRestartSetup)
 	g.Put("/users/:id/admin", a.adminSetRole)
 	g.Put("/users/:id/plan", a.adminSetPlan)
 	g.Delete("/users/:id", a.adminDeleteUser)

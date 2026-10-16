@@ -34,6 +34,7 @@ No one can mark an address in `ADMIN_EMAILS` as verified from the console, or ap
 
 - **Suspend** (with a reason only admins see): signs them out everywhere, ends live voice, cancels AI work that hasn't reached a provider (releasing its reservation), and blocks sign-in with a "contact support" message. Their recipes, reviews, profile, and the sous-chef's search results stop showing them. Nothing is deleted; **Lift suspension** restores everything.
 - **Sign out everywhere**, **Mark email as verified**, **Edit profile** (for clearing offensive names, handles, bios or photos).
+- **Restart kitchen setup**: the new-kitchen setup (photo, name and username, food preferences, cooks to follow) opens for them the next time they open Savorly, starting from the profile they have. It works on your own record too, and opens yours straight away.
 - **Complimentary plan**: put a member on Plus or Pro (or back to Free) outside Stripe. Members who pay through Stripe are changed in the Stripe dashboard instead. While `PAID_PLANS` is off, everyone is unlimited anyway; the plan applies once paid plans launch.
 - **Delete account**: type their email to confirm. As when members delete themselves, any subscription is cancelled first and Sign in with Apple is revoked.
 
@@ -48,6 +49,7 @@ Settings take effect on the next request, without a redeploy, and are stored in 
 - **Pause all AI features** refuses every new sous-chef message, photo, video, voice call and read-aloud with a maintenance message. Conversations and drafts are kept. Use it if a provider misbehaves or spend runs away.
 - **Daily AI budgets** override `AI_DAILY_BUDGET_USD` and `AI_FREE_DAILY_BUDGET_USD`. Leave a field empty to use the environment's value; paying members' plans still add headroom on top ([pricing](PRICING.md)). `0` stops all AI spend.
 - **Pause new sign-ups** refuses new accounts by email, Apple or Google, while existing members keep signing in.
+- **Test onboarding** (only for you, on this device): **Replay my kitchen setup** opens the new-kitchen setup now, recorded in the audit log like a restart from your member record. **Replay the welcome** signs you out and shows the first-launch welcome a new phone sees (language, then join, sign in or look around), on the web too, where it otherwise never appears.
 - **Announcement** shows a message (up to 280 characters, info or warning) at the top of the app for everyone, signed in or not, through `GET /v1/capabilities`. Each person can dismiss it on their device; changing the text shows it again. Announcements aren't translated.
 
 ## API
@@ -57,7 +59,7 @@ Every endpoint is under `/v1/admin`, requires a signed-in admin (`401` signed ou
 | Area | Endpoints |
 | --- | --- |
 | Overview | `GET /overview` |
-| Members | `GET /users?q=&filter=&sort=`, `GET /users/:id`, `PATCH /users/:id`, `POST` or `DELETE /users/:id/suspend`, `POST /users/:id/sign-out`, `POST /users/:id/verify`, `PUT /users/:id/admin`, `PUT /users/:id/plan`, `DELETE /users/:id` (body `{ "confirm": "<their email>" }`) |
+| Members | `GET /users?q=&filter=&sort=`, `GET /users/:id`, `PATCH /users/:id`, `POST` or `DELETE /users/:id/suspend`, `POST /users/:id/sign-out`, `POST /users/:id/verify`, `POST /users/:id/setup`, `PUT /users/:id/admin`, `PUT /users/:id/plan`, `DELETE /users/:id` (body `{ "confirm": "<their email>" }`) |
 | Recipes | `GET /recipes?q=&filter=&sort=`, `GET /recipes/:id`, `PUT /recipes/:id/published`, `POST /recipes/:id/reports` (`resolved` or `dismissed`), `DELETE /recipes/:id` |
 | Moderation | `GET /reports?status=open`, `GET /reviews?q=&rating=`, `DELETE /reviews/:id` |
 | AI | `GET /ai`, `GET /jobs?status=&kind=&q=`, `GET /jobs/:id`, `POST /jobs/:id/cancel`, `POST /voice/:id/end` |
