@@ -46,7 +46,17 @@ import {
   StudioProject,
 } from '../lib/types';
 import { color, radius, s, shadow } from '../lib/theme';
-import { Button, Dialog, FoodImage, IconButton, Pill, Press, animate, useChrome } from './ui';
+import {
+  Button,
+  Dialog,
+  FoodImage,
+  IconButton,
+  Pill,
+  Press,
+  animate,
+  motionReduced,
+  useChrome,
+} from './ui';
 import { RecipeCamera } from './RecipeCamera';
 import { fileForm } from '../lib/photos';
 import { openVoice } from '../lib/voice/transport';
@@ -85,6 +95,53 @@ const recipeSuggestions = [
   'What should I serve with it?',
   'Can I make it ahead?',
 ];
+// What Speak it asks for, so a recipe can be told in one go.
+const recipeTellings = [
+  'What it is, and how many it serves',
+  'The ingredients, with amounts if you know them',
+  'The steps, in order',
+];
+// The end of what was just said, from a word boundary, so the newest words stay in view.
+function latest(text: string, max = 150) {
+  const t = text.trim();
+  if (t.length <= max) return t;
+  const cut = t.slice(-max);
+  const space = cut.indexOf(' ');
+  return '…' + (space >= 0 && space < 24 ? cut.slice(space + 1) : cut);
+}
+// Bars that sway while the microphone is open, and rest while it connects or is muted.
+const barHeights = [0.5, 0.9, 0.6, 1, 0.45];
+const barBeats = [460, 340, 520, 400, 580];
+function VoiceBars({ active }: { active: boolean }) {
+  const [bars] = useState(() => barHeights.map((v) => new Animated.Value(v)));
+  useEffect(() => {
+    if (!active || motionReduced()) {
+      bars.forEach((b, i) => b.setValue(active ? barHeights[i] : 0.25));
+      return;
+    }
+    const loops = bars.map((b, i) =>
+      Animated.loop(Animated.sequence([animate(b, 1, barBeats[i]), animate(b, 0.3, barBeats[i])])),
+    );
+    loops.forEach((l) => l.start());
+    return () => loops.forEach((l) => l.stop());
+  }, [active, bars]);
+  return (
+    <View style={[s.row, { gap: 3, height: 22 }]}>
+      {bars.map((b, i) => (
+        <Animated.View
+          key={i}
+          style={{
+            width: 4,
+            height: 22,
+            borderRadius: 2,
+            backgroundColor: color.white,
+            transform: [{ scaleY: b }],
+          }}
+        />
+      ))}
+    </View>
+  );
+}
 const cookingSuggestions = [
   'How do I know this step is done?',
   'I don’t have the right pan',
@@ -157,7 +214,8 @@ export function RecipeStudio({
   >('off');
   const [muted, setMuted] = useState(false);
   const [audioBlocked, setAudioBlocked] = useState(false);
-  const [caption, setCaption] = useState('');
+  // The newest words and who said them; the conversation above keeps the whole transcript.
+  const [caption, setCaption] = useState<{ role: 'user' | 'assistant'; text: string } | null>(null);
   const [seconds, setSeconds] = useState(0);
   const [inputHeight, setInputHeight] = useState(40);
   const connection = useRef<VoiceConnection | null>(null);
@@ -233,7 +291,7 @@ export function RecipeStudio({
       cursor.current = 0;
       setEvents([]);
       setAttachment(null);
-      setCaption('');
+      setCaption(null);
       setError('');
       setText('');
       setBrowsing(false);
@@ -373,7 +431,7 @@ export function RecipeStudio({
       return;
     }
     setError('');
-    setCaption('');
+    setCaption(null);
     setSeconds(0);
     setVoiceState('connecting');
     setAudioBlocked(false);
@@ -386,8 +444,12 @@ export function RecipeStudio({
         ev.type === 'session.input_transcript.delta' ||
         ev.type === 'session.output_transcript.delta'
       ) {
-        setCaption((old) => (old + (ev.delta || '')).slice(-320));
-        setVoiceState(ev.type.includes('input_') ? 'listening' : 'working');
+        const role = ev.type.includes('input_') ? 'user' : 'assistant';
+        setCaption((old) => ({
+          role,
+          text: old?.role === role ? (old.text + (ev.delta || '')).slice(-600) : ev.delta || '',
+        }));
+        setVoiceState(role === 'user' ? 'listening' : 'working');
       }
       if (ev.type === 'connection.failed' || ev.type === 'error') {
         setError(
@@ -401,7 +463,7 @@ export function RecipeStudio({
       ) {
         void stop().then(() => {
           if (!live.current) return;
-          setCaption('Reconnecting. Hold that thought…');
+          setCaption({ role: 'assistant', text: 'Reconnecting. Hold that thought…' });
           // Give the sideband time to finalize the prior lease before the next handshake.
           renewal.current = setTimeout(() => {
             if (live.current) void startVoice();
@@ -581,97 +643,58 @@ export function RecipeStudio({
     }
   };
   // The pieces below are shared by the floating panel and the sheet, which arrange them differently.
-  const voiceCard = runningVoice && (
+  // While voice is live its controls take the composer's place, under the conversation.
+  const voiceBar = runningVoice && (
     <View
       style={{
         borderRadius: radius.lg,
         backgroundColor: color.ink,
         padding: 16,
-        gap: 12,
-        ...(floating && { margin: 12, marginBottom: 0 }),
+        paddingTop: 14,
+        gap: 14,
       }}
     >
-      <View style={[s.row, { gap: 14 }]}>
-        <View
-          style={{
-            width: 56,
-            height: 56,
-            borderRadius: 28,
-            borderWidth: 1,
-            borderColor: color.glassBorder,
-            backgroundColor: color.ink2,
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          {voiceState === 'connecting' ? (
-            <ActivityIndicator color={color.white} />
-          ) : muted ? (
-            <MicOff size={24} color={color.white} />
-          ) : (
-            <Mic size={24} color={color.white} strokeWidth={1.5} />
-          )}
-        </View>
-        <View style={{ flex: 1, gap: 3 }}>
-          <Text accessibilityLiveRegion="polite" style={{ ...s.h3, color: color.white }}>
-            {voiceState === 'connecting'
-              ? tr('Connecting your sous-chef…')
-              : muted
-                ? tr('Microphone paused')
-                : tr('I’m listening. Take your time.')}
-          </Text>
-          <Text style={{ ...s.small, color: color.onInk }}>
-            {tr('Talk naturally. Interrupt or correct me anytime.')}
-          </Text>
-        </View>
-      </View>
-      {!!caption && (
-        <Text numberOfLines={floating ? 3 : undefined} style={{ ...s.body, color: color.white }}>
-          {caption}
-        </Text>
-      )}
-      <View style={[s.row, { gap: 12 }]}>
-        <IconButton
-          icon={muted ? Mic : MicOff}
-          label={muted ? tr('Resume microphone') : tr('Mute microphone')}
-          disabled={voiceState === 'connecting'}
-          onPress={() => {
-            connection.current?.mute(!muted);
-            setMuted(!muted);
-          }}
-        />
-        <Button
-          title={tr('End voice')}
-          icon={Square}
-          small
-          variant="secondary"
-          onPress={() => void stop()}
-        />
+      <View style={[s.row, { gap: 12, minHeight: 24 }]}>
+        {voiceState === 'connecting' ? (
+          <ActivityIndicator size="small" color={color.white} />
+        ) : (
+          <VoiceBars active={!muted} />
+        )}
         <Text
-          style={{
-            ...s.small,
-            color: color.onInk,
-            flex: 1,
-            textAlign: floating ? 'right' : 'left',
-          }}
+          accessibilityLiveRegion="polite"
+          numberOfLines={1}
+          style={{ ...s.h3, color: color.white, flex: 1 }}
         >
+          {voiceState === 'connecting'
+            ? tr('Connecting your sous-chef…')
+            : muted
+              ? tr('Microphone paused')
+              : tr('I’m listening. Take your time.')}
+        </Text>
+        <Text style={{ ...s.small, color: color.onInk, fontVariant: ['tabular-nums'] }}>
           {Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, '0')}
         </Text>
-        {/* The panel's own header minimizes it; a sheet would close if swiped away. */}
-        {!floating && (
-          <IconButton
-            icon={Minimize2}
-            label={tr('Keep talking while you browse')}
-            onPress={minimize}
-          />
-        )}
       </View>
+      {caption?.text.trim() ? (
+        <View style={{ gap: 4 }}>
+          <Text style={{ ...s.label, color: color.onInk }}>
+            {caption.role === 'user' ? tr('You') : tr('Sous-chef')}
+          </Text>
+          <Text numberOfLines={3} style={{ ...s.body, color: color.white }}>
+            {latest(caption.text)}
+          </Text>
+        </View>
+      ) : (
+        <Text style={{ ...s.muted, color: color.onInk }}>
+          {tr('Talk naturally. Interrupt or correct me anytime.')}
+        </Text>
+      )}
       {audioBlocked && (
         <Button
           title={tr('Enable assistant audio')}
           icon={Volume2}
           small
-          variant="secondary"
+          variant="glass"
           onPress={() =>
             void connection.current
               ?.enableAudio()
@@ -680,14 +703,66 @@ export function RecipeStudio({
           }
         />
       )}
-      <Text style={{ ...s.small, color: color.onInk }}>
-        {tr('Voice is processed live. We save your transcript, not an audio recording.')}
-      </Text>
+      <View style={[s.row, { gap: 10 }]}>
+        <Button
+          title={muted ? tr('Unmute') : tr('Mute')}
+          label={muted ? tr('Resume microphone') : tr('Mute microphone')}
+          icon={muted ? Mic : MicOff}
+          variant="glass"
+          disabled={voiceState === 'connecting'}
+          onPress={() => {
+            connection.current?.mute(!muted);
+            setMuted(!muted);
+          }}
+          style={{ flex: 1 }}
+        />
+        <Button
+          title={tr('End voice')}
+          icon={Square}
+          variant="inverse"
+          onPress={() => void stop()}
+          style={{ flex: 1 }}
+        />
+      </View>
+    </View>
+  );
+  // Speak it starts with what to say; the transcript fills in above the controls as you talk.
+  const telling = (
+    <View style={{ paddingVertical: floating ? 6 : 10, gap: 14 }}>
+      <View style={{ gap: 6 }}>
+        <Text style={s.h2}>{tr('Tell me your recipe')}</Text>
+        <Text style={s.muted}>
+          {tr(
+            'Talk it through like you would to a friend. I’ll write it up and ask about anything I missed.',
+          )}
+        </Text>
+      </View>
+      <View style={[s.card, { padding: 16, gap: 14 }]}>
+        {recipeTellings.map((line, n) => (
+          <View key={line} style={[s.row, { gap: 12 }]}>
+            <View
+              style={{
+                width: 28,
+                height: 28,
+                borderRadius: 14,
+                backgroundColor: color.bg,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <Text style={[s.small, { color: color.ink }]}>{n + 1}</Text>
+            </View>
+            <Text style={[s.body, { flex: 1 }]}>{tr(line)}</Text>
+          </View>
+        ))}
+      </View>
+      <Text style={s.small}>{tr('Say “that’s everything” when you’re done.')}</Text>
     </View>
   );
   const messages = (
     <>
-      {!groups.length && !runningVoice && (
+      {!groups.length && runningVoice && start.mode === 'voice' && telling}
+      {!groups.length && !(runningVoice && start.mode === 'voice') && (
         <View style={{ paddingVertical: floating ? 6 : 14, gap: 10 }}>
           <ChefHat size={28} color={color.ink} />
           <Text style={s.h2}>{tr('How can I help in the kitchen?')}</Text>
@@ -773,6 +848,11 @@ export function RecipeStudio({
             {tr('Your sous-chef is working…')}
           </Text>
         </View>
+      )}
+      {runningVoice && (
+        <Text style={[s.small, { textAlign: 'center' }]}>
+          {tr('Voice is processed live. We save your transcript, not an audio recording.')}
+        </Text>
       )}
     </>
   );
@@ -1031,7 +1111,18 @@ export function RecipeStudio({
       <Sparkles size={15} color={color.white} strokeWidth={2.2} />
     </View>
   );
-  const actions = (
+  // Live voice keeps the header to what matters: on a sheet, stepping aside to keep talking.
+  const actions = runningVoice ? (
+    !floating && (
+      <IconButton
+        icon={Minimize2}
+        plain
+        size={36}
+        label={tr('Keep talking while you browse')}
+        onPress={minimize}
+      />
+    )
+  ) : (
     <>
       {earlier.length > 0 && (
         <IconButton
@@ -1050,7 +1141,7 @@ export function RecipeStudio({
         plain
         size={36}
         label={tr('New chat')}
-        disabled={busy || runningVoice}
+        disabled={busy}
         onPress={() => void create()}
       />
     </>
@@ -1201,7 +1292,6 @@ export function RecipeStudio({
             />
             <IconButton icon={X} plain size={36} label={tr('Close the sous-chef')} onPress={exit} />
           </View>
-          {!camera && voiceCard}
           <ScrollView
             ref={list}
             keyboardShouldPersistTaps="handled"
@@ -1231,7 +1321,7 @@ export function RecipeStudio({
                 borderColor: color.line,
               }}
             >
-              {composer}
+              {voiceBar || composer}
             </View>
           )}
         </Animated.View>
@@ -1243,8 +1333,7 @@ export function RecipeStudio({
           title={title}
           leading={avatar}
           actions={!camera && actions}
-          header={!camera && voiceCard}
-          footer={chatting && composer}
+          footer={chatting && (voiceBar || composer)}
           stickToEnd={chatting}
         >
           <View style={{ gap: 12 }}>

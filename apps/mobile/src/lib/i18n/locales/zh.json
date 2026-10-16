@@ -760,5 +760,13 @@
   "Save": "收藏",
   "In your cookbooks": "已在你的食谱集中",
   "Link copied to your clipboard.": "链接已复制到剪贴板。",
-  "Use ← and → to move between steps, and Esc to close.": "使用 ← 和 → 切换步骤，按 Esc 关闭。"
+  "Use ← and → to move between steps, and Esc to close.": "使用 ← 和 → 切换步骤，按 Esc 关闭。",
+  "Mute": "静音",
+  "Unmute": "取消静音",
+  "Tell me your recipe": "说说你的菜谱",
+  "Talk it through like you would to a friend. I’ll write it up and ask about anything I missed.": "像和朋友聊天一样说出来。我会整理成菜谱，缺什么再问你。",
+  "What it is, and how many it serves": "是什么菜，够几个人吃",
+  "The ingredients, with amounts if you know them": "用到的食材，知道的话说上用量",
+  "The steps, in order": "按顺序说出步骤",
+  "Say “that’s everything” when you’re done.": "说完后，说一声“就这些”。"
 }

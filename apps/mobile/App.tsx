@@ -315,6 +315,9 @@ function Shell({ onReady }: { onReady: (ready: boolean) => void }) {
   const barWidth = Math.min(width - 32, 400);
   const dock = useSousChefDock();
   const studioOpen = !!studio && !studioHidden;
+  // The launcher gives its corner to the desktop panel and to a minimized pill. A sheet only covers
+  // it, so it's still there as the sheet slides away.
+  const launcher = !studio || (dock.panel ? studioHidden && !studioLive : !studioHidden);
   // Discover and Explore share one component (and its filters), so they share one page key.
   const page = screen === 'explore' ? 'discover' : screen;
   // Every page but Discover rises in; Discover's black header must stay put under the status bar.
@@ -759,7 +762,7 @@ function Shell({ onReady }: { onReady: (ready: boolean) => void }) {
       {/* The sous-chef is one tap away everywhere; recipe pages, sheets and cooking cover it. In a
           desktop browser its panel pops out of here and folds back into it, or into a pill while
           voice keeps going; elsewhere a minimized sheet leaves its own pill. */}
-      {(!studio || (!!dock.panel && studioHidden && !studioLive)) && cookingStep === null && (
+      {launcher && cookingStep === null && (
         <Press
           accessibilityRole="button"
           accessibilityLabel={tr('Ask your sous-chef')}
