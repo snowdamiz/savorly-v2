@@ -516,7 +516,7 @@ test('live voice keeps going from a minimized pill while the user browses', asyn
   expect(state.starts()).toBe(1);
 });
 
-test('the sous-chef floats beside the page, which stays usable and in context', async ({
+test('in a desktop browser the sous-chef floats beside the page, which stays usable', async ({
   page,
 }) => {
   const state = await mockStudio(page);
@@ -538,14 +538,11 @@ test('the sous-chef floats beside the page, which stays usable and in context', 
   await expect(composer).toHaveValue('A draft question');
   await composer.press('Escape');
   await expect(panel).toHaveCount(0);
-  // On a phone it sits above the tab bar, which stays usable.
+  // A phone-sized window opens the same conversation as a bottom sheet instead.
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.getByRole('button', { name: 'Ask your sous-chef' }).click();
-  await expect(composer).toBeVisible();
-  await page.getByRole('button', { name: 'Saved', exact: true }).click();
-  await expect(panel.getByText('Viewing My cookbooks', { exact: true })).toBeVisible();
-  const box = (await panel.boundingBox())!;
-  expect(box.x).toBeGreaterThanOrEqual(16);
-  expect(box.x + box.width).toBeLessThanOrEqual(390 - 16);
+  await page.getByRole('button', { name: 'Back to conversation', exact: true }).click();
+  await expect(composer).toHaveValue('A draft question');
+  await expect(panel).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Close dialog', exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
