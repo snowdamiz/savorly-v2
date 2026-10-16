@@ -1,5 +1,5 @@
 import { I18nProvider, useI18n } from './src/lib/i18n';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Animated,
@@ -63,13 +63,13 @@ import {
   Press,
   SearchBar,
   SheetHost,
-  Toast,
   TopBanners,
   frost,
   native,
   useChrome,
 } from './src/components/ui';
 import { AnnouncementBanner } from './src/components/Announcement';
+import { AppToast } from './src/components/AppToast';
 import { UpdateBanner } from './src/components/AppUpdates';
 import { haptic } from './src/lib/haptics';
 import { AuthDialog } from './src/components/AuthDialog';
@@ -115,9 +115,12 @@ const screenNames: Record<Screen, string> = {
 };
 const tabScreens: Screen[] = ['discover', 'explore', 'create', 'saved', 'profile'];
 const DESKTOP_HEADER = 84;
-function Shell() {
+function Shell({ onReady }: { onReady: (ready: boolean) => void }) {
   const { t: tr, locale, setLanguage } = useI18n();
   const app = useApp();
+  useEffect(() => {
+    if (!app.loading) onReady(true);
+  }, [app.loading, onReady]);
   useGoogleReturn();
   const { desktop, compact, gutter, top, insets, width, webPage } = useChrome();
   const [screen, setScreen] = useState<Screen>('discover');
@@ -210,13 +213,13 @@ function Shell() {
     // Same tick, so the shared sheet morphs from the menu straight into the studio.
     else startStudio(choice);
   };
-  const open = (recipe: Recipe, history = true) => {
+  const open = useCallback((recipe: Recipe, history = true) => {
     setCreator(null);
     setSelected(recipe);
     setCookingStep(null);
     setCookCommand(null);
     if (Platform.OS === 'web' && history) window.history.pushState({}, '', `/?recipe=${recipe.id}`);
-  };
+  }, []);
   const close = () => {
     setSelected(null);
     setCookingStep(null);
@@ -785,7 +788,7 @@ function Shell() {
         <AnnouncementBanner announcement={app.capabilities?.announcement} />
         <UpdateBanner />
       </TopBanners>
-      <Toast message={selected ? '' : app.toast} />
+      <AppToast hidden={!!selected} />
       <AuthDialog />
       <RecipeStart visible={creating} onClose={() => setCreating(false)} onStart={create} />
       {!webPage && recipePage}
@@ -861,7 +864,6 @@ function Shell() {
         )}
       </Dialog>
       <SheetHost />
-      <Splash done={!app.loading} label={tr('Setting the table…')} />
     </View>
   );
 }
@@ -914,10 +916,16 @@ function FailureMessage() {
     </>
   );
 }
-class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { failed: boolean }> {
+class ErrorBoundary extends React.Component<
+  { children: React.ReactNode; onReady: (ready: boolean) => void },
+  { failed: boolean }
+> {
   state = { failed: false };
   static getDerivedStateFromError() {
     return { failed: true };
+  }
+  componentDidCatch() {
+    this.props.onReady(true);
   }
   render() {
     if (this.state.failed)
@@ -930,6 +938,7 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { fai
   }
 }
 export default function App() {
+  const [ready, setReady] = useState(false);
   const [loaded, error] = useFonts({
     Manrope_400Regular,
     Manrope_500Medium,
@@ -937,17 +946,22 @@ export default function App() {
     Manrope_700Bold,
     Manrope_800ExtraBold,
   });
-  // Fonts, then the saved language, then the kitchen: one splash throughout.
-  if (!loaded && !error) return <Splash />;
+  // Keep the same overlay mounted across fonts, language restoration and data loading.
+  // Replacing a splash at each stage restarts its animation and flashes the mascot.
   return (
-    <SafeAreaProvider>
-      <I18nProvider fallback={<Splash />}>
-        <ErrorBoundary>
-          <AppProvider>
-            <Shell />
-          </AppProvider>
-        </ErrorBoundary>
-      </I18nProvider>
-    </SafeAreaProvider>
+    <View style={{ flex: 1, backgroundColor: color.bg }}>
+      <SafeAreaProvider>
+        <I18nProvider fallback={null}>
+          {(loaded || error) && (
+            <ErrorBoundary onReady={setReady}>
+              <AppProvider>
+                <Shell onReady={setReady} />
+              </AppProvider>
+            </ErrorBoundary>
+          )}
+        </I18nProvider>
+      </SafeAreaProvider>
+      <Splash done={ready} />
+    </View>
   );
 }

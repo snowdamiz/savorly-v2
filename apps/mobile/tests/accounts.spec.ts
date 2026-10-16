@@ -220,7 +220,7 @@ test('Google sign-in goes to Google’s page and comes back with its ID token', 
   const query = new URL((await google).url()).searchParams;
   expect(Object.fromEntries(query)).toMatchObject({
     client_id: 'web-client',
-    redirect_uri: 'http://localhost:8081/',
+    redirect_uri: `${new URL(process.env.TEST_WEB_URL || 'http://localhost:8081').origin}/`,
     response_type: 'id_token',
     nonce: expect.stringMatching(/^nonce-\d+$/),
   });

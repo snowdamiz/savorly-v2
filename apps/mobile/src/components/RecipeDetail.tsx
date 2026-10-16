@@ -53,7 +53,6 @@ import {
   Pill,
   Press,
   Segmented,
-  Toast,
   animate,
   motionReduced,
   native,
@@ -62,6 +61,7 @@ import {
   webPosition,
 } from './ui';
 import { CookMode } from './CookMode';
+import { AppToast } from './AppToast';
 import { VideoPlayer } from './VideoPlayer';
 import { localDate } from '../lib/utils';
 import { foodIcon } from '../lib/icons';
@@ -355,7 +355,7 @@ export function RecipeDetail({
         onPress={() =>
           void perform(async () => {
             await api(`/recipes/${recipe.id}/groceries`, { method: 'POST', body: { servings } });
-            await app.refreshPrivate();
+            await app.refreshKitchen();
           }, 'Ingredients added to your grocery list.')
         }
       />
@@ -581,7 +581,7 @@ export function RecipeDetail({
                 method: 'POST',
                 body: { recipeId: recipe.id, day, meal, servings },
               });
-              await app.refreshPrivate();
+              await app.refreshKitchen();
               setPlan(false);
             }, 'A delicious plan. Added to your week.')
           }
@@ -609,7 +609,7 @@ export function RecipeDetail({
                       method: 'PUT',
                       body: { collectionId: c.id || null },
                     });
-                    await app.refreshPrivate();
+                    await app.refreshLibrary();
                     setCollections(false);
                   },
                   tr('Saved to {{v0}}', { v0: c.name }),
@@ -734,7 +734,7 @@ export function RecipeDetail({
               await api(`/creators/${recipe.author.id}/follow`, {
                 method: following ? 'DELETE' : 'PUT',
               });
-              await app.refreshPrivate();
+              await app.refreshLibrary();
             }, 'Your community is updated.')
           }
         />
@@ -946,7 +946,7 @@ export function RecipeDetail({
             </View>
           </View>
         </ScrollView>
-        <Toast message={app.toast} />
+        <AppToast />
         {overlays}
       </Animated.View>
     );
@@ -1126,7 +1126,7 @@ export function RecipeDetail({
             }}
           />
         </FadeIn>
-        <Toast message={app.toast} bottom={insets.bottom + 96} />
+        <AppToast bottom={insets.bottom + 96} />
       </View>
       {overlays}
     </Animated.View>

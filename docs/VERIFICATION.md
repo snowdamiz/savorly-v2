@@ -90,3 +90,93 @@ Use only a local development `.env` for this command: the public storage suite r
 - Expo Doctor passes **20/21 checks**. The remaining warning is React Native Directory marking `react-native-webrtc` untested on New Architecture. It remains visible pending native-device validation. Only `storefront` is excluded from directory lookup because it is this repository's own local Expo module, not a public package with directory metadata.
 
 The execution environment supplied both `NO_COLOR` and `FORCE_COLOR`, which produces a Node warning in Playwright/Metro child processes. Final runs used `env -u NO_COLOR` to resolve that environment conflict; no warning filters were added to the app or tests.
+
+## Performance and splash review — 2026-10-16
+
+Reviewed startup, discovery/search, shared state refreshes, cookbook/planner/pantry mutations,
+recipe/creator projections and their indexes, and recipe-to-grocery conversion. The following
+regressions were reproduced before fixing the implementation:
+
+| Work measured | Before | After |
+| --- | --- | --- |
+| Recipe-list requests on Home without a search | 2 | 1 |
+| Requests per save/unsave, including the mutation | 3 | 2 |
+| Requests per follow/unfollow, including the mutation | 5 | 3 |
+| Requests to add recipe groceries, including the mutation | 3 | 2 |
+| Grocery handler SQL calls for 1 / 20 / 80 ingredients | 4 / 23 / 83 | 2 / 2 / 2 |
+| Rows examined per save/follower count in the selective fixture | 10,010 | 10 |
+
+Home now enables server search only while displaying search results or Explore. Mutation handlers
+refresh the affected library, kitchen or creator data; full refreshes remain for startup, reload,
+recipe edits and assistant actions that can change several resources. Grocery insertion uses one
+atomic `INSERT ... SELECT FROM unnest(...)`. Migration `014_social_count_indexes.sql` adds the
+reverse lookup indexes missing from the user-first primary keys on saves and follows.
+
+`services/api/internal/app/performance_test.go` counts SQL through a pgx tracer and checks real
+Postgres `EXPLAIN ANALYZE` plans with 10 matching and 10,000 unrelated rows in each social table.
+The grocery count includes its read and transaction commands, but excludes authentication
+middleware. Tests also verify scaled quantities, ownership, invalid/private/missing recipes and
+all-or-nothing insertion on a forced constraint failure. These are work-count improvements, not
+claims about production latency.
+
+The splash previously remounted between font, language and data loading. It also kept its hop and
+blink loops alive after returning `null`. One overlay now stays mounted outside those loading
+stages, measures its minimum duration from mounting, and unmounts its animated child after fading.
+`apps/mobile/tests/splash.spec.ts` holds fonts and API responses independently, asserts that the
+same splash DOM element remains fully opaque until data is released, then verifies dismissal
+and zero further animation callbacks once page-entry animations settle. Both desktop and mobile
+with reduced motion pass. Mobile splash and Home screenshots were also inspected.
+
+Validation used an isolated local Postgres on port 55439, API on 8188, Expo on 8189, and the
+existing local SeaweedFS service. No external AI providers were called.
+
+- Both TypeScript projects and mobile ESLint pass with zero errors/warnings.
+- `go test -race ./...` with `TEST_DATABASE_URL` and `go vet ./...` pass; opt-in public/private
+  object-storage tests also pass. The final performance fixtures pass separately under `-race`.
+- All 46 real HTTP integration checks pass.
+- All 62 Playwright cases have passing results: the full run passed 60, then the two failed
+  assertions were corrected and passed with `--last-failed`. The Google redirect expectation now
+  respects `TEST_WEB_URL`; the grocery test checks the visible completed-item count rather than
+  relying on React Native Web's unmapped `accessibilityState.checked` prop.
+- `npx expo export --platform all` passes for web and iOS/Android Hermes. Native exports are
+  compile checks; the splash transition has not been verified on a physical native device.
+
+Focused regressions can be rerun with a local database and running Expo server:
+
+```sh
+cd services/api
+TEST_DATABASE_URL='<local-postgres-url>' go test -race ./internal/app -run 'TestRecipeGroceriesConstant|TestSocialCounts' -v
+cd ../../apps/mobile
+TEST_WEB_URL=http://localhost:8189 npm run test:e2e -- tests/performance.spec.ts tests/splash.spec.ts
+```
+
+### Client render follow-up
+
+The initial pass counted network and database work but did not measure React renders. A second
+pass instrumented committed renders in the running development app with a 24-recipe Explore
+grid. Both new regressions failed before the rendering changes and pass afterwards:
+
+| Interaction | Before | After |
+| --- | --- | --- |
+| Save one recipe: recipe-card renders | 48 | 0 |
+| Save one recipe: grid renders | 2 | 0 |
+| Toast expires: recipe-card renders | 24 | 0 |
+| Toast expires: Shell / Discover renders | 1 / 1 | 0 / 0 |
+
+The shared app context previously included the transient toast message. Showing or clearing it
+invalidated every app-context consumer. Notifications now have separate message and stable
+dispatch contexts; only toast presenters subscribe to message changes. Recipe cards and grids
+use React's default shallow memoization, and the recipe-opening callback is stable. Actual library
+updates still reach bookmark controls; saving, unsaving and failed-save rollback remain tested.
+
+`apps/mobile/tests/renderCounts.ts` uses the installed React DevTools backend's committed-render
+flag and unchanged-child bailout rules. Positive controls assert that the probe observes initial
+screen and card renders, then the tests assert zero unnecessary renders after interaction. They
+also verify the bookmark label, toast dismissal and the correct recipe opening. This test helper
+depends on React internals and must be reviewed when React is upgraded; production code has no
+instrumentation. These are measured render counts on web, not native-device frame-rate claims.
+
+After these changes, the complete Playwright suite passes **64/64 in one run** (2.8 minutes),
+including sign-in, localization, recipe editing, failed-save rollback and both splash cases.
+Both TypeScript projects, mobile ESLint and the production web export pass. The native export
+and backend results above belong to the initial pass; this follow-up changes only client code.

@@ -112,16 +112,17 @@ export function Discover({
   const [filters, setFilters] = useState(false);
   const [sort, setSort] = useState('For you');
   const [quick, setQuick] = useState(false);
+  const listing = !!query || !!explore;
   // Filtering belongs to Explore. Home only searches, so returning to it never leaves the feed
   // stuck as a filtered list, while Explore keeps its filters for the next visit.
   const search = useRecipeSearch(
     explore
       ? { query, category, cuisine, quick, sort }
       : { query, category: 'All recipes', cuisine: allCuisines, quick: false, sort: 'For you' },
+    listing,
   );
   const filtered = search.recipes;
   const refined = !!explore && (cuisine !== allCuisines || quick || sort !== 'For you');
-  const listing = !!query || !!explore;
   const hero = recipes.find((r) => r.id === 'lemon-ricotta-pasta') || recipes[0];
   const trending = recipes
     .filter((r) => r.id !== hero?.id)

@@ -1,5 +1,5 @@
 import { useI18n } from '../lib/i18n';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { memo, useEffect, useRef, useState } from 'react';
 import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Bookmark, Clock3, Play, Sparkles, Star } from 'lucide-react-native';
@@ -78,7 +78,7 @@ function Badge({ recipe }: { recipe: Recipe }) {
   );
 }
 // Full-bleed photo card with the title set on the image, like the hero of a native feed.
-export function RecipeTile({
+export const RecipeTile = memo(function RecipeTile({
   recipe,
   onOpen,
   width,
@@ -189,9 +189,15 @@ export function RecipeTile({
       </View>
     </Animated.View>
   );
-}
+});
 // Compact list row for secondary feeds and search results on small screens.
-export function RecipeRow({ recipe, onOpen }: { recipe: Recipe; onOpen: (r: Recipe) => void }) {
+export const RecipeRow = memo(function RecipeRow({
+  recipe,
+  onOpen,
+}: {
+  recipe: Recipe;
+  onOpen: (r: Recipe) => void;
+}) {
   const { t: tr, number } = useI18n();
   const press = usePress(0.98);
   return (
@@ -244,8 +250,8 @@ export function RecipeRow({ recipe, onOpen }: { recipe: Recipe; onOpen: (r: Reci
       <Save recipe={recipe} size={40} plain />
     </Animated.View>
   );
-}
-export function RecipeGrid({
+});
+export const RecipeGrid = memo(function RecipeGrid({
   recipes,
   onOpen,
 }: {
@@ -275,4 +281,4 @@ export function RecipeGrid({
       ))}
     </View>
   );
-}
+});
