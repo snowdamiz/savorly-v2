@@ -837,7 +837,7 @@ function Cook({
     </Animated.View>
   );
 }
-// Placeholders shaped like the feed, so the first paint already has its layout.
+// Placeholder tiles while a search runs.
 function usePulse() {
   const a = useState(() => new Animated.Value(0))[0];
   useEffect(() => {
@@ -887,80 +887,6 @@ function TileBones({ count }: { count?: number }) {
           }}
         />
       ))}
-    </View>
-  );
-}
-export function FeedSkeleton() {
-  const { t: tr } = useI18n();
-  const { compact, gutter, top, width } = useChrome();
-  const pulse = usePulse();
-  const bone = (style: ViewStyle, dark?: boolean) => (
-    <Bone style={style} dark={dark} pulse={pulse} />
-  );
-  return (
-    <View accessibilityLabel={tr('Setting the table…')} style={{ gap: 30 }}>
-      {compact ? (
-        <View
-          style={{
-            marginHorizontal: -gutter,
-            marginTop: -top,
-            paddingTop: top + 8,
-            paddingHorizontal: gutter,
-            paddingBottom: 26 + radius.xl,
-            backgroundColor: color.ink,
-            gap: 20,
-          }}
-        >
-          <View style={[s.row, { gap: 12, height: 48 }]}>
-            {bone({ width: 48, height: 48 }, true)}
-            <View style={{ gap: 8 }}>
-              {bone({ width: 90, height: 10 }, true)}
-              {bone({ width: 160, height: 14 }, true)}
-            </View>
-          </View>
-          <View style={{ gap: 10, paddingVertical: 4 }}>
-            {bone({ width: '88%', height: 27 }, true)}
-            {bone({ width: '56%', height: 27 }, true)}
-          </View>
-          {bone({ height: 52 }, true)}
-        </View>
-      ) : (
-        <View style={{ gap: 14 }}>
-          {bone({ width: 150, height: 11 })}
-          {bone({ width: 520, height: 34 })}
-        </View>
-      )}
-      <View
-        style={[
-          { gap: 30 },
-          compact && {
-            marginHorizontal: -gutter,
-            marginTop: -30 - radius.xl,
-            paddingHorizontal: gutter,
-            paddingTop: 24,
-            backgroundColor: color.bg,
-            borderTopLeftRadius: radius.xl,
-            borderTopRightRadius: radius.xl,
-          },
-        ]}
-      >
-        <View style={{ gap: 16 }}>
-          {bone({ width: 104, height: 20 })}
-          <View style={[s.row, { gap: 18, overflow: 'hidden' }]}>
-            {Array.from({ length: 10 }, (_, i) => (
-              <View key={i} style={{ alignItems: 'center', gap: 9 }}>
-                {bone({ width: 66, height: 66, borderRadius: 24 })}
-                {bone({ width: 44, height: 9 })}
-              </View>
-            ))}
-          </View>
-        </View>
-        {bone({ height: heroHeight(compact, width), borderRadius: radius.xl })}
-        <View style={{ gap: 14 }}>
-          {bone({ width: 140, height: 20 })}
-          <TileBones count={compact ? 2 : 4} />
-        </View>
-      </View>
     </View>
   );
 }

@@ -79,7 +79,8 @@ import { RecipeDetail } from './src/components/RecipeDetail';
 import { RecipeStart } from './src/components/RecipeStart';
 import { RecipeStudio } from './src/components/RecipeStudio';
 import { SousChef } from './src/components/SousChef';
-import { Discover, FeedSkeleton } from './src/screens/Discover';
+import { Discover } from './src/screens/Discover';
+import { Splash } from './src/components/Splash';
 import { Cookbooks, Pantry, Planner } from './src/screens/Kitchen';
 import { Editor } from './src/screens/Editor';
 import { Community, CreatorDialog, Profile } from './src/screens/Profile';
@@ -532,16 +533,8 @@ function Shell() {
                 <IconButton icon={ArrowLeft} label={tr('Back')} onPress={() => navigate(origin)} />
               </View>
             )}
-            {app.loading ? (
-              page === 'discover' ? (
-                <FeedSkeleton />
-              ) : (
-                <View style={{ paddingVertical: 140, alignItems: 'center', gap: 18 }}>
-                  <ActivityIndicator color={color.ink} />
-                  <Text style={s.muted}>{tr('Setting the table…')}</Text>
-                </View>
-              )
-            ) : app.error ? (
+            {/* The splash covers loading; the page fills in behind it. */}
+            {app.loading ? null : app.error ? (
               <Empty
                 title={tr('Let’s reconnect your kitchen')}
                 text={tr(app.error)}
@@ -791,6 +784,7 @@ function Shell() {
         )}
       </Dialog>
       <SheetHost />
+      <Splash done={!app.loading} label={tr('Setting the table…')} />
     </View>
   );
 }
@@ -866,22 +860,11 @@ export default function App() {
     Manrope_700Bold,
     Manrope_800ExtraBold,
   });
-  if (!loaded && !error)
-    return (
-      <View
-        style={{
-          flex: 1,
-          backgroundColor: color.bg,
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
-        <ActivityIndicator color={color.ink} />
-      </View>
-    );
+  // Fonts, then the saved language, then the kitchen: one splash throughout.
+  if (!loaded && !error) return <Splash />;
   return (
     <SafeAreaProvider>
-      <I18nProvider>
+      <I18nProvider fallback={<Splash />}>
         <ErrorBoundary>
           <AppProvider>
             <Shell />
