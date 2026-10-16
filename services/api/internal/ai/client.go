@@ -19,6 +19,8 @@ type Client struct {
 	HTTP                                                       *http.Client
 	OpenRouterURL, VideoURL, OpenRouterKey, VideoKey           string
 	TextModel, RecipeModel, AgentModel, ImageModel, VideoModel string
+	// Retouches photos people already have.
+	ImageEditModel string
 }
 
 func env(k, d string) string {
@@ -35,9 +37,10 @@ func New() *Client {
 		TextModel:   env("OPENROUTER_TEXT_MODEL", DefaultTextModel),
 		RecipeModel: env("OPENROUTER_RECIPE_MODEL", DefaultRecipeModel),
 		// The legacy name referred to the reasoning agent, never the live audio model.
-		AgentModel: env("OPENROUTER_AGENT_MODEL", env("OPENROUTER_VOICE_MODEL", DefaultAgentModel)),
-		ImageModel: env("OPENROUTER_IMAGE_MODEL", DefaultImageModel),
-		VideoModel: env("REAPI_VIDEO_MODEL", "doubao-seedance-2.5-eco"),
+		AgentModel:     env("OPENROUTER_AGENT_MODEL", env("OPENROUTER_VOICE_MODEL", DefaultAgentModel)),
+		ImageModel:     env("OPENROUTER_IMAGE_MODEL", DefaultImageModel),
+		ImageEditModel: env("OPENROUTER_IMAGE_EDIT_MODEL", DefaultImageEditModel),
+		VideoModel:     env("REAPI_VIDEO_MODEL", "doubao-seedance-2.5-eco"),
 	}
 }
 func (c *Client) TextEnabled() bool  { return c.OpenRouterKey != "" }
@@ -111,13 +114,24 @@ func (c *Client) Text(ctx context.Context, kind, prompt string) (json.RawMessage
 	return b, nil
 }
 func (c *Client) Image(ctx context.Context, prompt string) ([]byte, string, error) {
+	return c.images(ctx, map[string]any{"model": c.ImageModel, "prompt": "Editorial food photography. Natural window light, authentic ingredients, appetizing presentation. No text or watermarks. " + prompt, "n": 1, "aspect_ratio": "4:3", "quality": "medium", "output_format": "jpeg", "provider": map[string]string{"sort": "latency"}})
+}
+
+// EditImage retouches a photo: the model gets it as a reference and returns a new one in the
+// same framing ("auto" follows the photo's own shape).
+func (c *Client) EditImage(ctx context.Context, prompt string, photo []byte, mime string) ([]byte, string, error) {
+	reference := map[string]any{"type": "image_url", "image_url": map[string]string{"url": "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(photo)}}
+	return c.images(ctx, map[string]any{"model": c.ImageEditModel, "prompt": prompt, "input_references": []any{reference}, "n": 1, "aspect_ratio": "auto", "quality": "medium", "output_format": "jpeg", "provider": map[string]string{"sort": "latency"}})
+}
+
+func (c *Client) images(ctx context.Context, payload map[string]any) ([]byte, string, error) {
 	var out struct {
 		Data []struct {
 			Base64    string `json:"b64_json"`
 			MediaType string `json:"media_type"`
 		} `json:"data"`
 	}
-	e := c.request(ctx, "POST", c.OpenRouterURL+"/images", c.OpenRouterKey, map[string]any{"model": c.ImageModel, "prompt": "Editorial food photography. Natural window light, authentic ingredients, appetizing presentation. No text or watermarks. " + prompt, "n": 1, "aspect_ratio": "4:3", "quality": "medium", "output_format": "jpeg", "provider": map[string]string{"sort": "latency"}}, &out)
+	e := c.request(ctx, "POST", c.OpenRouterURL+"/images", c.OpenRouterKey, payload, &out)
 	if e != nil {
 		return nil, "", e
 	}

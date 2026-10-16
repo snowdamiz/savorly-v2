@@ -116,6 +116,8 @@ export type AdminMember = {
   planStatus: string;
   comped: boolean;
   emailVerified: boolean;
+  /** False while the new-kitchen setup is waiting for them. */
+  onboarded?: boolean;
   hasPassword: boolean;
   /** A fixture cook from SEED_DATA. */
   sample: boolean;

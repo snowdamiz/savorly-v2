@@ -1,8 +1,8 @@
 {
   "ios": {
     "CFBundleDisplayName": "Savorly",
-    "NSCameraUsageDescription": "允许 Savorly 拍摄食谱，供烹饪助手读取。",
+    "NSCameraUsageDescription": "允许 Savorly 使用相机拍摄食谱供烹饪助手读取，并拍摄你的头像。",
     "NSMicrophoneUsageDescription": "允许 Savorly 在你描述食谱时使用麦克风。",
-    "NSPhotoLibraryUsageDescription": "允许 Savorly 访问照片，以向食谱添加图片和视频。"
+    "NSPhotoLibraryUsageDescription": "允许 Savorly 访问照片，以向食谱添加图片和视频，并为你的个人资料添加头像。"
   }
 }

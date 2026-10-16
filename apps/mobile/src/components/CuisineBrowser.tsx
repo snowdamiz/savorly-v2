@@ -8,8 +8,9 @@ import { CuisineIcon } from './CuisineIcon';
 import { Rail, SectionTitle } from './ui';
 
 // Illustrated tiles rather than a row of chips, so cuisines read as places to browse and Explore's
-// category chips stay the only filter strip. Without a value nothing is selected and there is no
-// "All" tile: each cuisine is just a way in.
+// category chips stay the only filter strip. There is no "All" tile: on home each cuisine is a way
+// in; in Explore the chosen one is highlighted and choosing it again goes back to every cuisine.
+// Without `onSeeAll` the row sits under the search with no heading of its own.
 export function CuisineBrowser({
   value,
   onChange,
@@ -17,14 +18,19 @@ export function CuisineBrowser({
 }: {
   value?: string;
   onChange: (cuisine: string) => void;
-  onSeeAll: () => void;
+  onSeeAll?: () => void;
 }) {
   const { t: tr } = useI18n();
-  const names =
-    value === undefined ? cuisineFilters.filter((n) => n !== allCuisines) : cuisineFilters;
+  const names = cuisineFilters.filter((n) => n !== allCuisines);
   return (
     <View>
-      <SectionTitle title={tr('Cuisines')} action={onSeeAll} actionTitle={tr('See all cuisines')} />
+      {onSeeAll && (
+        <SectionTitle
+          title={tr('Cuisines')}
+          action={onSeeAll}
+          actionTitle={tr('See all cuisines')}
+        />
+      )}
       <Rail gap={6} pad={12}>
         {names.map((name) => {
           const active = value === name;
@@ -32,16 +38,12 @@ export function CuisineBrowser({
             <Pressable
               key={name}
               accessibilityRole="button"
-              accessibilityLabel={
-                name === allCuisines
-                  ? tr('Browse all cuisines')
-                  : tr('Browse {{v0}} recipes', { v0: tr(name) })
-              }
+              accessibilityLabel={tr('Browse {{v0}} recipes', { v0: tr(name) })}
               accessibilityState={{ selected: active }}
               aria-pressed={active}
               onPress={() => {
                 if (!active) haptic.select();
-                onChange(name);
+                onChange(active ? allCuisines : name);
               }}
               style={{ width: 78, alignItems: 'center', gap: 8 }}
             >
@@ -73,7 +75,7 @@ export function CuisineBrowser({
                       color: active ? color.ink : color.muted,
                     }}
                   >
-                    {name === allCuisines ? tr('All') : tr(name)}
+                    {tr(name)}
                   </Text>
                 </>
               )}

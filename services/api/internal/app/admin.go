@@ -29,6 +29,7 @@ func (a *App) adminRoutes(v fiber.Router) {
 	g.Delete("/users/:id/suspend", a.adminUnsuspend)
 	g.Post("/users/:id/sign-out", a.adminSignOut)
 	g.Post("/users/:id/verify", a.adminVerify)
+	g.Post("/users/:id/setup", a.adminRestartSetup)
 	g.Put("/users/:id/admin", a.adminSetRole)
 	g.Put("/users/:id/plan", a.adminSetPlan)
 	g.Delete("/users/:id", a.adminDeleteUser)
@@ -219,7 +220,7 @@ func (a *App) systemStatus() fiber.Map {
 		"paidPlans": paidPlans(), "billing": billingEnabled(), "media": a.Media != nil && a.Media.S3 != nil,
 		"email": emailEnabled(), "appleSignIn": len(oauthAudiences("apple")) > 0, "googleSignIn": len(oauthAudiences("google")) > 0,
 		"textAI": a.AI.TextEnabled(), "videoAI": a.AI.VideoEnabled(), "voiceAI": voice, "narration": a.Narrator.Enabled(),
-		"models": fiber.Map{"text": a.AI.TextModel, "recipe": a.AI.RecipeModel, "agent": a.AI.AgentModel, "image": a.AI.ImageModel, "video": a.AI.VideoModel, "voice": voiceModel, "narration": narration.Model},
+		"models": fiber.Map{"text": a.AI.TextModel, "recipe": a.AI.RecipeModel, "agent": a.AI.AgentModel, "image": a.AI.ImageModel, "imageEdit": a.AI.ImageEditModel, "video": a.AI.VideoModel, "voice": voiceModel, "narration": narration.Model},
 	}
 }
 

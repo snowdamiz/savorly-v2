@@ -8,7 +8,6 @@ import { color, s } from '../lib/theme';
 import { Button, Dialog, Field } from './ui';
 import { SocialButtons } from './SocialButtons';
 import { BrandMark, brandColors } from './Brand';
-import { UsernamePrompt } from './Username';
 import { ProviderToken } from '../lib/auth/provider';
 type Signed = { token?: string; created?: boolean };
 export function AuthDialog() {
@@ -23,14 +22,23 @@ export function AuthDialog() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  // A brand-new kitchen goes straight on to choosing its username, in the same sheet.
-  const [welcome, setWelcome] = useState(false);
+  // Each opening starts on the side it was opened for.
+  const [opened, setOpened] = useState(app.authOpen);
+  if (opened !== app.authOpen) {
+    setOpened(app.authOpen);
+    if (app.authOpen) {
+      setRegister(app.authMode === 'register');
+      setRecovery(false);
+      setSent(false);
+      setError('');
+    }
+  }
+  // A brand-new kitchen goes on to its setup, which does the welcoming.
   const signedIn = async (result: Signed, greeting: string) => {
     if (result.token) await persistSession(result.token);
     await app.refreshUser();
     setPassword('');
-    if (result.created) setWelcome(true);
-    else app.notify(greeting);
+    if (!result.created) app.notify(greeting);
     app.setAuthOpen(false);
   };
   const submit = async () => {
@@ -76,7 +84,6 @@ export function AuthDialog() {
   };
   return (
     <>
-      <UsernamePrompt visible={welcome && !!app.user} onDone={() => setWelcome(false)} />
       <Dialog visible={app.authOpen} onClose={() => app.setAuthOpen(false)}>
         <View style={{ gap: 16, paddingTop: 10 }}>
           <View
