@@ -1,4 +1,4 @@
-// Render the approved Happy Clove artwork; no image service or tracing dependency is needed.
+// Render the approved Curious Chef artwork; no image service or tracing dependency is needed.
 import { chromium } from '../apps/mobile/node_modules/playwright/index.mjs';
 import { readFile, writeFile } from 'node:fs/promises';
 import artwork from '../apps/mobile/assets/brand-artwork.json' with { type: 'json' };
@@ -6,12 +6,20 @@ import artwork from '../apps/mobile/assets/brand-artwork.json' with { type: 'jso
 const assets = new URL('../apps/mobile/assets/', import.meta.url);
 const { ink, cream } = artwork.colors;
 const path = (d, fill) => `<path d="${d}" fill="${fill}" fill-rule="evenodd"/>`;
-const clove = (monochrome = false) =>
-  path(artwork.clove.path, ink) + (monochrome ? '' : path(artwork.clove.eyes, cream));
+const mascot = (monochrome = false) =>
+  monochrome
+    ? path(
+        artwork.mascot.path + artwork.mascot.accents + artwork.mascot.eyes + artwork.mascot.pupils,
+        ink,
+      )
+    : path(artwork.mascot.path, ink) +
+      path(artwork.mascot.accents, cream) +
+      path(artwork.mascot.eyes, cream) +
+      path(artwork.mascot.pupils, ink);
 const svg = (body, viewBox = '0 0 1024 1024') =>
   `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewBox}">${body}</svg>\n`;
 const mark = (size, monochrome = false) =>
-  `<svg x="${(1024 - size) / 2}" y="${(1024 - size) / 2}" width="${size}" height="${size}" viewBox="${artwork.clove.viewBox}">${clove(monochrome)}</svg>`;
+  `<svg x="${(1024 - size) / 2}" y="${(1024 - size) / 2}" width="${size}" height="${size}" viewBox="${artwork.mascot.viewBox}">${mascot(monochrome)}</svg>`;
 const background = `<rect width="1024" height="1024" fill="${cream}"/>`;
 const icon = svg(background + mark(704));
 
@@ -21,7 +29,7 @@ if (config.expo.android.adaptiveIcon.backgroundColor !== cream) {
 }
 
 await writeFile(new URL('brand.svg', assets), icon);
-await writeFile(new URL('brand-mark.svg', assets), svg(clove(), artwork.clove.viewBox));
+await writeFile(new URL('brand-mark.svg', assets), svg(mascot(), artwork.mascot.viewBox));
 await writeFile(
   new URL('brand-wordmark.svg', assets),
   svg(path(artwork.wordmark.path, ink), artwork.wordmark.viewBox),
@@ -34,10 +42,11 @@ const browser = await chromium.launch({
 try {
   for (const [size, name, art] of [
     [1024, 'icon.png', icon],
-    [64, 'favicon.png', svg(background + mark(768))],
-    // The entire clove fits inside Android's guaranteed 66/108 safe circle.
+    // Give the eyes more pixels when the browser scales the favicon down to 16px.
+    [64, 'favicon.png', svg(background + mark(896))],
+    // The entire mascot fits inside Android's guaranteed 66/108 safe circle.
     [512, 'android-icon-foreground.png', svg(mark(560))],
-    // Themed icons use alpha only: the eyes and clove separation must remain cutouts.
+    // Themed icons use alpha only: light details are cutouts, with opaque pupil islands.
     [512, 'android-icon-monochrome.png', svg(mark(560, true))],
     [1024, 'splash-icon.png', svg(mark(704))],
   ]) {
@@ -57,4 +66,4 @@ try {
 } finally {
   await browser.close();
 }
-console.log('Rendered Happy Clove SVGs, app icon, favicon, Android layers, and splash artwork.');
+console.log('Rendered Curious Chef SVGs, app icon, favicon, Android layers, and splash artwork.');

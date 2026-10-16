@@ -14,7 +14,7 @@ import { color } from '../lib/theme';
 import { brandColors } from './Brand';
 
 const native = Platform.OS !== 'web';
-// One clock for every stage of loading (fonts, language, the kitchen itself), so the clove
+// One clock for every stage of loading (fonts, language, the kitchen itself), so the chef
 // carries on mid-hop as each stage hands over instead of starting again.
 const started = Date.now();
 const HOP = 1100;
@@ -23,7 +23,7 @@ const BLINK = 3300;
 const SHORTEST = 1000;
 const size = 112;
 // Where the eyes sit in the artwork, so a blink closes them in place.
-const eyes = '46% 59%';
+const eyes = artwork.mascot.eyeOrigin;
 const phase = (period: number) => ((Date.now() - started) % period) / period;
 // Starts a looping 0→1 timeline where the shared clock is, then keeps it on the beat.
 function useLoop(period: number, easing: (t: number) => number) {
@@ -50,7 +50,7 @@ function useLoop(period: number, easing: (t: number) => number) {
 const linear = Easing.linear;
 
 /**
- * The loading screen: the clove hopping on a hot pan, blinking now and then. `done` fades it out
+ * The loading screen: the chef hopping and blinking now and then. `done` fades it out
  * once it has been up long enough to read as a moment rather than a flicker.
  */
 export function Splash({ done = false, label = 'Savorly' }: { done?: boolean; label?: string }) {
@@ -121,8 +121,9 @@ export function Splash({ done = false, label = 'Savorly' }: { done?: boolean; la
             transformOrigin: 'center bottom',
           }}
         >
-          <Svg width={size} height={size} viewBox={artwork.clove.viewBox}>
-            <Path d={artwork.clove.path} fill={brandColors.ink} fillRule="evenodd" />
+          <Svg width={size} height={size} viewBox={artwork.mascot.viewBox}>
+            <Path d={artwork.mascot.path} fill={brandColors.ink} />
+            <Path d={artwork.mascot.accents} fill={brandColors.cream} />
           </Svg>
           <Animated.View
             style={[
@@ -130,8 +131,9 @@ export function Splash({ done = false, label = 'Savorly' }: { done?: boolean; la
               { transform: [{ scaleY: reduced ? 1 : lids }], transformOrigin: eyes },
             ]}
           >
-            <Svg width={size} height={size} viewBox={artwork.clove.viewBox}>
-              <Path d={artwork.clove.eyes} fill={brandColors.cream} />
+            <Svg width={size} height={size} viewBox={artwork.mascot.viewBox}>
+              <Path d={artwork.mascot.eyes} fill={brandColors.cream} />
+              <Path d={artwork.mascot.pupils} fill={brandColors.ink} />
             </Svg>
           </Animated.View>
         </Animated.View>
