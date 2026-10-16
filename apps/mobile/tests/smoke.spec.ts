@@ -49,13 +49,17 @@ test('register, save, groceries, plan and publish a recipe', async ({ page }) =>
     );
     await page.getByRole('button', { name: 'Create your kitchen', exact: true }).click();
     expect((await registration).status()).toBe(200);
-    // A new kitchen picks its username: the suggestion comes from the name, and any free one works.
+    // A new kitchen sets itself up: the username suggestion comes from the name, and any free one
+    // works; the rest can be skipped.
     const username = page.getByRole('textbox', { name: 'Username', exact: true });
     await expect(username).toHaveValue(/^robincook\d*$/);
     const handle = `robin.${Date.now().toString(36)}`;
     await username.fill(handle);
     await expect(page.getByText(`@${handle} is available.`, { exact: true })).toBeVisible();
-    await page.getByRole('button', { name: 'Save username', exact: true }).click();
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await expect(page.getByText('How do you like to eat?', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Skip', exact: true }).click();
+    await page.getByRole('button', { name: 'Let’s get started', exact: true }).click();
     await expect(
       page.getByText(`Welcome to the table, @${handle}.`, { exact: true }),
     ).toBeVisible();

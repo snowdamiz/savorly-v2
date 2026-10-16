@@ -140,7 +140,7 @@ func NewWithContext(ctx context.Context, db *pgxpool.Pool, config Config) *fiber
 			"voicePerMinuteUSD": 0.05,
 			"recipeChat":        a.AI.TextEnabled(), "recipePhotos": a.AI.TextEnabled() && a.Media.S3 != nil,
 			"textAI": a.AI.TextEnabled(), "textModel": a.AI.TextModel, "recipeModel": a.AI.RecipeModel, "agentModel": a.AI.AgentModel,
-			"imageAI": a.AI.TextEnabled(), "imageModel": a.AI.ImageModel,
+			"imageAI": a.AI.TextEnabled(), "imageModel": a.AI.ImageModel, "imageEditModel": a.AI.ImageEditModel,
 			"videoAI": a.AI.VideoEnabled(), "videoProvider": "reAPI", "videoModel": a.AI.VideoModel, "videoEstimateUSD": 1.005,
 			"passwordRecovery": emailEnabled(),
 			"plans":            paidPlans(), "billing": billingEnabled(), "appleSignIn": len(oauthAudiences("apple")) > 0, "googleSignIn": len(oauthAudiences("google")) > 0,
@@ -160,6 +160,7 @@ func NewWithContext(ctx context.Context, db *pgxpool.Pool, config Config) *fiber
 	v.Get("/me", a.requireAuth, a.me)
 	v.Patch("/me", a.requireAuth, a.updateMe)
 	v.Delete("/me", a.requireAuth, a.deleteMe)
+	v.Post("/me/onboarded", a.requireAuth, a.onboarded)
 	v.Get("/handles/:handle", a.requireAuth, a.handleAvailability)
 	v.Get("/recipes", a.listRecipes)
 	v.Get("/recipes/:id", a.getRecipe)
@@ -194,8 +195,10 @@ func NewWithContext(ctx context.Context, db *pgxpool.Pool, config Config) *fiber
 	v.Post("/billing/portal", a.requireAuth, a.billingPortal)
 	v.Post("/billing/webhook", a.stripeWebhook)
 	v.Post("/media", a.requireAuth, a.uploadMedia)
+	v.Post("/media/touch-up", a.requireAuth, a.touchUp)
 	v.Post("/ai/jobs", a.requireAuth, a.createJob)
 	v.Get("/ai/jobs", a.requireAuth, a.jobs)
+	v.Get("/ai/jobs/:id", a.requireAuth, a.job)
 	v.Get("/recipe-studio", a.requireAuth, a.studioList)
 	v.Post("/recipe-studio", a.requireAuth, a.studioCreate)
 	v.Get("/recipe-studio/:id", a.requireAuth, a.studioGet)

@@ -50,6 +50,7 @@ import {
   GlassSurface,
   IconButton,
   Pill,
+  Press,
   Segmented,
   Toast,
   animate,
@@ -321,6 +322,37 @@ export function RecipeDetail({
           }, 'Ingredients added to your grocery list.')
         }
       />
+      {/* Twists change the ingredients, so they sit with them rather than above the tabs. */}
+      <View style={{ gap: 12, marginTop: 10 }}>
+        <View style={[s.row, { gap: 8 }]}>
+          <Sparkles size={16} color={color.ink} />
+          <Text style={s.h3}>{tr('Make it yours')}</Text>
+          <Text style={[s.small, { flex: 1 }]} numberOfLines={1}>
+            {tr('· a new version in seconds')}
+          </Text>
+        </View>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={{ flexGrow: 0, marginHorizontal: wide ? 0 : -gutter }}
+          contentContainerStyle={{ paddingHorizontal: wide ? 0 : gutter, gap: 8 }}
+        >
+          {twists.map(([title, prompt]) => (
+            <Chip
+              key={title}
+              title={tr(title)}
+              icon={foodIcon(title)}
+              onPress={() =>
+                ask({
+                  kind: 'adapt',
+                  title: tr('A {{v0}} version', { v0: tr(title) }),
+                  prompt,
+                })
+              }
+            />
+          ))}
+        </ScrollView>
+      </View>
     </View>
   );
   const method = (
@@ -498,7 +530,8 @@ export function RecipeDetail({
                     title={tr(recipe.cuisine)}
                     leading={<CuisineIcon name={recipe.cuisine} size={22} />}
                   />
-                  {recipe.tags.slice(0, 2).map((t) => (
+                  {/* One line of badges on phones; the tags are all in the recipe anyway. */}
+                  {recipe.tags.slice(0, wide ? 2 : 1).map((t) => (
                     <Pill key={t} title={tr(t)} icon={foodIcon(t)} />
                   ))}
                   {recipe.aiGenerated && (
@@ -513,32 +546,90 @@ export function RecipeDetail({
                 >
                   {recipe.title}
                 </Text>
+                <View style={[s.row, { gap: 12, marginVertical: 2 }, wide && { maxWidth: 620 }]}>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={tr('Visit {{v0}}’s kitchen', { v0: recipe.author.name })}
+                    onPress={() => onCreator(recipe.author)}
+                    style={[s.row, { gap: 10, flex: 1 }]}
+                  >
+                    <Avatar name={recipe.author.name} uri={recipe.author.avatar} size={36} />
+                    <View style={{ flex: 1 }}>
+                      <Text numberOfLines={1} style={[s.h3, { fontSize: 15, lineHeight: 20 }]}>
+                        {recipe.author.name}
+                      </Text>
+                      <Text numberOfLines={1} style={s.small}>
+                        {recipe.author.followerCount
+                          ? tr('{{v0}} followers', { v0: recipe.author.followerCount })
+                          : `@${recipe.author.handle}`}
+                      </Text>
+                    </View>
+                  </Pressable>
+                  {mine ? (
+                    <Button
+                      title={tr('Edit')}
+                      label={tr('Edit recipe')}
+                      icon={Pencil}
+                      variant="secondary"
+                      small
+                      onPress={() => onEdit(recipe)}
+                    />
+                  ) : (
+                    <Button
+                      title={following ? tr('Following') : tr('Follow')}
+                      icon={following ? Check : undefined}
+                      variant={following ? 'secondary' : 'primary'}
+                      small
+                      onPress={() =>
+                        void perform(async () => {
+                          await api(`/creators/${recipe.author.id}/follow`, {
+                            method: following ? 'DELETE' : 'PUT',
+                          });
+                          await app.refreshPrivate();
+                        }, 'Your community is updated.')
+                      }
+                    />
+                  )}
+                </View>
                 {!!recipe.description && (
                   <Text style={[s.muted, { fontSize: 15, lineHeight: 23 }]}>
                     {recipe.description}
                   </Text>
                 )}
               </FadeIn>
-              <FadeIn delay={130} style={[s.row, { gap: 8, alignItems: 'stretch' }]}>
-                {stats.map((x) => {
+              {/* The facts in one card and the things to do in one row, so the page goes
+                  straight from the story to the cooking. */}
+              <FadeIn
+                delay={130}
+                style={[
+                  s.row,
+                  {
+                    alignItems: 'stretch',
+                    backgroundColor: color.white,
+                    borderRadius: radius.lg,
+                    paddingVertical: 14,
+                  },
+                  wide && { maxWidth: 620 },
+                ]}
+              >
+                {stats.map((x, i) => {
                   const Icon = x.icon;
-                  const tile = (
+                  const fact = (
                     <View
                       style={{
                         flex: 1,
-                        backgroundColor: color.white,
-                        borderRadius: radius.md,
-                        paddingVertical: 14,
-                        paddingHorizontal: 6,
                         alignItems: 'center',
-                        gap: 6,
+                        gap: 5,
+                        paddingHorizontal: 4,
+                        borderLeftWidth: i > 0 ? StyleSheet.hairlineWidth : 0,
+                        borderColor: color.line,
                       }}
                     >
-                      <Icon size={18} color={color.ink} strokeWidth={1.8} />
-                      <Text numberOfLines={1} style={[s.h3, { fontSize: 14 }]}>
+                      <Icon size={17} color={color.ink} strokeWidth={1.8} />
+                      <Text numberOfLines={1} style={[s.h3, { fontSize: 14, lineHeight: 18 }]}>
                         {tr(x.value)}
                       </Text>
-                      <Text numberOfLines={1} style={[s.small, { fontSize: 11 }]}>
+                      <Text numberOfLines={1} style={[s.small, { fontSize: 11, lineHeight: 14 }]}>
                         {tr(x.label)}
                       </Text>
                     </View>
@@ -551,101 +642,38 @@ export function RecipeDetail({
                       onPress={x.onPress}
                       style={{ flex: 1, display: 'flex' }}
                     >
-                      {tile}
+                      {fact}
                     </Pressable>
                   ) : (
-                    <React.Fragment key={tr(x.label)}>{tile}</React.Fragment>
+                    <React.Fragment key={tr(x.label)}>{fact}</React.Fragment>
                   );
                 })}
               </FadeIn>
-              <FadeIn delay={200} style={[s.card, s.row, { gap: 12, padding: 14 }]}>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel={tr('Visit {{v0}}’s kitchen', { v0: recipe.author.name })}
-                  onPress={() => onCreator(recipe.author)}
-                  style={[s.row, { gap: 12, flex: 1 }]}
-                >
-                  <Avatar name={recipe.author.name} uri={recipe.author.avatar} size={46} />
-                  <View style={{ flex: 1, gap: 2 }}>
-                    <Text numberOfLines={1} style={s.h3}>
-                      {recipe.author.name}
-                    </Text>
-                    <Text numberOfLines={1} style={s.small}>
-                      {recipe.author.followerCount
-                        ? tr('{{v0}} followers', { v0: recipe.author.followerCount })
-                        : `@${recipe.author.handle}`}
-                    </Text>
-                  </View>
-                </Pressable>
-                {mine ? (
-                  <Button
-                    title={tr('Edit')}
-                    label={tr('Edit recipe')}
-                    icon={Pencil}
-                    variant="secondary"
-                    small
-                    onPress={() => onEdit(recipe)}
-                  />
-                ) : (
-                  <Button
-                    title={following ? tr('Following') : tr('Follow')}
-                    icon={following ? Check : undefined}
-                    variant={following ? 'secondary' : 'primary'}
-                    small
-                    onPress={() =>
-                      void perform(async () => {
-                        await api(`/creators/${recipe.author.id}/follow`, {
-                          method: following ? 'DELETE' : 'PUT',
-                        });
-                        await app.refreshPrivate();
-                      }, 'Your community is updated.')
-                    }
-                  />
-                )}
-              </FadeIn>
-              <FadeIn
-                delay={270}
-                style={[
-                  s.row,
-                  { justifyContent: wide ? 'flex-start' : 'space-around', gap: wide ? 28 : 0 },
-                ]}
-              >
-                {actions.map((a) => (
-                  <View key={tr(a.title)} style={{ alignItems: 'center', gap: 7, minWidth: 64 }}>
-                    <IconButton icon={a.icon} label={tr(a.label)} size={54} onPress={a.onPress} />
-                    <Text style={[s.small, { color: color.ink }]}>{tr(a.title)}</Text>
-                  </View>
-                ))}
-              </FadeIn>
-              <FadeIn delay={340} style={{ gap: 12 }}>
-                <View style={[s.row, { gap: 8 }]}>
-                  <Sparkles size={16} color={color.ink} />
-                  <Text style={s.h3}>{tr('Make it yours')}</Text>
-                  <Text style={[s.small, { flex: 1 }]} numberOfLines={1}>
-                    {tr('· a new version in seconds')}
-                  </Text>
-                </View>
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  style={{ flexGrow: 0, marginHorizontal: wide ? 0 : -gutter }}
-                  contentContainerStyle={{ paddingHorizontal: wide ? 0 : gutter, gap: 8 }}
-                >
-                  {twists.map(([title, prompt]) => (
-                    <Chip
-                      key={title}
-                      title={tr(title)}
-                      icon={foodIcon(title)}
-                      onPress={() =>
-                        ask({
-                          kind: 'adapt',
-                          title: tr('A {{v0}} version', { v0: tr(title) }),
-                          prompt,
-                        })
-                      }
-                    />
-                  ))}
-                </ScrollView>
+              <FadeIn delay={200} style={[s.row, { gap: 8, flexWrap: 'wrap' }]}>
+                {actions.map((a) => {
+                  const Icon = a.icon;
+                  return (
+                    <Press
+                      key={tr(a.title)}
+                      accessibilityRole="button"
+                      accessibilityLabel={tr(a.label)}
+                      onPress={a.onPress}
+                      scale={0.97}
+                      style={[
+                        s.row,
+                        styles.action,
+                        wide
+                          ? { paddingHorizontal: 20 }
+                          : { flexGrow: 1, flexBasis: actions.length > 3 ? '40%' : 'auto' },
+                      ]}
+                    >
+                      <Icon size={17} color={color.ink} strokeWidth={2} />
+                      <Text numberOfLines={1} style={styles.actionText}>
+                        {tr(a.title)}
+                      </Text>
+                    </Press>
+                  );
+                })}
               </FadeIn>
               {wide ? (
                 <View style={{ flexDirection: 'row', gap: 32, alignItems: 'flex-start' }}>
@@ -1043,3 +1071,16 @@ function Gallery({
     </>
   );
 }
+const styles = StyleSheet.create({
+  action: {
+    justifyContent: 'center',
+    gap: 7,
+    height: 46,
+    paddingHorizontal: 12,
+    borderRadius: radius.pill,
+    backgroundColor: color.white,
+    borderWidth: 1,
+    borderColor: color.border,
+  },
+  actionText: { fontFamily: font.bold, fontSize: 13, color: color.ink, flexShrink: 1 },
+});

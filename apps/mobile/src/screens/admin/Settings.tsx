@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { Text, View } from 'react-native';
-import { Save } from 'lucide-react-native';
-import { api } from '../../lib/api';
+import { Hand, RotateCcw, Save } from 'lucide-react-native';
+import { api, ApiError } from '../../lib/api';
+import { useApp } from '../../lib/store';
+import { replayWelcome } from '../../lib/welcome';
 import { AdminSettings, AuditEntry, SettingsReply } from '../../lib/admin';
 import { color, s } from '../../lib/theme';
 import { Button, Field, Segmented } from '../../components/ui';
@@ -158,7 +160,79 @@ export function Settings() {
           }
         />
       </View>
+      <OnboardingTests />
     </View>
+  );
+}
+
+// Walks an admin through what a new member sees, without a new account or device.
+function OnboardingTests() {
+  const app = useApp();
+  const nav = useNav();
+  const action = useRun();
+  return (
+    <Panel
+      title="Test onboarding"
+      subtitle="Only for you, on this device. Nothing changes for anyone else."
+    >
+      {action.result && !action.result.ok && <Notice tone="error" text={action.result.text} />}
+      <View style={{ gap: 8 }}>
+        <Button
+          title="Replay my kitchen setup"
+          icon={RotateCcw}
+          variant="secondary"
+          small
+          busy={action.busy === 'setup'}
+          style={{ alignSelf: 'flex-start' }}
+          onPress={() =>
+            void action.run(
+              'setup',
+              async () => {
+                try {
+                  await api(`/admin/users/${encodeURIComponent(nav.me.id)}/setup`, {
+                    method: 'POST',
+                  });
+                } catch (e) {
+                  // Already waiting: just show it.
+                  if (!(e instanceof ApiError && e.status === 409)) throw e;
+                }
+                await app.refreshUser();
+              },
+              '',
+            )
+          }
+        />
+        <Text style={s.small}>
+          Opens the new-kitchen setup now: photo, name and username, food preferences, cooks to
+          follow. Your profile stays as it is, and the restart is recorded in the audit log.
+        </Text>
+      </View>
+      <View style={{ gap: 8 }}>
+        <Button
+          title="Replay the welcome"
+          icon={Hand}
+          variant="secondary"
+          small
+          busy={action.busy === 'welcome'}
+          style={{ alignSelf: 'flex-start' }}
+          onPress={() =>
+            void action.run(
+              'welcome',
+              async () => {
+                // Signed out first: while signed in, the welcome counts as already seen.
+                await app.signOut();
+                replayWelcome();
+              },
+              '',
+            )
+          }
+        />
+        <Text style={s.small}>
+          Signs you out here and shows the first-launch welcome a new phone sees: language, then
+          join, sign in or look around. Sign back in from it when you’re done.
+        </Text>
+      </View>
+    </Panel>
   );
 }
 

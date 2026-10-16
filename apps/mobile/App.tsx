@@ -14,7 +14,6 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { LinearGradient } from 'expo-linear-gradient';
 import {
   useFonts,
   Manrope_400Regular,
@@ -74,12 +73,15 @@ import { AnnouncementBanner } from './src/components/Announcement';
 import { UpdateBanner } from './src/components/AppUpdates';
 import { haptic } from './src/lib/haptics';
 import { AuthDialog } from './src/components/AuthDialog';
+import { KitchenSetup, Welcome } from './src/components/Onboarding';
+import { finishWelcome, useWelcomePending } from './src/lib/welcome';
 import { BrandMark } from './src/components/Brand';
 import { RecipeDetail } from './src/components/RecipeDetail';
 import { RecipeStart } from './src/components/RecipeStart';
 import { RecipeStudio } from './src/components/RecipeStudio';
 import { SousChef } from './src/components/SousChef';
-import { Discover, FeedSkeleton } from './src/screens/Discover';
+import { Discover } from './src/screens/Discover';
+import { Splash } from './src/components/Splash';
 import { Cookbooks, Pantry, Planner } from './src/screens/Kitchen';
 import { Editor } from './src/screens/Editor';
 import { Community, CreatorDialog, Profile } from './src/screens/Profile';
@@ -135,6 +137,11 @@ function Shell() {
   const [cookCommand, setCookCommand] = useState<CookCommand | null>(null);
   const [pendingStudio, setPendingStudio] = useState<StudioMode | null>(null);
   const [creating, setCreating] = useState(false);
+  const welcoming = useWelcomePending();
+  // Signing in, from the welcome or anywhere else, counts as having been welcomed.
+  useEffect(() => {
+    if (app.user && welcoming) finishWelcome();
+  }, [app.user, welcoming]);
   const startStudio = (mode: StudioMode) => {
     if (!app.user) {
       setPendingStudio(mode);
@@ -336,10 +343,11 @@ function Shell() {
     outputRange: measured ? [1, 0] : [1, 1],
     extrapolate: 'clamp',
   });
-  // Scrolled content softens into the top edge instead of being sliced off by it.
+  // Once content scrolls under the status bar, the bar lifts on a soft shadow, so the content
+  // tucks under a surface instead of being sliced off (or hazed over, on dark photos) at its edge.
   const settled = darkTop && !app.loading && headerHeight ? sheetTop + radius.xl : 0;
-  const topFade = scrollY.interpolate({
-    inputRange: [settled, settled + 14],
+  const lifted = scrollY.interpolate({
+    inputRange: [settled, settled + 24],
     outputRange: [0, 1],
     extrapolate: 'clamp',
   });
@@ -527,16 +535,8 @@ function Shell() {
                 <IconButton icon={ArrowLeft} label={tr('Back')} onPress={() => navigate(origin)} />
               </View>
             )}
-            {app.loading ? (
-              page === 'discover' ? (
-                <FeedSkeleton />
-              ) : (
-                <View style={{ paddingVertical: 140, alignItems: 'center', gap: 18 }}>
-                  <ActivityIndicator color={color.ink} />
-                  <Text style={s.muted}>{tr('Setting the table…')}</Text>
-                </View>
-              )
-            ) : app.error ? (
+            {/* The splash covers loading; the page fills in behind it. */}
+            {app.loading ? null : app.error ? (
               <Empty
                 title={tr('Let’s reconnect your kitchen')}
                 text={tr(app.error)}
@@ -634,23 +634,20 @@ function Shell() {
           )}
         </View>
       </View>
-      {compact && (
+      {compact && insets.top > 0 && (
         <Animated.View
           style={{
             position: 'absolute',
-            top: insets.top,
+            top: 0,
             left: 0,
             right: 0,
-            height: 18,
-            opacity: topFade,
+            height: insets.top,
+            backgroundColor: color.bg,
+            boxShadow: '0px 1px 0px rgba(13,13,13,0.05), 0px 8px 22px rgba(13,13,13,0.08)',
+            opacity: lifted,
             pointerEvents: 'none',
           }}
-        >
-          <LinearGradient
-            colors={[color.bg, 'rgba(244,244,244,0)']}
-            style={StyleSheet.absoluteFill}
-          />
-        </Animated.View>
+        />
       )}
       {compact && insets.top > 0 && (
         <View
@@ -742,6 +739,10 @@ function Shell() {
         <CreatorDialog creator={creator} onClose={() => setCreator(null)} onOpen={open} />
       )}
       {ask && <SousChef key={askKey} request={ask} onClose={() => setAsk(null)} onRecipe={edit} />}
+      {welcoming && !app.loading && !app.error && !app.user && !selected && (
+        <Welcome onDone={finishWelcome} />
+      )}
+      {app.user?.onboarded === false && <KitchenSetup />}
       <Dialog
         visible={activity}
         onClose={() => setActivity(false)}
@@ -785,6 +786,7 @@ function Shell() {
         )}
       </Dialog>
       <SheetHost />
+      <Splash done={!app.loading} label={tr('Setting the table…')} />
     </View>
   );
 }
@@ -860,22 +862,11 @@ export default function App() {
     Manrope_700Bold,
     Manrope_800ExtraBold,
   });
-  if (!loaded && !error)
-    return (
-      <View
-        style={{
-          flex: 1,
-          backgroundColor: color.bg,
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
-        <ActivityIndicator color={color.ink} />
-      </View>
-    );
+  // Fonts, then the saved language, then the kitchen: one splash throughout.
+  if (!loaded && !error) return <Splash />;
   return (
     <SafeAreaProvider>
-      <I18nProvider>
+      <I18nProvider fallback={<Splash />}>
         <ErrorBoundary>
           <AppProvider>
             <Shell />

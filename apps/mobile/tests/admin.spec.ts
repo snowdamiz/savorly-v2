@@ -141,6 +141,7 @@ async function mockAPI(page: Page, user: typeof member, announcement: unknown = 
     const fulfill = (body: unknown, status = 200) =>
       route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
     if (method !== 'GET') writes.push({ method, path, body: route.request().postDataJSON() });
+    if (path === '/me/onboarded') return fulfill(Object.assign(user, { onboarded: true }));
     if (path === '/me') return fulfill(user);
     if (path === '/capabilities')
       return fulfill({ textAI: false, voiceAI: false, recipeChat: false, announcement });
@@ -158,6 +159,10 @@ async function mockAPI(page: Page, user: typeof member, announcement: unknown = 
           : { items: [], total: 0, offset: 0, limit: 50 },
       );
     if (path === '/admin/recipes/copied/reports') return fulfill({ id: 'copied' });
+    if (path === `/admin/users/${user.id}/setup`) {
+      Object.assign(user, { onboarded: false });
+      return fulfill({ ...user, onboarded: false });
+    }
     if (path === '/admin/settings')
       return fulfill({
         settings: method === 'PUT' ? route.request().postDataJSON() : settings,
@@ -223,4 +228,32 @@ test('an announcement shows to everyone until it is dismissed', async ({ page })
   await page.reload();
   await expect(page.getByText('What would you like to cook today?')).toBeVisible();
   await expect(page.getByText('Maintenance tonight at 22:00 UTC.')).toHaveCount(0);
+});
+
+test('admins replay the kitchen setup and the welcome to try them', async ({ page }) => {
+  const me = { ...owner, onboarded: true };
+  const writes = await mockAPI(page, me);
+  await page.goto('/?page=admin&tab=settings');
+  await expect(page.getByText('Test onboarding', { exact: true })).toBeVisible();
+
+  // The setup opens at once, and skipping through it marks it done again.
+  await page.getByRole('button', { name: 'Replay my kitchen setup' }).click();
+  await expect(page.getByText('Set up your kitchen', { exact: true })).toBeVisible();
+  for (const next of ['How do you like to eat?', 'Cooks to follow']) {
+    await page.getByRole('button', { name: 'Skip', exact: true }).click();
+    await expect(page.getByText(next, { exact: true })).toBeVisible();
+  }
+  await page.getByRole('button', { name: 'Skip', exact: true }).click();
+  await expect(page.getByText('Set up your kitchen', { exact: true })).toHaveCount(0);
+  expect(writes.map((w) => w.path)).toEqual(
+    expect.arrayContaining(['/admin/users/owner/setup', '/me/onboarded']),
+  );
+
+  // The welcome needs a signed-out device, even on the web where it otherwise never shows.
+  await page.getByRole('button', { name: 'Replay the welcome' }).click();
+  await expect(page.getByText('Welcome to Savorly', { exact: true })).toBeVisible();
+  expect(writes.some((w) => w.path === '/auth/logout')).toBe(true);
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  await page.getByRole('button', { name: 'Look around first' }).click();
+  await expect(page.getByText('Welcome to Savorly', { exact: true })).toHaveCount(0);
 });

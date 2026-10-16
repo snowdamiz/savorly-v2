@@ -42,6 +42,7 @@ import {
 import { color, radius, s } from '../lib/theme';
 import { Button, Dialog, FoodImage, IconButton, Pill, Press, useChrome } from './ui';
 import { RecipeCamera } from './RecipeCamera';
+import { fileForm } from '../lib/photos';
 import { openVoice } from '../lib/voice/transport';
 import { VoiceConnection, VoiceEvent } from '../lib/voice/connection';
 
@@ -450,15 +451,7 @@ export function RecipeStudio({
       const result = await rendered.saveAsync({ format: SaveFormat.JPEG, compress: 0.9 });
       rendered.release();
       context.release();
-      const form = new FormData();
-      if (Platform.OS === 'web')
-        form.append('file', await (await fetch(result.uri)).blob(), 'recipe.jpg');
-      else
-        form.append('file', {
-          uri: result.uri,
-          name: 'recipe.jpg',
-          type: 'image/jpeg',
-        } as unknown as Blob);
+      const form = await fileForm(result.uri, 'recipe.jpg');
       const image = await api<{ id: string }>(`/recipe-studio/${project.id}/images`, {
         method: 'POST',
         body: form,

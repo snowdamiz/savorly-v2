@@ -384,3 +384,32 @@ func TestAdminManagesPlansAccountsReviewsAndJobs(t *testing.T) {
 		t.Fatalf("audit: %s", got)
 	}
 }
+
+func TestAdminRestartsKitchenSetup(t *testing.T) {
+	t.Setenv("ADMIN_EMAILS", "owner@example.test")
+	db := isolatedDB(t)
+	f := adminApp(db, true)
+	ownerID, owner := signedIn(t, db, "owner@example.test", true)
+	cookID, cook := signedIn(t, db, "cook@example.test", true)
+	// A new kitchen's setup waits until it's finished or skipped.
+	if me := expect(t, f, 200, "GET", "/v1/me", cook, nil); me["onboarded"] != false {
+		t.Fatalf("new kitchen: %v", me)
+	}
+	if me := expect(t, f, 200, "POST", "/v1/me/onboarded", cook, nil); me["onboarded"] != true {
+		t.Fatalf("finished setup: %v", me)
+	}
+	expect(t, f, 403, "POST", "/v1/admin/users/"+ownerID+"/setup", cook, nil)
+	if out := expect(t, f, 200, "POST", "/v1/admin/users/"+cookID+"/setup", owner, nil); out["onboarded"] != false {
+		t.Fatalf("restarted: %v", out)
+	}
+	expect(t, f, 409, "POST", "/v1/admin/users/"+cookID+"/setup", owner, nil)
+	if me := expect(t, f, 200, "GET", "/v1/me", cook, nil); me["onboarded"] != false {
+		t.Fatalf("member after restart: %v", me)
+	}
+	// Admins restart their own to try the setup.
+	expect(t, f, 200, "POST", "/v1/me/onboarded", owner, nil)
+	expect(t, f, 200, "POST", "/v1/admin/users/"+ownerID+"/setup", owner, nil)
+	if got := auditActions(t, db); got != "member.restart_setup,member.restart_setup" {
+		t.Fatalf("audit: %s", got)
+	}
+}

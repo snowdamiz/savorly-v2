@@ -22,7 +22,7 @@ const memberLateral = ` CROSS JOIN LATERAL (SELECT
 
 var memberJSON = `jsonb_build_object('id',u.id,'name',u.name,'email',u.email,'handle',u.handle,'avatar',u.avatar,'createdAt',u.created_at,
  'plan',` + effectivePlanSQL + `,'planStatus',u.plan_status,'comped',(u.plan<>'free' AND u.plan_status='active' AND u.plan_interval=''),
- 'emailVerified',u.email_verified,'hasPassword',NOT starts_with(u.password_hash,'!'),'sample',u.password_hash='!disabled',
+ 'emailVerified',u.email_verified,'onboarded',u.onboarded_at IS NOT NULL,'hasPassword',NOT starts_with(u.password_hash,'!'),'sample',u.password_hash='!disabled',
  'identities',COALESCE((SELECT jsonb_agg(provider ORDER BY provider) FROM identities WHERE user_id=u.id),'[]'),
  'admin',` + adminSQL(2, 3) + `,'owner',` + ownerSQL(2, 3) + `,'ownerEmail',u.email=ANY($2::text[]),
  'suspendedAt',u.suspended_at,'suspendedReason',u.suspended_reason,
@@ -296,6 +296,26 @@ func (a *App) adminVerify(c fiber.Ctx) error {
 			return fiber.NewError(409, "This email is already verified.")
 		}
 		return audit(ctx, tx, c, "member.verify", "user", m.ID, "Marked "+m.Email+" as verified", nil)
+	})
+}
+
+// adminRestartSetup sends a member back through the new-kitchen setup the next time the app
+// loads their account; an admin can restart their own to try it. Their profile is untouched:
+// each step starts from what they have.
+func (a *App) adminRestartSetup(c fiber.Ctx) error {
+	m, e := a.manage(c, true)
+	if e != nil {
+		return e
+	}
+	return a.adminWrite(c, func(ctx context.Context, tx pgx.Tx) error {
+		r, e := tx.Exec(ctx, `UPDATE users SET onboarded_at=NULL WHERE id=$1 AND onboarded_at IS NOT NULL`, m.ID)
+		if e != nil {
+			return e
+		}
+		if r.RowsAffected() == 0 {
+			return fiber.NewError(409, "This member's setup is already waiting for them.")
+		}
+		return audit(ctx, tx, c, "member.restart_setup", "user", m.ID, "Restarted "+m.Email+"'s kitchen setup", nil)
 	})
 }
 
