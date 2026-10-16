@@ -18,7 +18,7 @@ import { foodIcon } from '../lib/icons';
 import { haptic } from '../lib/haptics';
 import { color, font, radius, s } from '../lib/theme';
 import { Creator } from '../lib/types';
-import { BrandMark, brandColors } from './Brand';
+import { BrandMark } from './Brand';
 import { PhotoButton, ProfilePhoto } from './ProfilePhoto';
 import { HandleField, useHandle } from './Username';
 import { Avatar, Button, Chip, FadeIn, Field, IconButton, Press, useChrome } from './ui';
@@ -523,8 +523,6 @@ const styles = StyleSheet.create({
   mark: {
     width: 96,
     height: 96,
-    borderRadius: 30,
-    backgroundColor: brandColors.sage,
     alignItems: 'center',
     justifyContent: 'center',
   },
