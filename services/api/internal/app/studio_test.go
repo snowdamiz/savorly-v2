@@ -44,6 +44,7 @@ func studioServer(a *App) *fiber.App {
 	f.Post("/studio/:id/messages", a.studioMessage)
 	f.Delete("/studio/:id", a.studioDelete)
 	f.Put("/studio/:id/context", a.studioContext)
+	f.Post("/studio/:id/voice", a.voiceCreate)
 	return f
 }
 func studioReq(t *testing.T, f *fiber.App, method, path, owner, key string, body any) (int, []byte) {
