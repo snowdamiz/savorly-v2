@@ -71,7 +71,9 @@ func (a *App) voiceCreate(c fiber.Ctx) error {
 		return e
 	}
 	id := uuid.NewString()
-	_, e = tx.Exec(c.Context(), `INSERT INTO voice_sessions(id,project_id,user_id,reserved_seconds,expires_at) VALUES($1,$2,$3,$4,now()+$4*interval '1 second')`, id, project, owner, seconds)
+	// One type for $4: unannotated, Postgres deduces integer for the column and double
+	// precision for the interval product, and refuses to prepare the statement.
+	_, e = tx.Exec(c.Context(), `INSERT INTO voice_sessions(id,project_id,user_id,reserved_seconds,expires_at) VALUES($1,$2,$3,$4::int,now()+$4::int*interval '1 second')`, id, project, owner, seconds)
 	if e != nil {
 		return e
 	}
