@@ -6,11 +6,13 @@ Which buttons appear where:
 | -------- | ---------------------------------- | ---------------------------------------- | ----- |
 | iOS      | Yes                                | Yes, when an iOS client ID is configured | Yes   |
 | Android  | No                                 | Yes (Credential Manager)                 | Yes   |
-| Web      | Yes (Sign in with Apple JS, popup) | Yes (Google Identity Services)           | Yes   |
+| Web      | Yes (Sign in with Apple JS, popup) | Yes (Google's sign-in page and back)     | Yes   |
 
 App Review guideline 4.8 requires Sign in with Apple wherever an iOS app offers Google, so iOS shows Google only alongside Apple. Each button appears only once the server has the provider's configuration (`/v1/capabilities`).
 
-Both buttons are drawn by the app (`ProviderFace.tsx`) as full-width pills that keep each provider's branding: Apple's black button with the Apple logo, Google's white one with the four-color mark, each titled "Continue with …". On the web, Google only returns an ID token through its own rendered button, so that button is laid invisibly over the app's face and stretched to its size: clicks, keyboard focus and the screen-reader label are Google's, and hover and focus show through the face.
+Both buttons are drawn by the app (`ProviderFace.tsx`) as full-width pills that keep each provider's branding: Apple's black button with the Apple logo, Google's white one with the four-color mark, each titled "Continue with …".
+
+On the web, Google's button takes the browser to Google's own sign-in page, which sends it back to the site with the ID token in the URL fragment ([googleRedirect.ts](../apps/mobile/src/lib/auth/googleRedirect.ts)). The app checks the returned `state` against the one this tab sent, so a link can't sign someone in to another person's kitchen, removes the token from the address bar and history, returns to the page the button was on, and then signs in, connects Google, or confirms a deletion. Google's embedded button and popup are not used: privacy browsers such as Brave block that frame or the popup's handoff, which left a button that did nothing. Apple still uses its popup.
 
 ## How it works
 
@@ -38,9 +40,9 @@ APPLE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"
 
 App build (EAS environment): `GOOGLE_IOS_URL_SCHEME=com.googleusercontent.apps.123-ios`, the reversed iOS client ID. Without it the build uses an inert placeholder and iOS hides Google.
 
-1. **Google Cloud:** create OAuth clients for Web (add your web origins), iOS (bundle ID `app.savorly.mobile`), and Android (package `app.savorly.mobile` with the SHA-1 of both the upload key and Play's app-signing key). The Android client ID isn't referenced in code.
+1. **Google Cloud:** create OAuth clients for Web (add each site's origin as an Authorized JavaScript origin and the origin plus a trailing slash, such as `https://savorly.cooking/`, as an Authorized redirect URI; without it Google answers `redirect_uri_mismatch`), iOS (bundle ID `app.savorly.mobile`), and Android (package `app.savorly.mobile` with the SHA-1 of both the upload key and Play's app-signing key). The Android client ID isn't referenced in code.
 2. **Apple Developer:** enable Sign in with Apple on the App ID (EAS syncs the `usesAppleSignIn` capability). For the web, create a Services ID tied to the App ID with your domain and the HTTPS return URL (no localhost), and a Sign in with Apple key (.p8) for revocation.
 3. Rebuild the native apps after changing plugins or the URL scheme (`eas build`); Expo Go doesn't include these modules.
 4. Google Play needs a web page where people can request account deletion without the app; App Review needs in-app deletion, which My kitchen provides.
 
-Libraries: `expo-apple-authentication` (iOS), `react-native-nitro-google-signin` (iOS/Android, passes the server's nonce through unchanged), Google Identity Services and Sign in with Apple JS on the web.
+Libraries: `expo-apple-authentication` (iOS), `react-native-nitro-google-signin` (iOS/Android, passes the server's nonce through unchanged), Google's OpenID Connect sign-in page and Sign in with Apple JS on the web.

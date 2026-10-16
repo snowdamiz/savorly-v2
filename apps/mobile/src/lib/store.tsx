@@ -55,32 +55,35 @@ function useAppState() {
     setUser(u);
     await refreshPrivate();
   }, [refreshPrivate]);
-  const load = useCallback(async () => {
+  const loadData = useCallback(
+    () =>
+      initSession()
+        .then(async () => {
+          await Promise.all([
+            refreshRecipes(),
+            api<Capabilities>('/capabilities').then(setCapabilities),
+          ]);
+          try {
+            await refreshUser();
+          } catch (e) {
+            if (!(e instanceof ApiError && e.status === 401)) throw e;
+            setUser(null);
+            setLibrary(emptyLibrary);
+            setKitchen(emptyKitchen);
+          }
+        })
+        .catch((e: Error) => setError(e.message))
+        .finally(() => setLoading(false)),
+    [refreshRecipes, refreshUser],
+  );
+  useEffect(() => {
+    void loadData();
+  }, [loadData]);
+  const load = useCallback(() => {
     setLoading(true);
     setError('');
-    try {
-      await initSession();
-      await Promise.all([
-        refreshRecipes(),
-        api<Capabilities>('/capabilities').then(setCapabilities),
-      ]);
-      try {
-        await refreshUser();
-      } catch (e) {
-        if (!(e instanceof ApiError && e.status === 401)) throw e;
-        setUser(null);
-        setLibrary(emptyLibrary);
-        setKitchen(emptyKitchen);
-      }
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  }, [refreshRecipes, refreshUser]);
-  useEffect(() => {
-    void load();
-  }, [load]);
+    return loadData();
+  }, [loadData]);
   const requireUser = useCallback(
     (action?: () => void) => {
       if (!user) {
@@ -90,7 +93,7 @@ function useAppState() {
       action?.();
       return true;
     },
-    [user],
+    [user, setAuthOpen],
   );
   const act = useCallback(
     async (fn: () => Promise<unknown>, message?: string) => {
@@ -109,7 +112,7 @@ function useAppState() {
         return false;
       }
     },
-    [notify],
+    [notify, setAuthOpen],
   );
   // Applies a toggle now and runs the request; rolls back if the server says no (unless that
   // signed us out, which empties the library anyway).

@@ -729,5 +729,22 @@
   "Touch up the cover photo": "润色封面照片",
   "Touch up": "润色",
   "Touch up photo {{v0}}": "润色第 {{v0}} 张照片",
-  "Photo touch-up": "照片润色"
+  "Photo touch-up": "照片润色",
+  "A new version of Savorly is ready.": "Savorly 新版本已准备就绪。",
+  "Restart": "重新启动",
+  "Not now": "以后再说",
+  "App updates": "应用更新",
+  "Update ready. Tap to restart.": "更新已就绪，点按即可重新启动。",
+  "Downloading an update…": "正在下载更新…",
+  "Checking for updates…": "正在检查更新…",
+  "Installed version": "已安装的版本",
+  "Updated {{date}}": "更新于 {{date}}",
+  "You’re on the latest version.": "你使用的已是最新版本。",
+  "Couldn’t check for updates. Try again later.": "无法检查更新，请稍后再试。",
+  "Couldn’t restart. Close and reopen Savorly to update.": "无法重新启动。请关闭并重新打开 Savorly 以完成更新。",
+  "Share": "分享",
+  "Save": "收藏",
+  "In your cookbooks": "已在你的食谱集中",
+  "Link copied to your clipboard.": "链接已复制到剪贴板。",
+  "Use ← and → to move between steps, and Esc to close.": "使用 ← 和 → 切换步骤，按 Esc 关闭。"
 }

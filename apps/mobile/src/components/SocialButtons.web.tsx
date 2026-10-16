@@ -1,20 +1,12 @@
 import { useI18n } from '../lib/i18n';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View } from 'react-native';
 import { useApp } from '../lib/store';
+import { continueWithGoogle } from '../lib/auth/googleRedirect';
 import { issueNonce, Provider, ProviderToken, SocialButtonsProps } from '../lib/auth/provider';
-import { color, radius } from '../lib/theme';
 import { ProviderFace, providerButton } from './ProviderFace';
 import { Press } from './ui';
 
-type GoogleIdentity = {
-  accounts: {
-    id: {
-      initialize(options: object): void;
-      renderButton(el: HTMLElement, options: object): void;
-    };
-  };
-};
 type AppleIdentity = {
   auth: {
     init(options: object): void;
@@ -26,7 +18,6 @@ type AppleIdentity = {
 };
 declare global {
   interface Window {
-    google?: GoogleIdentity;
     AppleID?: AppleIdentity;
   }
 }
@@ -47,48 +38,15 @@ function load(src: string) {
   return scripts[src];
 }
 
-// Google's button stays the control (it is how Google hands back an ID token), drawn invisibly over
-// the app's own face and stretched to its size, so the click, keyboard focus and screen-reader
-// label are Google's while the look is ours. Hover and focus show through the wrapper.
-let chromeStyled = false;
-function styleGoogleChrome() {
-  if (chromeStyled) return;
-  chromeStyled = true;
-  const sheet = document.createElement('style');
-  sheet.textContent = `@media (hover:hover){[data-google-button]:hover{background-color:${color.bg}!important}}
-[data-google-button]:focus-within{outline:2px solid ${color.ink};outline-offset:3px}`;
-  document.head.appendChild(sheet);
-}
-// Fits Google's clickable button onto the host: its frame once loaded (less the margins Google pads
-// it with), or the placeholder it draws until then.
-function stretch(host: HTMLElement) {
-  const inner = host.firstElementChild as HTMLElement | null;
-  if (!inner) return;
-  inner.style.transform = '';
-  const origin = inner.getBoundingClientRect();
-  const frame = inner.querySelector('iframe');
-  let target: DOMRect | undefined;
-  if (frame) {
-    const r = frame.getBoundingClientRect();
-    const m = getComputedStyle(frame);
-    const dx = Math.max(0, -parseFloat(m.marginLeft) || 0);
-    const dy = Math.max(0, -parseFloat(m.marginTop) || 0);
-    if (r.width > dx * 2 && r.height > dy * 2)
-      target = new DOMRect(r.x + dx, r.y + dy, r.width - dx * 2, r.height - dy * 2);
-  }
-  if (!target) {
-    const placeholder = inner.querySelector<HTMLElement>('[style*="width"]') ?? inner;
-    target = placeholder.getBoundingClientRect();
-  }
-  if (!target.width || !target.height) return;
-  const sx = host.clientWidth / target.width;
-  const sy = host.clientHeight / target.height;
-  inner.style.transformOrigin = '0 0';
-  inner.style.transform = `translate(${-(target.x - origin.x) * sx}px, ${-(target.y - origin.y) * sy}px) scale(${sx}, ${sy})`;
-}
-
-// The web offers both: Google Identity Services (see above), and Sign in with Apple JS in a popup.
-export function SocialButtons({ only, onToken, onError, children }: SocialButtonsProps) {
+// The web offers both: Google by going to its own sign-in page and back (googleRedirect.ts), and
+// Sign in with Apple JS in a popup.
+export function SocialButtons({
+  only,
+  purpose = 'signin',
+  onToken,
+  onError,
+  children,
+}: SocialButtonsProps) {
   const { t: tr, language } = useI18n();
   const caps = useApp().capabilities;
   const auth = caps?.auth;
@@ -96,60 +54,21 @@ export function SocialButtons({ only, onToken, onError, children }: SocialButton
   const google = caps?.googleSignIn && !!auth?.googleWebClientId && allowed('google');
   const apple =
     caps?.appleSignIn && !!auth?.appleServicesId && !!auth?.appleRedirectUri && allowed('apple');
-  const frame = useRef<View>(null);
-  const host = useRef<View>(null);
-  const [width, setWidth] = useState(0);
-  // Each nonce works once, so Google's button is re-armed after every attempt.
-  const [attempt, setAttempt] = useState(0);
-  const handlers = useRef({ onToken, onError });
+  // Held while the page leaves for Google, so a second press doesn't start another sign-in, and
+  // released if the browser's Back button restores this page from its cache.
+  const [leaving, setLeaving] = useState(false);
   useEffect(() => {
-    handlers.current = { onToken, onError };
-  });
-  const clientId = auth?.googleWebClientId;
-  useEffect(() => {
-    if (!google || !clientId || !width) return;
-    let live = true;
-    let watch: MutationObserver | undefined;
-    const timers: ReturnType<typeof setTimeout>[] = [];
-    void Promise.all([load('https://accounts.google.com/gsi/client'), issueNonce()])
-      .then(([, nonce]) => {
-        const el = host.current as unknown as HTMLElement | null;
-        if (!live || !el || !window.google) return;
-        styleGoogleChrome();
-        (frame.current as unknown as HTMLElement | null)?.setAttribute('data-google-button', '');
-        window.google.accounts.id.initialize({
-          client_id: clientId,
-          nonce,
-          ux_mode: 'popup',
-          callback: (response: { credential: string }) => {
-            void Promise.resolve(
-              handlers.current.onToken({ provider: 'google', token: response.credential }),
-            ).finally(() => setAttempt((n) => n + 1));
-          },
-        });
-        el.replaceChildren();
-        window.google.accounts.id.renderButton(el, {
-          type: 'standard',
-          theme: 'outline',
-          size: 'large',
-          text: 'continue_with',
-          shape: 'pill',
-          width: Math.min(400, width),
-          locale: language,
-        });
-        // Google fills in its frame asynchronously, so it's fitted again as it arrives.
-        stretch(el);
-        watch = new MutationObserver(() => stretch(el));
-        watch.observe(el, { childList: true, subtree: true });
-        timers.push(...[150, 600, 1500].map((ms) => setTimeout(() => stretch(el), ms)));
-      })
-      .catch((e) => live && handlers.current.onError((e as Error).message));
-    return () => {
-      live = false;
-      watch?.disconnect();
-      timers.forEach(clearTimeout);
-    };
-  }, [google, clientId, attempt, language, width]);
+    const back = () => setLeaving(false);
+    window.addEventListener('pageshow', back);
+    return () => window.removeEventListener('pageshow', back);
+  }, []);
+  const signInWithGoogle = () => {
+    setLeaving(true);
+    continueWithGoogle(auth!.googleWebClientId!, purpose, language).catch((e) => {
+      setLeaving(false);
+      onError((e as Error).message);
+    });
+  };
   const signInWithApple = async () => {
     try {
       await load(
@@ -193,26 +112,17 @@ export function SocialButtons({ only, onToken, onError, children }: SocialButton
         </Press>
       )}
       {google && (
-        <View
-          ref={frame}
-          onLayout={(e) => setWidth(Math.round(e.nativeEvent.layout.width))}
-          style={[providerButton('google'), { cursor: 'pointer' }]}
+        <Press
+          accessibilityRole="button"
+          accessibilityLabel={tr('Continue with Google')}
+          accessibilityState={{ busy: leaving }}
+          disabled={leaving}
+          onPress={signInWithGoogle}
+          scale={0.97}
+          style={providerButton('google')}
         >
           <ProviderFace provider="google" title={tr('Continue with Google')} />
-          <View
-            ref={host}
-            style={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              borderRadius: radius.pill,
-              overflow: 'hidden',
-              opacity: 0,
-            }}
-          />
-        </View>
+        </Press>
       )}
       {children}
     </View>

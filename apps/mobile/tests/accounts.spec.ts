@@ -46,15 +46,7 @@ const plans = [
   },
 ];
 
-// Google Identity Services and Sign in with Apple JS, reduced to what the app calls.
-const googleScript = `window.google = { accounts: { id: {
-  initialize(o) { window.__google = o; },
-  renderButton(el) {
-    const b = document.createElement('button');
-    b.textContent = 'Sign in with Google (test)';
-    b.onclick = () => window.__google.callback({ credential: 'google-id-token:' + window.__google.nonce });
-    el.appendChild(b);
-  } } } };`;
+// Sign in with Apple JS, reduced to what the app calls.
 const appleScript = `window.AppleID = { auth: {
   init(o) { window.__apple = o; },
   async signIn() { return { authorization: { id_token: 'apple-id-token:' + window.__apple.nonce, code: 'apple-code' }, user: { name: { firstName: 'Alex', lastName: 'Cook' } } }; } } };`;
@@ -70,9 +62,15 @@ async function mockAccounts(page: Page, signedIn: boolean, catalogLive = true, c
     preferences: { diets: [], allergies: [] },
   });
   let job = 0;
-  await page.route('https://accounts.google.com/gsi/client', (r) =>
-    r.fulfill({ contentType: 'text/javascript', body: googleScript }),
-  );
+  // Google's sign-in page, which sends the browser straight back with an ID token for its nonce.
+  await page.route('https://accounts.google.com/o/oauth2/v2/auth?**', (r) => {
+    const query = new URL(r.request().url()).searchParams;
+    const back = `${query.get('redirect_uri')}#state=${query.get('state')}&id_token=google-id-token:${query.get('nonce')}`;
+    return r.fulfill({
+      contentType: 'text/html',
+      body: `<script>location.replace(${JSON.stringify(back)})</script>`,
+    });
+  });
   await page.route('https://appleid.cdn-apple.com/**', (r) =>
     r.fulfill({ contentType: 'text/javascript', body: appleScript }),
   );
@@ -158,6 +156,35 @@ async function mockAccounts(page: Page, signedIn: boolean, catalogLive = true, c
   return posts;
 }
 
+test('profile edits reset on reopening and desktop/mobile chrome stays warning-free', async ({
+  page,
+}) => {
+  const diagnostics: string[] = [];
+  page.on('console', (message) => {
+    if (message.type() === 'warning' || message.type() === 'error')
+      diagnostics.push(message.text());
+  });
+  page.on('pageerror', (error) => diagnostics.push(error.message));
+  await mockAccounts(page, true);
+  const originalName = user.name;
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Open my kitchen', exact: true }).click();
+  await page.getByRole('button', { name: 'Edit your profile', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Your name', exact: true }).fill('Unsaved name');
+  await page.getByRole('button', { name: 'Close dialog', exact: true }).click();
+  await page.getByRole('button', { name: 'Edit your profile', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: 'Your name', exact: true })).toHaveValue(
+    originalName,
+  );
+  await page.getByRole('button', { name: 'Close dialog', exact: true }).click();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole('button', { name: 'Edit your profile', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: 'Your name', exact: true })).toHaveValue(
+    originalName,
+  );
+  expect(diagnostics).toEqual([]);
+});
+
 test('the web offers Apple and Google sign-in, each bound to a fresh server nonce', async ({
   page,
 }) => {
@@ -181,27 +208,47 @@ test('the web offers Apple and Google sign-in, each bound to a fresh server nonc
   // Signed in with Google already: the profile offers to connect Apple, not Google.
   await expect(page.getByText('Sign-in methods', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Continue with Apple' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Sign in with Google (test)' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Continue with Google' })).toHaveCount(0);
 });
 
-test('Google’s own button signs in with its ID token', async ({ page }) => {
+test('Google sign-in goes to Google’s page and comes back with its ID token', async ({ page }) => {
   const posts = await mockAccounts(page, false);
   await page.goto('/?page=profile');
   await page.getByRole('button', { name: 'Sign in or join' }).click();
-  await page.getByRole('button', { name: 'Sign in with Google (test)' }).click();
+  const google = page.waitForRequest((r) => r.url().startsWith('https://accounts.google.com/'));
+  await page.getByRole('button', { name: 'Continue with Google' }).click();
+  const query = new URL((await google).url()).searchParams;
+  expect(Object.fromEntries(query)).toMatchObject({
+    client_id: 'web-client',
+    redirect_uri: 'http://localhost:8081/',
+    response_type: 'id_token',
+    nonce: expect.stringMatching(/^nonce-\d+$/),
+  });
   await expect
     .poll(() => posts.find((p) => p.path === '/auth/oauth')?.body)
     .toMatchObject({
       provider: 'google',
       token: expect.stringMatching(/^google-id-token:nonce-\d+$/),
     });
+  // Back where the button was pressed, with the token gone from the address bar.
+  await expect(page.getByText('Your plan', { exact: true })).toBeVisible();
+  expect(new URL(page.url()).search).toBe('?page=profile');
+  expect(new URL(page.url()).hash).toBe('');
+});
+
+test('a Google answer this tab didn’t ask for is ignored and wiped', async ({ page }) => {
+  const posts = await mockAccounts(page, false);
+  await page.goto('/?page=profile#state=forged&id_token=google-id-token:someone-else');
+  await expect(page.getByRole('button', { name: 'Sign in or join' })).toBeVisible();
+  expect(new URL(page.url()).hash).toBe('');
+  expect(posts.find((p) => p.path === '/auth/oauth')).toBeUndefined();
 });
 
 test('a new Google kitchen sets itself up before anything else', async ({ page }) => {
   const posts = await mockAccounts(page, false, true, true);
   await page.goto('/?page=profile');
   await page.getByRole('button', { name: 'Sign in or join' }).click();
-  await page.getByRole('button', { name: 'Sign in with Google (test)' }).click();
+  await page.getByRole('button', { name: 'Continue with Google' }).click();
   // Photo, name and username first; the username is checked as it's typed.
   await expect(page.getByText('Set up your kitchen', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Add a photo' }).first()).toBeVisible();

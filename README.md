@@ -38,7 +38,7 @@ To run the API in Docker: `docker compose --profile full up --build`. Run Expo s
 - Weekly breakfast/lunch/dinner planner, recipe-to-grocery conversion, checked grocery lists, pantry quantities and expiry reminders, and pantry-to-recipe matching.
 - A sous-chef built into the places you cook (home, recipe pages, cooking mode, the editor, pantry and planner) rather than a separate AI page: recipe drafts, one-tap adaptations, ingredient swaps, nutrition estimates, meal plans, cooking questions, cover photos, and Seedance video clips. Durable jobs, visible status/errors, editable results, idempotency, user quotas, and global spend reservations.
 - A general sous-chef one tap away on every screen, by text, live voice, or photo: it knows the recipe and cooking step on screen, finds recipes and cooks, manages cookbooks, the planner, groceries, pantry, reviews and profile diets, creates, edits, publishes and deletes recipes (consequential actions need a yes), and drives the app itself: opening recipes, cooking steps, timers, pages and language. See [sous-chef setup and architecture](docs/RECIPE-STUDIO.md).
-- Cloudflare Worker serving the web app with the Go API as a Container, R2 storage adapter, Cloudflare Email Service password resets, Neon-compatible migrations, Docker development database/object storage and API build, EAS build profiles, and CI that deploys staging and builds the Android staging app from the `staging` branch.
+- Cloudflare Worker serving the web app with the Go API as a Container, R2 storage adapter, Cloudflare Email Service password resets, Neon-compatible migrations, Docker development database/object storage and API build, EAS build profiles, over-the-air app updates through EAS Update, and CI that deploys staging and ships the Android staging app from the `staging` branch.
 
 Staging runs at [staging.savorly.cooking](https://staging.savorly.cooking) on Cloudflare and Neon, with paid plans off and unlimited free use for testers ([staging](docs/STAGING.md)). Production runs at [savorly.cooking](https://savorly.cooking), deployed from the `release` branch ([production](docs/PRODUCTION.md)). There is no app-store release yet; the remaining launch work is in [PRODUCTION.md](docs/PRODUCTION.md#before-a-public-launch).
 
@@ -69,9 +69,23 @@ npm test
 npm run test:integration
 npm --prefix apps/mobile run test:e2e
 npm run build
+# All three JS/Hermes exports and the Worker/container build (nothing deployed):
+cd apps/mobile && npx expo export --platform all && cd ../..
+npm --prefix infra/cloudflare run build
 ```
 
 Browser tests use installed Google Chrome locally and Playwright Chromium in CI. API integration tests create isolated accounts and remove them; run against a development database. Provider tests use local mock servers and do not spend money. `make check` additionally runs Go vet and the race detector.
+
+`make setup` installs both the app and Worker dependencies; `npm run typecheck` checks both projects. Lint rejects warnings. Browser screenshots go to the ignored `test-results` directory.
+
+For a checkout running on different ports, set `EXPO_PUBLIC_API_URL` when starting Expo and pass matching `TEST_WEB_URL` and `TEST_API_URL` to the browser tests. Set the API's `PORT` and `ALLOWED_ORIGINS` to match. For example, Expo on 8181 with the API on 8180 uses:
+
+```sh
+TEST_WEB_URL=http://localhost:8181 TEST_API_URL=http://localhost:8180 npm --prefix apps/mobile run test:e2e
+TEST_API_URL=http://localhost:8180 npm run test:integration
+```
+
+Database and object-storage Go tests are opt-in: see the [current verification record](docs/VERIFICATION.md#local-checks-update--2026-10-15) for their environment and remaining upstream dependency diagnostics.
 
 ## Configuration and design decisions
 
@@ -83,6 +97,7 @@ Browser tests use installed Google Chrome locally and Playwright Chromium in CI.
 - [Deployment and current launch limits](docs/DEPLOYMENT.md)
 - [Staging deployment and Android test builds](docs/STAGING.md)
 - [Production deployment and releases](docs/PRODUCTION.md)
+- [Over-the-air app updates](docs/UPDATES.md)
 - [AI provider choices, pricing, and reliability](docs/PROVIDERS.md)
 - [Verification record](docs/VERIFICATION.md)
 

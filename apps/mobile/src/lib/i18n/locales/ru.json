@@ -729,5 +729,22 @@
   "Touch up the cover photo": "Улучшить обложку",
   "Touch up": "Улучшить",
   "Touch up photo {{v0}}": "Улучшить фото {{v0}}",
-  "Photo touch-up": "Улучшение фото"
+  "Photo touch-up": "Улучшение фото",
+  "A new version of Savorly is ready.": "Новая версия Savorly готова.",
+  "Restart": "Перезапустить",
+  "Not now": "Не сейчас",
+  "App updates": "Обновления приложения",
+  "Update ready. Tap to restart.": "Обновление готово. Нажмите, чтобы перезапустить.",
+  "Downloading an update…": "Загружаем обновление…",
+  "Checking for updates…": "Проверяем обновления…",
+  "Installed version": "Установленная версия",
+  "Updated {{date}}": "Обновлено {{date}}",
+  "You’re on the latest version.": "У вас последняя версия.",
+  "Couldn’t check for updates. Try again later.": "Не удалось проверить обновления. Попробуйте позже.",
+  "Couldn’t restart. Close and reopen Savorly to update.": "Не удалось перезапустить. Закройте и снова откройте Savorly, чтобы обновить его.",
+  "Share": "Поделиться",
+  "Save": "Сохранить",
+  "In your cookbooks": "В ваших сборниках",
+  "Link copied to your clipboard.": "Ссылка скопирована в буфер обмена.",
+  "Use ← and → to move between steps, and Esc to close.": "Используйте ← и →, чтобы переходить между шагами, и Esc, чтобы закрыть."
 }

@@ -8,17 +8,17 @@
     "@formatjs/intl-locale": "5.3.12",
     "@formatjs/intl-pluralrules": "6.3.15",
     "@react-native-async-storage/async-storage": "2.2.0",
-    "expo": "~57.0.26",
+    "expo": "~57.0.30",
     "expo-apple-authentication": "~57.0.2",
     "expo-asset": "~57.0.18",
     "expo-audio": "~57.0.5",
     "expo-camera": "~57.0.6",
-    "expo-dev-client": "~57.0.19",
+    "expo-dev-client": "~57.0.20",
     "expo-file-system": "~57.0.7",
     "expo-font": "~57.0.4",
     "expo-glass-effect": "~57.0.4",
     "expo-haptics": "~57.0.3",
-    "expo-image-manipulator": "~57.0.20",
+    "expo-image-manipulator": "~57.0.21",
     "expo-image-picker": "~57.0.20",
     "expo-keep-awake": "~57.0.2",
     "expo-linear-gradient": "~57.0.2",
@@ -26,6 +26,7 @@
     "expo-secure-store": "~57.0.4",
     "expo-speech": "~57.0.3",
     "expo-status-bar": "~57.0.1",
+    "expo-updates": "~57.0.26",
     "expo-video": "~57.0.5",
     "lucide-react-native": "1.50.0",
     "react": "19.2.3",
@@ -56,7 +57,21 @@
     "typecheck": "tsc --noEmit",
     "build": "expo export --platform web",
     "test:e2e": "playwright test",
-    "lint": "expo lint"
+    "lint": "expo lint --max-warnings 0"
   },
-  "private": true
+  "private": true,
+  "overrides": {
+    "xcode": {
+      "uuid": "11.1.1"
+    }
+  },
+  "expo": {
+    "doctor": {
+      "reactNativeDirectoryCheck": {
+        "exclude": [
+          "storefront"
+        ]
+      }
+    }
+  }
 }

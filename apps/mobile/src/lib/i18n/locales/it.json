@@ -729,5 +729,22 @@
   "Touch up the cover photo": "Ritocca la foto di copertina",
   "Touch up": "Ritocca",
   "Touch up photo {{v0}}": "Ritocca la foto {{v0}}",
-  "Photo touch-up": "Ritocco foto"
+  "Photo touch-up": "Ritocco foto",
+  "A new version of Savorly is ready.": "È pronta una nuova versione di Savorly.",
+  "Restart": "Riavvia",
+  "Not now": "Non ora",
+  "App updates": "Aggiornamenti dell’app",
+  "Update ready. Tap to restart.": "Aggiornamento pronto. Tocca per riavviare.",
+  "Downloading an update…": "Download dell’aggiornamento…",
+  "Checking for updates…": "Ricerca di aggiornamenti…",
+  "Installed version": "Versione installata",
+  "Updated {{date}}": "Aggiornata il {{date}}",
+  "You’re on the latest version.": "Hai l’ultima versione.",
+  "Couldn’t check for updates. Try again later.": "Impossibile cercare aggiornamenti. Riprova più tardi.",
+  "Couldn’t restart. Close and reopen Savorly to update.": "Impossibile riavviare. Chiudi e riapri Savorly per aggiornarla.",
+  "Share": "Condividi",
+  "Save": "Salva",
+  "In your cookbooks": "Nei tuoi ricettari",
+  "Link copied to your clipboard.": "Link copiato negli appunti.",
+  "Use ← and → to move between steps, and Esc to close.": "Usa ← e → per spostarti tra i passaggi ed Esc per chiudere."
 }

@@ -23,10 +23,16 @@ export function useRecipeSearch(params: {
     sort: params.sort,
     limit: String(PAGE_SIZE),
   }).toString();
-  useEffect(() => {
-    const current = ++generation.current;
+  const [previousParameters, setPreviousParameters] = useState(parameters);
+  if (previousParameters !== parameters) {
+    setPreviousParameters(parameters);
+    setRecipes([]);
+    setHasMore(false);
     setLoading(true);
     setError('');
+  }
+  useEffect(() => {
+    const current = ++generation.current;
     const timer = setTimeout(() => {
       void api<Recipe[]>(`/recipes?${parameters}`)
         .then((next) => {
@@ -46,7 +52,7 @@ export function useRecipeSearch(params: {
     }, 200);
     return () => {
       clearTimeout(timer);
-      generation.current++;
+      generation.current = current + 1;
     };
   }, [parameters]);
   const loadMore = async () => {

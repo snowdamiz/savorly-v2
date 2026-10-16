@@ -7,7 +7,7 @@ import { api, persistSession } from '../lib/api';
 import { color, s } from '../lib/theme';
 import { Button, Dialog, Field } from './ui';
 import { SocialButtons } from './SocialButtons';
-import { BrandMark, brandColors } from './Brand';
+import { BrandMark } from './Brand';
 import { ProviderToken } from '../lib/auth/provider';
 type Signed = { token?: string; created?: boolean };
 export function AuthDialog() {
@@ -90,8 +90,6 @@ export function AuthDialog() {
             style={{
               width: 56,
               height: 56,
-              borderRadius: 18,
-              backgroundColor: brandColors.sage,
               alignItems: 'center',
               justifyContent: 'center',
             }}
