@@ -3,36 +3,42 @@ import { api } from './api';
 import { Recipe } from './types';
 import { allCuisines } from './cuisines';
 const PAGE_SIZE = 24;
-export function useRecipeSearch(params: {
-  query: string;
-  category: string;
-  cuisine: string;
-  quick: boolean;
-  sort: string;
-}) {
+export function useRecipeSearch(
+  params: {
+    query: string;
+    category: string;
+    cuisine: string;
+    quick: boolean;
+    sort: string;
+  },
+  enabled = true,
+) {
   const [recipes, setRecipes] = useState<Recipe[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(enabled);
   const [error, setError] = useState('');
   const [hasMore, setHasMore] = useState(false);
   const generation = useRef(0);
-  const parameters = new URLSearchParams({
-    q: params.query,
-    category: params.cuisine === allCuisines ? '' : params.cuisine,
-    tag: params.category === 'All recipes' ? '' : params.category,
-    maxMinutes: params.quick ? '20' : '0',
-    sort: params.sort,
-    limit: String(PAGE_SIZE),
-  }).toString();
+  const parameters = enabled
+    ? new URLSearchParams({
+        q: params.query,
+        category: params.cuisine === allCuisines ? '' : params.cuisine,
+        tag: params.category === 'All recipes' ? '' : params.category,
+        maxMinutes: params.quick ? '20' : '0',
+        sort: params.sort,
+        limit: String(PAGE_SIZE),
+      }).toString()
+    : null;
   const [previousParameters, setPreviousParameters] = useState(parameters);
   if (previousParameters !== parameters) {
     setPreviousParameters(parameters);
     setRecipes([]);
     setHasMore(false);
-    setLoading(true);
+    setLoading(enabled);
     setError('');
   }
   useEffect(() => {
     const current = ++generation.current;
+    if (parameters === null) return;
     const timer = setTimeout(() => {
       void api<Recipe[]>(`/recipes?${parameters}`)
         .then((next) => {
@@ -56,7 +62,7 @@ export function useRecipeSearch(params: {
     };
   }, [parameters]);
   const loadMore = async () => {
-    if (loading || !hasMore) return;
+    if (parameters === null || loading || !hasMore) return;
     const current = generation.current;
     setLoading(true);
     try {

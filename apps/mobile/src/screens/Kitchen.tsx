@@ -188,7 +188,7 @@ export function Cookbooks({
                 method: 'POST',
                 body: { name },
               });
-              await app.refreshPrivate();
+              await app.refreshLibrary();
               setName('');
               setCreate(false);
               setActive(c.id);
@@ -207,7 +207,7 @@ export function Cookbooks({
           onPress={() =>
             void app.act(async () => {
               await api(`/collections/${active}`, { method: 'DELETE' });
-              await app.refreshPrivate();
+              await app.refreshLibrary();
               setActive('all');
               setRemove(false);
             }, 'Cookbook removed. Your recipes are still saved.')
@@ -361,7 +361,7 @@ export function Planner({
   const remove = (p: Plan) =>
     void app.act(async () => {
       await api(`/planner/${p.id}`, { method: 'DELETE' });
-      await app.refreshPrivate();
+      await app.refreshKitchen();
     });
   const addAll = async () => {
     if (busy) return;
@@ -372,7 +372,7 @@ export function Planner({
           method: 'POST',
           body: { servings: p.servings },
         });
-      await app.refreshPrivate();
+      await app.refreshKitchen();
     }, 'Your week’s ingredients are on the list.');
     setBusy(false);
   };
@@ -646,7 +646,7 @@ export function Planner({
                     await api('/groceries', { method: 'POST', body: { name, quantity } });
                     setName('');
                     setQuantity('');
-                    await app.refreshPrivate();
+                    await app.refreshKitchen();
                   })
                 }
               />
@@ -685,7 +685,7 @@ export function Planner({
                                   method: 'PATCH',
                                   body: { checked: !g.checked },
                                 });
-                                await app.refreshPrivate();
+                                await app.refreshKitchen();
                               })
                             }
                           >
@@ -711,7 +711,7 @@ export function Planner({
                           onPress={() =>
                             void app.act(async () => {
                               await api(`/groceries/${g.id}`, { method: 'DELETE' });
-                              await app.refreshPrivate();
+                              await app.refreshKitchen();
                             })
                           }
                         />
@@ -751,7 +751,7 @@ export function Planner({
                       method: 'POST',
                       body: { ...pick, recipeId: r.id, servings: r.servings },
                     });
-                    await app.refreshPrivate();
+                    await app.refreshKitchen();
                     setPick(null);
                   }, 'Added to your week.')
                 }
@@ -882,7 +882,7 @@ export function Pantry({
             setName('');
             setQuantity('');
             setExpires('');
-            await app.refreshPrivate();
+            await app.refreshKitchen();
           }, 'Added to your pantry.')
         }
       />
@@ -945,7 +945,7 @@ export function Pantry({
                   onPress={() =>
                     void app.act(async () => {
                       await api(`/pantry/${p.id}`, { method: 'DELETE' });
-                      await app.refreshPrivate();
+                      await app.refreshKitchen();
                     })
                   }
                 />
