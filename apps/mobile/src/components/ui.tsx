@@ -775,12 +775,17 @@ export function Segmented<T extends string>({
   options,
   value,
   onChange,
+  floating,
 }: {
   options: { value: T; label: string }[];
   value: T;
   onChange: (v: T) => void;
+  /** Rides over a photo: a raised white track as wide as its labels, not the space it's in. */
+  floating?: boolean;
 }) {
   const [width, setWidth] = useState(0);
+  // A floating track gives every segment the width of its longest label.
+  const [labels, setLabels] = useState<number[]>([]);
   const index = Math.max(
     0,
     options.findIndex((o) => o.value === value),
@@ -795,34 +800,47 @@ export function Segmented<T extends string>({
       useNativeDriver: native,
     }).start();
   }, [index, x]);
-  const segment = (width - 8) / options.length;
+  const inset = floating ? 3 : 4;
+  const pad = floating ? 14 : 12;
+  const widest =
+    floating && options.every((_, i) => labels[i])
+      ? Math.ceil(Math.max(...options.map((_, i) => labels[i]))) + pad * 2
+      : 0;
+  const segment = (width - inset * 2) / options.length;
+  const pill = floating ? color.ink : color.white;
   return (
     <View
       accessibilityRole="tablist"
       onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
       style={{
         flexDirection: 'row',
-        backgroundColor: color.subtle,
+        backgroundColor: floating ? color.white : color.subtle,
         borderRadius: radius.pill,
-        padding: 4,
+        padding: inset,
+        ...(floating && {
+          alignSelf: 'center',
+          boxShadow: '0px 1px 2px rgba(0,0,0,0.08), 0px 8px 22px rgba(0,0,0,0.18)',
+          // Hidden for the frame it takes to measure the labels, so the segments never jump.
+          opacity: widest ? 1 : 0,
+        }),
       }}
     >
       {width > 0 && (
         <Animated.View
           style={{
             position: 'absolute',
-            top: 4,
-            bottom: 4,
-            left: 4,
+            top: inset,
+            bottom: inset,
+            left: inset,
             width: segment,
             borderRadius: radius.pill,
-            backgroundColor: color.white,
-            boxShadow: '0px 1px 3px rgba(0,0,0,0.12)',
+            backgroundColor: pill,
+            boxShadow: floating ? undefined : '0px 1px 3px rgba(0,0,0,0.12)',
             transform: [{ translateX: Animated.multiply(x, segment) }],
           }}
         />
       )}
-      {options.map((o) => {
+      {options.map((o, i) => {
         const on = o.value === value;
         return (
           <Pressable
@@ -834,19 +852,36 @@ export function Segmented<T extends string>({
               onChange(o.value);
             }}
             style={{
-              flex: 1,
-              minHeight: 40,
-              paddingHorizontal: 12,
+              ...(floating ? { minWidth: widest } : { flex: 1 }),
+              minHeight: floating ? 34 : 40,
+              paddingHorizontal: pad,
               borderRadius: radius.pill,
               alignItems: 'center',
               justifyContent: 'center',
               // Until the track is measured the pill can't slide, so the active segment paints itself.
-              backgroundColor: on && !width ? color.white : 'transparent',
+              backgroundColor: on && !width ? pill : 'transparent',
             }}
           >
             <Text
               numberOfLines={1}
-              style={{ fontFamily: font.bold, fontSize: 14, color: on ? color.ink : color.muted }}
+              onLayout={
+                floating
+                  ? (e) => {
+                      const w = e.nativeEvent.layout.width;
+                      setLabels((l) => {
+                        if (l[i] === w) return l;
+                        const next = [...l];
+                        next[i] = w;
+                        return next;
+                      });
+                    }
+                  : undefined
+              }
+              style={{
+                fontFamily: font.bold,
+                fontSize: floating ? 13 : 14,
+                color: on ? (floating ? color.white : color.ink) : color.muted,
+              }}
             >
               {o.label}
             </Text>

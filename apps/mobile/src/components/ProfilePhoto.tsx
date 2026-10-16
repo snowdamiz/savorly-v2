@@ -3,10 +3,11 @@ import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Animated, StyleSheet, Text, View } from 'react-native';
 import { Camera, Check, Images, Sparkles, Trash2 } from 'lucide-react-native';
 import { useApp } from '../lib/store';
-import { pickPhoto, preparePhoto, touchUpPhoto, uploadPhoto } from '../lib/photos';
+import { Crop, Photo, pickPhoto, preparePhoto, touchUpPhoto, uploadPhoto } from '../lib/photos';
 import { haptic } from '../lib/haptics';
 import { color, font, radius, s } from '../lib/theme';
 import { Avatar, Button, Dialog, Press, Segmented, animate, motionReduced } from './ui';
+import { PhotoCrop } from './PhotoCrop';
 
 /** A profile photo that opens the photo sheet: the place to change it from anywhere. */
 export function PhotoButton({
@@ -79,6 +80,8 @@ export function ProfilePhoto({
   const [showBefore, setShowBefore] = useState(false);
   const [busy, setBusy] = useState<'photo' | 'touch' | 'save' | null>(null);
   const [error, setError] = useState('');
+  // A new photo, being framed before it's used.
+  const [framing, setFraming] = useState<Photo | null>(null);
   // Each opening starts from the photo in use.
   const [opened, setOpened] = useState(visible);
   if (opened !== visible) {
@@ -86,6 +89,7 @@ export function ProfilePhoto({
     if (visible) {
       setPhoto(value);
       setLocal('');
+      setFraming(null);
       setBefore('');
       setShowBefore(false);
       setBusy(null);
@@ -106,11 +110,26 @@ export function ProfilePhoto({
       const picked = await pickPhoto(from, true);
       if (!picked || !live.current) return;
       setBusy('photo');
-      const ready = await preparePhoto(picked, { max: 1024, square: true });
-      setLocal(ready);
+      // An upright copy, small enough to move around smoothly; the crop is cut from it.
+      const upright = await preparePhoto(picked, { max: 2048 });
+      if (live.current) setFraming(upright);
+    } catch (e) {
+      if (live.current) setError((e as Error).message);
+    } finally {
+      if (live.current) setBusy(null);
+    }
+  };
+  const crop = async (area: Crop) => {
+    if (!framing) return;
+    setFraming(null);
+    setBusy('photo');
+    try {
+      const ready = await preparePhoto(framing.uri, { max: 1024, crop: area });
+      if (!live.current) return;
+      setLocal(ready.uri);
       setBefore('');
       setShowBefore(false);
-      const url = await uploadPhoto(ready, 'profile.jpg');
+      const url = await uploadPhoto(ready.uri, 'profile.jpg');
       if (live.current) setPhoto(url);
     } catch (e) {
       if (live.current) {
@@ -158,20 +177,16 @@ export function ProfilePhoto({
   return (
     <Dialog visible={visible} onClose={onClose} title={tr('Profile photo')}>
       <View style={{ alignItems: 'center', gap: 14, paddingTop: 4 }}>
-        <View style={{ width: 168, height: 168 }}>
+        <View style={{ width: 168, height: 168, marginBottom: before ? 20 : 0 }}>
           <Avatar name={name} uri={shown} size={168} />
           {(busy === 'photo' || busy === 'touch') && (
             <Working touch={busy === 'touch'} radius={84} />
           )}
-        </View>
-        {busy === 'touch' ? (
-          <Text accessibilityLiveRegion="polite" style={[s.small, { textAlign: 'center' }]}>
-            {tr('Touching up your photo… This takes about half a minute.')}
-          </Text>
-        ) : (
-          !!before && (
-            <View style={{ alignSelf: 'stretch', maxWidth: 260, width: '100%' }}>
+          {!!before && (
+            // Straddles the photo's lower edge, so the comparison sits on what it compares.
+            <View style={styles.compare}>
               <Segmented
+                floating
                 value={showBefore ? 'before' : 'after'}
                 onChange={(v) => setShowBefore(v === 'before')}
                 options={[
@@ -180,7 +195,12 @@ export function ProfilePhoto({
                 ]}
               />
             </View>
-          )
+          )}
+        </View>
+        {busy === 'touch' && (
+          <Text accessibilityLiveRegion="polite" style={[s.small, { textAlign: 'center' }]}>
+            {tr('Touching up your photo… This takes about half a minute.')}
+          </Text>
         )}
       </View>
       <View style={[s.row, { gap: 10 }]}>
@@ -243,6 +263,11 @@ export function ProfilePhoto({
           onPress={() => void save('')}
         />
       )}
+      <PhotoCrop
+        photo={framing}
+        onCancel={() => setFraming(null)}
+        onDone={(area) => void crop(area)}
+      />
     </Dialog>
   );
 }
@@ -335,6 +360,13 @@ const styles = StyleSheet.create({
     backgroundColor: color.white,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  compare: {
+    position: 'absolute',
+    left: -80,
+    right: -80,
+    bottom: -20,
+    alignItems: 'center',
   },
   source: {
     width: 44,
