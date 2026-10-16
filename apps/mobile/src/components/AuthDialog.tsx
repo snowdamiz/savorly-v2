@@ -85,7 +85,7 @@ export function AuthDialog() {
   return (
     <>
       <Dialog visible={app.authOpen} onClose={() => app.setAuthOpen(false)}>
-        <View style={{ gap: 16, paddingTop: 10 }}>
+        <View style={{ gap: 16 }}>
           <View
             style={{
               width: 56,
@@ -96,7 +96,7 @@ export function AuthDialog() {
           >
             <BrandMark size={42} />
           </View>
-          <Text style={[s.h1, { paddingRight: 40 }]}>
+          <Text style={s.h1}>
             {recovery
               ? tr('Back to your kitchen.')
               : register

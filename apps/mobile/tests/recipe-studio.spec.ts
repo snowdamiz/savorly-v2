@@ -335,7 +335,7 @@ test('chat clarifies, saves a complete recipe with both media jobs, and resumes'
   await expect(page.getByText('AI recipe video', { exact: true })).toBeVisible();
   expect(state.messages).toHaveLength(2);
   await page.screenshot({ path: testInfo.outputPath('recipe-studio-chat.png') });
-  await page.getByRole('button', { name: 'Close dialog', exact: true }).click();
+  await page.getByRole('button', { name: 'Close the sous-chef', exact: true }).click();
   await startRecipe(page, 'Chat to create a recipe');
   await expect(page.getByText('Two slices, for two people.', { exact: true })).toBeVisible();
   await page.setViewportSize({ width: 390, height: 844 });
@@ -483,8 +483,7 @@ test('the sous-chef knows the open recipe and cooking step, and acts on screen',
   await composer.fill('Start cooking it with me');
   await page.getByRole('button', { name: 'Send message' }).click();
   await expect(page.getByRole('button', { name: 'Close cooking mode' })).toBeVisible();
-  // A typed chat steps aside for cooking mode; reopening it reports the step.
-  await page.getByRole('button', { name: 'Ask the sous-chef' }).last().click();
+  // On a desktop the sous-chef stays beside cooking mode and follows the step.
   await expect(page.getByText('Cooking Lemon toast · step 1', { exact: true })).toBeVisible();
   await expect.poll(() => state.contexts.at(-1)).toMatchObject({ cookingStep: 1 });
   await expect(page.getByRole('button', { name: 'I don’t have the right pan' })).toBeVisible();
@@ -510,9 +509,43 @@ test('live voice keeps going from a minimized pill while the user browses', asyn
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await page.getByRole('button', { name: 'End voice' }).click();
   await expect.poll(() => state.sessionCloses.length).toBe(1);
-  await expect(page.getByRole('button', { name: 'Back to conversation' })).toContainText(
-    'Sous-chef',
-  );
-  await page.getByRole('button', { name: 'Close the sous-chef' }).click();
-  await expect(page.getByRole('button', { name: 'Ask your sous-chef' })).toBeVisible();
+  // Once the voice ends, the pill folds back into the launcher, which reopens the same chat.
+  await expect(page.getByRole('button', { name: 'Back to conversation' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Ask your sous-chef' }).click();
+  await expect(page.getByRole('button', { name: 'Start live conversation' })).toBeVisible();
+  expect(state.starts()).toBe(1);
+});
+
+test('the sous-chef floats beside the page, which stays usable and in context', async ({
+  page,
+}) => {
+  const state = await mockStudio(page);
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Ask your sous-chef' }).click();
+  const panel = page.getByRole('dialog', { name: 'Sous-chef' });
+  const composer = page.getByRole('textbox', { name: 'Message your sous-chef' });
+  await expect(composer).toBeFocused();
+  await composer.fill('A draft question');
+  // The page beside it still works, and the conversation follows it there.
+  await page.getByRole('button', { name: 'Meal planner', exact: true }).click();
+  await expect(page.getByText('A little plan for the week, and a list to match.')).toBeVisible();
+  await expect(panel.getByText('Viewing Meal planner', { exact: true })).toBeVisible();
+  await expect.poll(() => state.contexts.at(-1)).toMatchObject({ screen: 'planner' });
+  // Minimizing folds it into the launcher and keeps the draft; Escape inside it does the same.
+  await page.getByRole('button', { name: 'Minimize the sous-chef', exact: true }).click();
+  await expect(panel).toHaveCount(0);
+  await page.getByRole('button', { name: 'Ask your sous-chef' }).click();
+  await expect(composer).toHaveValue('A draft question');
+  await composer.press('Escape');
+  await expect(panel).toHaveCount(0);
+  // On a phone it sits above the tab bar, which stays usable.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole('button', { name: 'Ask your sous-chef' }).click();
+  await expect(composer).toBeVisible();
+  await page.getByRole('button', { name: 'Saved', exact: true }).click();
+  await expect(panel.getByText('Viewing My cookbooks', { exact: true })).toBeVisible();
+  const box = (await panel.boundingBox())!;
+  expect(box.x).toBeGreaterThanOrEqual(16);
+  expect(box.x + box.width).toBeLessThanOrEqual(390 - 16);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });

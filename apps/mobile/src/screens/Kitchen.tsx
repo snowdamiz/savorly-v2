@@ -727,14 +727,16 @@ export function Planner({
         visible={!!pick}
         onClose={() => setPick(null)}
         title={tr('What’s for {{v0}}?', { v0: tr(pick?.meal || '').toLowerCase() })}
+        header={
+          <View style={{ flexDirection: 'row' }}>
+            <SearchBar
+              value={query}
+              onChangeText={setQuery}
+              placeholder={tr('Search your next meal…')}
+            />
+          </View>
+        }
       >
-        <View style={{ flexDirection: 'row' }}>
-          <SearchBar
-            value={query}
-            onChangeText={setQuery}
-            placeholder={tr('Search your next meal…')}
-          />
-        </View>
         <View style={[s.card, { paddingVertical: 4 }]}>
           {app.recipes
             .filter((r) => r.title.toLowerCase().includes(query.toLowerCase()))
