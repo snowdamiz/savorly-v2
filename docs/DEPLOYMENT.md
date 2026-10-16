@@ -2,7 +2,7 @@
 
 The Expo app runs on iOS, Android, and web. Use Cloudflare wherever practical: Workers for the exported web app and gateway, R2 for media, Containers for the Go API, and Email Service for transactional email. Do not use Fly.io. Neon remains the production PostgreSQL provider for the existing schema and queries; Cloudflare D1 uses SQLite and would require a separate migration.
 
-**Current implementation:** the Worker serves static assets and runs the Go API as a [Cloudflare Container](https://developers.cloudflare.com/containers/) behind `/api`, passing Worker vars and secrets to it as its environment. CI deploys `main` to [staging](STAGING.md) and the `release` branch to [production](PRODUCTION.md). Password-reset email goes through [Cloudflare Email Service](https://developers.cloudflare.com/email-service/get-started/send-emails/).
+**Current implementation:** the Worker serves static assets and runs the Go API as a [Cloudflare Container](https://developers.cloudflare.com/containers/) behind `/api`, passing Worker vars and secrets to it as its environment. CI deploys the `staging` branch to [staging](STAGING.md) and the `release` branch to [production](PRODUCTION.md). Password-reset email goes through [Cloudflare Email Service](https://developers.cloudflare.com/email-service/get-started/send-emails/).
 
 Follow the [step-by-step provider setup guide](ACCOUNTS.md) for dashboard actions, credentials, callback URLs, and verification before deployment.
 

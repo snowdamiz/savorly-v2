@@ -68,12 +68,12 @@ jobs:
         with:
           name: browser-failures
           path: apps/mobile/test-results
-  # After verification, main deploys to staging and release to production: the backend on
-  # Cloudflare and an EAS Android build. Setup: docs/STAGING.md and docs/PRODUCTION.md.
+  # After verification, the staging branch deploys to staging and release to production: the
+  # backend on Cloudflare and an EAS Android build. Setup: docs/STAGING.md and docs/PRODUCTION.md.
   deploy:
     name: Deploy backend
     needs: verify
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/release')
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/staging' || github.ref == 'refs/heads/release')
     runs-on: ubuntu-latest
     environment:
       name: ${{ github.ref == 'refs/heads/release' && 'production' || 'staging' }}
@@ -112,7 +112,7 @@ jobs:
   build-android:
     name: Build Android app
     needs: verify
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/release')
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/staging' || github.ref == 'refs/heads/release')
     runs-on: ubuntu-latest
     env:
       TARGET: ${{ github.ref == 'refs/heads/release' && 'production' || 'staging' }}
