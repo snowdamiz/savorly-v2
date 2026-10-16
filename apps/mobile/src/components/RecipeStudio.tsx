@@ -4,7 +4,6 @@ import {
   ActivityIndicator,
   Animated,
   AppState,
-  BackHandler,
   Platform,
   ScrollView,
   StyleSheet,
@@ -27,6 +26,7 @@ import {
   ImagePlus,
   Mic,
   MicOff,
+  Minimize2,
   Send,
   Sparkles,
   Square,
@@ -46,8 +46,7 @@ import {
   StudioProject,
 } from '../lib/types';
 import { color, radius, s, shadow } from '../lib/theme';
-import { useKeyboardLift } from '../lib/keyboard';
-import { Button, FoodImage, IconButton, Pill, Press, animate, useChrome } from './ui';
+import { Button, Dialog, FoodImage, IconButton, Pill, Press, animate, useChrome } from './ui';
 import { RecipeCamera } from './RecipeCamera';
 import { fileForm } from '../lib/photos';
 import { openVoice } from '../lib/voice/transport';
@@ -100,30 +99,21 @@ const timeZone = (() => {
     return '';
   }
 })();
-// The sous-chef's corner: its launcher sits here, and the panel pops out of it over the page.
+// The sous-chef's corner: its launcher sits here, and in a desktop browser the panel pops out of it.
 export function useSousChefDock() {
-  const { compact, width, height, insets } = useChrome();
+  const { compact, width, height, insets, webPage } = useChrome();
   const bar = Math.min(width - 32, 400);
-  const right = compact ? (width - bar) / 2 : 28;
-  // Phones keep it above the tab bar.
-  const bottom = compact ? Math.max(16, insets.bottom) + 82 : 28;
-  const panelWidth = compact ? Math.min(width - 32, 440) : 400;
-  // Desktop clears the header; phones keep the top of the page in view above the panel.
-  const room = compact ? height - insets.top - 12 - bottom : height - 100 - bottom;
   return {
-    right,
-    bottom,
-    panel: {
-      right: Math.min(right, width - 16 - panelWidth),
-      width: panelWidth,
-      height: compact
-        ? Math.min(room, 600, Math.max(320, Math.round(room * 0.72)))
-        : Math.min(room, 680),
-    },
+    right: compact ? (width - bar) / 2 : 28,
+    // Phones keep it above the tab bar.
+    bottom: compact ? Math.max(16, insets.bottom) + 82 : 28,
+    /** The floating panel, clear of the header; the apps and narrow windows use a sheet instead. */
+    panel: webPage ? { width: 400, height: Math.min(680, height - 128) } : null,
   };
 }
-// The sous-chef: one conversation for anything in the app, typed, spoken live, or from a photo. It
-// floats beside the page rather than over it, so the page stays usable while it follows along.
+// The sous-chef: one conversation for anything in the app, typed, spoken live, or from a photo. In a
+// desktop browser it floats beside the page, which stays usable while it follows along; the apps and
+// narrow windows open it as a sheet.
 export function RecipeStudio({
   start,
   hidden,
@@ -137,7 +127,7 @@ export function RecipeStudio({
 }: {
   /** Each explicit start (Speak, Scan, the launcher) asks for its mode, even while already open. */
   start: { mode: StudioMode; n: number };
-  /** Minimized to the launcher, or to a pill while a live voice conversation keeps going. */
+  /** Minimized: the panel folds into the launcher, or a pill keeps a live conversation going. */
   hidden: boolean;
   onHide: (hidden: boolean) => void;
   /** Whether a live voice conversation is running, so the app can make room for its pill. */
@@ -151,9 +141,8 @@ export function RecipeStudio({
 }) {
   const { t: tr, locale } = useI18n();
   const app = useApp();
-  const { compact, desktop, insets, height } = useChrome();
   const dock = useSousChefDock();
-  const lift = useKeyboardLift();
+  const floating = !!dock.panel;
   const [project, setProject] = useState<StudioProject | null>(null);
   const [events, setEvents] = useState<StudioEvent[]>([]);
   const [history, setHistory] = useState<StudioProject[]>([]);
@@ -346,16 +335,19 @@ export function RecipeStudio({
       body: { screen, recipeId: viewing || '', cookingStep: cookingStep || 0, timeZone },
     }).catch(() => {});
   }, [project?.id, screen, viewing, cookingStep, attending]);
-  // On a desktop the panel stays beside whatever changed; on phones it covers much of the screen, so
-  // it steps aside to show it, and a live conversation carries on from its pill.
-  const stepAside = () => {
-    if (compact) onHide(true);
-  };
   useEffect(() => {
     handlers.current = {
       changed: onChanged,
       act: (action) => {
-        if (action.type !== 'set_language') stepAside();
+        // The panel stays beside the page as it changes. A sheet steps aside: live voice keeps
+        // talking from a minimized pill, a typed chat closes.
+        if (action.type !== 'set_language' && !floating) {
+          if (connection.current) onHide(true);
+          else {
+            void stop();
+            onClose();
+          }
+        }
         onAction(action);
       },
     };
@@ -540,24 +532,17 @@ export function RecipeStudio({
   const exit = () => {
     void stop();
     void Promise.all([app.refreshPrivate(), app.refreshRecipes()]);
-    animate(pop, 0, 160).start(() => onClose());
+    if (floating) animate(pop, 0, 160).start(() => onClose());
+    else onClose();
   };
   const minimize = () => onHide(true);
-  // Escape (from inside the panel) and Android's back button tuck it away, as a sheet's would.
+  // Escape from inside the panel tucks it away, as it would close a sheet.
   const keys = useRef(minimize);
   useEffect(() => {
     keys.current = minimize;
   });
   useEffect(() => {
-    if (hidden) return;
-    if (Platform.OS === 'android') {
-      const sub = BackHandler.addEventListener('hardwareBackPress', () => {
-        keys.current();
-        return true;
-      });
-      return () => sub.remove();
-    }
-    if (Platform.OS !== 'web') return;
+    if (hidden || !floating) return;
     // Captured, since text fields stop their keys from bubbling; and kept from cooking mode's Escape.
     const onKey = (e: KeyboardEvent) => {
       const node = panel.current as unknown as HTMLElement | null;
@@ -567,11 +552,11 @@ export function RecipeStudio({
     };
     document.addEventListener('keydown', onKey, true);
     return () => document.removeEventListener('keydown', onKey, true);
-  }, [hidden]);
+  }, [hidden, floating]);
   const openRecipe = async (id: string) => {
     try {
       const recipe = await api<Recipe>(`/recipes/${encodeURIComponent(id)}`);
-      stepAside();
+      if (!floating) exit();
       onRecipe(recipe);
     } catch (e) {
       setError((e as Error).message);
@@ -586,9 +571,6 @@ export function RecipeStudio({
     : [];
   const earlier = history.filter((p) => p.id !== project?.id);
   const chatting = !camera && !browsing;
-  // On phones it rises above the keyboard and gives up height to it.
-  const bottom = lift ? Math.max(dock.bottom, insets.bottom + lift + 8) : dock.bottom;
-  const panelHeight = Math.min(dock.panel.height, height - insets.top - 12 - bottom);
   const day = (iso: string) => {
     try {
       return new Intl.DateTimeFormat(locale, { month: 'short', day: 'numeric' }).format(
@@ -598,9 +580,530 @@ export function RecipeStudio({
       return '';
     }
   };
+  // The pieces below are shared by the floating panel and the sheet, which arrange them differently.
+  const voiceCard = runningVoice && (
+    <View
+      style={{
+        borderRadius: radius.lg,
+        backgroundColor: color.ink,
+        padding: 16,
+        gap: 12,
+        ...(floating && { margin: 12, marginBottom: 0 }),
+      }}
+    >
+      <View style={[s.row, { gap: 14 }]}>
+        <View
+          style={{
+            width: 56,
+            height: 56,
+            borderRadius: 28,
+            borderWidth: 1,
+            borderColor: color.glassBorder,
+            backgroundColor: color.ink2,
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          {voiceState === 'connecting' ? (
+            <ActivityIndicator color={color.white} />
+          ) : muted ? (
+            <MicOff size={24} color={color.white} />
+          ) : (
+            <Mic size={24} color={color.white} strokeWidth={1.5} />
+          )}
+        </View>
+        <View style={{ flex: 1, gap: 3 }}>
+          <Text accessibilityLiveRegion="polite" style={{ ...s.h3, color: color.white }}>
+            {voiceState === 'connecting'
+              ? tr('Connecting your sous-chef…')
+              : muted
+                ? tr('Microphone paused')
+                : tr('I’m listening. Take your time.')}
+          </Text>
+          <Text style={{ ...s.small, color: color.onInk }}>
+            {tr('Talk naturally. Interrupt or correct me anytime.')}
+          </Text>
+        </View>
+      </View>
+      {!!caption && (
+        <Text numberOfLines={floating ? 3 : undefined} style={{ ...s.body, color: color.white }}>
+          {caption}
+        </Text>
+      )}
+      <View style={[s.row, { gap: 12 }]}>
+        <IconButton
+          icon={muted ? Mic : MicOff}
+          label={muted ? tr('Resume microphone') : tr('Mute microphone')}
+          disabled={voiceState === 'connecting'}
+          onPress={() => {
+            connection.current?.mute(!muted);
+            setMuted(!muted);
+          }}
+        />
+        <Button
+          title={tr('End voice')}
+          icon={Square}
+          small
+          variant="secondary"
+          onPress={() => void stop()}
+        />
+        <Text
+          style={{
+            ...s.small,
+            color: color.onInk,
+            flex: 1,
+            textAlign: floating ? 'right' : 'left',
+          }}
+        >
+          {Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, '0')}
+        </Text>
+        {/* The panel's own header minimizes it; a sheet would close if swiped away. */}
+        {!floating && (
+          <IconButton
+            icon={Minimize2}
+            label={tr('Keep talking while you browse')}
+            onPress={minimize}
+          />
+        )}
+      </View>
+      {audioBlocked && (
+        <Button
+          title={tr('Enable assistant audio')}
+          icon={Volume2}
+          small
+          variant="secondary"
+          onPress={() =>
+            void connection.current
+              ?.enableAudio()
+              .then(() => setAudioBlocked(false))
+              .catch(() => setError('Audio playback is blocked in your browser settings.'))
+          }
+        />
+      )}
+      <Text style={{ ...s.small, color: color.onInk }}>
+        {tr('Voice is processed live. We save your transcript, not an audio recording.')}
+      </Text>
+    </View>
+  );
+  const messages = (
+    <>
+      {!groups.length && !runningVoice && (
+        <View style={{ paddingVertical: floating ? 6 : 14, gap: 10 }}>
+          <ChefHat size={28} color={color.ink} />
+          <Text style={s.h2}>{tr('How can I help in the kitchen?')}</Text>
+          <Text style={s.muted}>
+            {tr(
+              'Find recipes, plan meals, sort out your shopping, or create a recipe together. Type, add a photo, or talk live.',
+            )}
+          </Text>
+          <View style={s.wrap}>
+            {(nearby.length ? [] : suggestions).map((phrase) => (
+              <Button
+                key={phrase}
+                title={tr(phrase)}
+                small
+                variant="secondary"
+                disabled={!ready}
+                onPress={() => void send(tr(phrase), null)}
+              />
+            ))}
+          </View>
+          <Text style={s.small}>{tr('Your conversation saves automatically.')}</Text>
+        </View>
+      )}
+      {groups.map((event) => (
+        <View
+          key={event.seq}
+          style={{
+            alignSelf: event.role === 'user' ? 'flex-end' : 'flex-start',
+            maxWidth: '92%',
+            padding: 15,
+            borderRadius: radius.md,
+            backgroundColor: event.role === 'user' ? color.ink : color.white,
+            gap: 5,
+          }}
+        >
+          <Text
+            style={{
+              ...s.small,
+              color: event.role === 'user' ? color.onInk : color.muted,
+            }}
+          >
+            {event.role === 'user' ? tr('You') : tr('Sous-chef')}
+            {event.imageCount ? tr(' · {{v0}} recipe photo', { v0: event.imageCount }) : ''}
+          </Text>
+          <Text
+            selectable
+            style={{ ...s.body, color: event.role === 'user' ? color.white : color.ink }}
+          >
+            {event.content}
+          </Text>
+          {!!event.recipes?.length && (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ gap: 10, paddingTop: 6 }}
+            >
+              {event.recipes.map((r) => (
+                <Press
+                  key={r.id}
+                  accessibilityRole="button"
+                  accessibilityLabel={tr('Open {{v0}}', { v0: r.title })}
+                  onPress={() => void openRecipe(r.id)}
+                  style={{ width: 148, gap: 6 }}
+                >
+                  <FoodImage
+                    uri={r.image}
+                    style={{ width: 148, height: 104, borderRadius: radius.sm }}
+                  />
+                  <Text numberOfLines={2} style={s.h3}>
+                    {r.title}
+                  </Text>
+                  <Text style={s.small}>{tr('{{v0}} min', { v0: r.minutes })}</Text>
+                </Press>
+              ))}
+            </ScrollView>
+          )}
+        </View>
+      ))}
+      {project?.busy && (
+        <View style={[s.row, { gap: 9, padding: 10 }]}>
+          <ActivityIndicator size="small" color={color.ink} />
+          <Text accessibilityLiveRegion="polite" style={s.muted}>
+            {tr('Your sous-chef is working…')}
+          </Text>
+        </View>
+      )}
+    </>
+  );
+  const composer = (
+    <>
+      {attachment && (
+        <View style={[s.row, { gap: 12 }]}>
+          <FoodImage
+            uri={attachment.uri}
+            style={{ width: 60, height: 74, borderRadius: radius.sm }}
+          />
+          <View style={{ flex: 1 }}>
+            <Text style={s.h3}>{tr('Recipe photo attached')}</Text>
+            <Text style={s.small}>{tr('Add a note or send it as it is.')}</Text>
+          </View>
+          <IconButton
+            icon={X}
+            label={tr('Remove attached recipe photo')}
+            onPress={() => setAttachment(null)}
+          />
+        </View>
+      )}
+      {/* It follows what's open, so "this" means the page or recipe in front of you. */}
+      <View style={{ gap: 8 }}>
+        <View style={[s.row, { gap: 6, paddingHorizontal: 6 }]}>
+          <Eye size={15} color={color.muted} />
+          <Text numberOfLines={1} style={[s.small, { flex: 1 }]}>
+            {context.recipe
+              ? context.cookingStep
+                ? tr('Cooking {{v0}} · step {{v1}}', {
+                    v0: context.recipe.title,
+                    v1: context.cookingStep,
+                  })
+                : tr('Viewing {{v0}}', { v0: context.recipe.title })
+              : tr('Viewing {{v0}}', { v0: context.title })}
+          </Text>
+        </View>
+        {!!nearby.length && !runningVoice && (
+          <ScrollView
+            horizontal
+            keyboardShouldPersistTaps="handled"
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ gap: 8 }}
+          >
+            {nearby.map((phrase) => (
+              <Button
+                key={phrase}
+                title={tr(phrase)}
+                small
+                variant="secondary"
+                disabled={!ready}
+                onPress={() => void send(tr(phrase), null)}
+              />
+            ))}
+          </ScrollView>
+        )}
+      </View>
+      <View
+        style={{
+          flexDirection: 'row',
+          alignItems: 'flex-end',
+          gap: 2,
+          padding: 6,
+          backgroundColor: color.white,
+          borderRadius: 26,
+          borderWidth: 1,
+          borderColor: color.border,
+        }}
+      >
+        {/* A tight pair, so they read as one set of photo tools. */}
+        <View style={[s.row, { height: 40 }]}>
+          <IconButton
+            icon={Camera}
+            label={tr('Take a photo')}
+            plain
+            size={34}
+            onPress={() => {
+              setBrowsing(false);
+              setCamera(true);
+            }}
+            disabled={!project || busy}
+          />
+          <IconButton
+            icon={ImagePlus}
+            label={tr('Add a photo')}
+            plain
+            size={34}
+            onPress={() => void pick()}
+            disabled={!project || busy}
+          />
+        </View>
+        <TextInput
+          accessibilityLabel={tr('Message your sous-chef')}
+          placeholder={attachment ? tr('Add a note (optional)…') : tr('Ask anything…')}
+          placeholderTextColor={color.soft}
+          value={text}
+          onChangeText={setText}
+          // Opening the panel puts the cursor straight in; a sheet waits for a tap.
+          autoFocus={floating}
+          multiline
+          // One line until it needs more; the web textarea doesn't grow on its own.
+          numberOfLines={1}
+          onContentSizeChange={(e) => setInputHeight(Math.ceil(e.nativeEvent.contentSize.height))}
+          maxLength={24000}
+          style={{
+            ...s.body,
+            flex: 1,
+            minHeight: 40,
+            maxHeight: 132,
+            height: Platform.OS === 'web' ? Math.min(132, Math.max(40, inputHeight)) : undefined,
+            paddingHorizontal: 6,
+            paddingVertical: 10,
+            lineHeight: 20,
+          }}
+        />
+        {text.trim() || attachment || runningVoice ? (
+          <IconButton
+            icon={Send}
+            label={tr('Send message')}
+            selected
+            size={40}
+            disabled={!ready || (!text.trim() && !attachment)}
+            onPress={() => void send()}
+          />
+        ) : (
+          <Button
+            title={tr('Talk')}
+            label={tr('Start live conversation')}
+            icon={AudioLines}
+            small
+            disabled={!project}
+            onPress={() => void startVoice()}
+          />
+        )}
+      </View>
+      {project?.recipe && (
+        <View style={s.wrap}>
+          {['Read it back', 'Publish'].map((phrase) => (
+            <Button
+              key={phrase}
+              title={tr(phrase)}
+              small
+              variant="ghost"
+              disabled={!ready}
+              onPress={() => void send(tr(phrase), null)}
+            />
+          ))}
+        </View>
+      )}
+    </>
+  );
+  const errors = (
+    <>
+      {!!error && (
+        <Text accessibilityRole="alert" style={{ ...s.muted, color: color.error }}>
+          {tr(error)}
+        </Text>
+      )}
+      {!!project?.error && project.error !== error && (
+        <Text accessibilityRole="alert" style={{ ...s.muted, color: color.error }}>
+          {tr(project.error)}
+        </Text>
+      )}
+    </>
+  );
+  const draft = project?.recipe && (
+    <View style={[s.card, { gap: 14 }]}>
+      <View style={[s.row, { gap: 14 }]}>
+        {!!project.recipe.image && (
+          <FoodImage
+            uri={project.recipe.image}
+            style={{ width: 76, height: 88, borderRadius: radius.md }}
+          />
+        )}
+        <View style={{ flex: 1, gap: 6 }}>
+          <Pill
+            title={project.recipe.published ? tr('Published') : tr('Private draft saved')}
+            icon={Check}
+          />
+          <Text style={s.h2}>{project.recipe.title}</Text>
+          <Text style={s.small}>
+            {tr('{{v0}} min · {{v1}} servings · {{v2}} ingredients', {
+              v0: project.recipe.minutes,
+              v1: project.recipe.servings,
+              v2: project.recipe.ingredients.length,
+            })}
+          </Text>
+        </View>
+      </View>
+      {project.assets.map((asset) => (
+        <View key={asset.kind} style={{ gap: 4 }}>
+          <View style={[s.row, { gap: 8 }]}>
+            {asset.kind === 'image' ? (
+              <ImagePlus size={17} color={color.ink} />
+            ) : (
+              <Video size={17} color={color.ink} />
+            )}
+            <Text style={[s.body, { flex: 1 }]}>
+              {asset.kind === 'image' ? tr('AI cover photo') : tr('AI recipe video')}
+            </Text>
+            <Text style={s.small}>
+              {asset.status === 'completed'
+                ? tr('Ready')
+                : asset.status === 'failed'
+                  ? tr('Needs attention')
+                  : tr('Creating…')}
+            </Text>
+          </View>
+          {asset.status === 'failed' && <Text style={s.muted}>{tr(asset.error)}</Text>}
+        </View>
+      ))}
+      <View style={[s.row, { gap: 8 }]}>
+        <Button
+          title={tr('Open recipe')}
+          small
+          onPress={() => {
+            if (!floating) exit();
+            onRecipe(project.recipe!);
+          }}
+        />
+        {project.assets.some((a) => a.status === 'failed') && (
+          <Button
+            title={tr('Retry media')}
+            small
+            variant="secondary"
+            disabled={project.busy || busy}
+            onPress={() =>
+              void send(
+                tr(
+                  'Retry the failed media generation. I understand it may incur a new generation charge.',
+                ),
+                null,
+              )
+            }
+          />
+        )}
+      </View>
+      <Text style={s.small}>{tr('Media keeps creating when you close this conversation.')}</Text>
+    </View>
+  );
+  const cameraView = (
+    <RecipeCamera onPhoto={(uri) => void upload(uri)} onCancel={() => setCamera(false)} />
+  );
+  const title = camera ? tr('Take a photo') : tr('Sous-chef');
+  const avatar = (
+    <View
+      style={{
+        width: 32,
+        height: 32,
+        borderRadius: 16,
+        backgroundColor: color.ink,
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+    >
+      <Sparkles size={15} color={color.white} strokeWidth={2.2} />
+    </View>
+  );
+  const actions = (
+    <>
+      {earlier.length > 0 && (
+        <IconButton
+          icon={History}
+          plain
+          size={36}
+          label={tr('Earlier conversations')}
+          onPress={() => {
+            setCamera(false);
+            setBrowsing((b) => !b);
+          }}
+        />
+      )}
+      <IconButton
+        icon={SquarePen}
+        plain
+        size={36}
+        label={tr('New chat')}
+        disabled={busy || runningVoice}
+        onPress={() => void create()}
+      />
+    </>
+  );
+  const body = camera ? (
+    cameraView
+  ) : browsing ? (
+    <>
+      <Text style={s.label}>{tr('Earlier conversations')}</Text>
+      <View style={[s.card, { paddingVertical: 4, paddingHorizontal: 16 }]}>
+        {earlier.map((p, n) => (
+          <Press
+            key={p.id}
+            accessibilityRole="button"
+            scale={0.98}
+            onPress={() => void selectProject(p).catch((e) => setError(e.message))}
+            style={[
+              s.row,
+              { gap: 12, paddingVertical: 13 },
+              n > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderColor: color.line },
+            ]}
+          >
+            <View style={{ flex: 1, gap: 2 }}>
+              <Text numberOfLines={1} style={[s.h3, { fontSize: 15 }]}>
+                {p.recipe?.title || p.title || tr('Earlier conversation')}
+              </Text>
+              <Text style={s.small}>{day(p.updatedAt)}</Text>
+            </View>
+            <ChevronRight size={16} color={color.soft} />
+          </Press>
+        ))}
+      </View>
+      <Text style={s.small}>{tr('Your conversation saves automatically.')}</Text>
+      <Button
+        title={tr('Back to conversation')}
+        variant="ghost"
+        small
+        onPress={() => setBrowsing(false)}
+        style={{ alignSelf: 'flex-start' }}
+      />
+    </>
+  ) : (
+    <>
+      {messages}
+      {busy && <ActivityIndicator color={color.ink} />}
+      {draft}
+    </>
+  );
   return (
     <>
-      {hidden && runningVoice && (
+      {/* The panel folds into the launcher, unless a live conversation keeps going; a sheet always
+          leaves a pill to come back to. */}
+      {hidden && (runningVoice || !floating) && (
         <View
           style={{
             position: 'absolute',
@@ -624,27 +1127,37 @@ export function RecipeStudio({
             onPress={() => onHide(false)}
             style={[s.row, { gap: 9, paddingHorizontal: 10, height: 44 }]}
           >
-            {muted ? (
-              <MicOff size={18} color={color.white} />
-            ) : (
+            {runningVoice && !muted ? (
               <Mic size={18} color={color.white} />
+            ) : (
+              <MicOff size={18} color={color.white} />
             )}
-            <Text style={{ ...s.h3, color: color.white }}>{tr('Listening…')}</Text>
+            <Text style={{ ...s.h3, color: color.white }}>
+              {runningVoice ? tr('Listening…') : tr('Sous-chef')}
+            </Text>
           </Press>
-          <IconButton icon={X} dark size={40} label={tr('End voice')} onPress={() => void stop()} />
+          <IconButton
+            icon={X}
+            dark
+            size={40}
+            label={runningVoice ? tr('End voice') : tr('Close the sous-chef')}
+            onPress={runningVoice ? () => void stop() : exit}
+          />
         </View>
       )}
-      {shown && (
+      {/* The same conversation, header and composer either way: a panel beside the page in a
+          desktop browser, a bottom sheet on phones. */}
+      {dock.panel && shown && (
         <Animated.View
           ref={panel}
           role="dialog"
           aria-label={tr('Sous-chef')}
           style={{
             position: 'absolute',
-            right: dock.panel.right,
-            bottom,
+            right: dock.right,
+            bottom: dock.bottom,
             width: dock.panel.width,
-            height: panelHeight,
+            height: dock.panel.height,
             backgroundColor: color.bg,
             borderRadius: radius.lg,
             borderWidth: StyleSheet.hairlineWidth,
@@ -672,46 +1185,11 @@ export function RecipeStudio({
               },
             ]}
           >
-            <View
-              style={{
-                width: 32,
-                height: 32,
-                borderRadius: 16,
-                marginRight: 8,
-                backgroundColor: color.ink,
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              <Sparkles size={15} color={color.white} strokeWidth={2.2} />
-            </View>
+            <View style={{ marginRight: 8 }}>{avatar}</View>
             <Text accessibilityRole="header" numberOfLines={1} style={[s.h3, { flex: 1 }]}>
-              {camera
-                ? tr('Take a photo')
-                : browsing
-                  ? tr('Earlier conversations')
-                  : tr('Sous-chef')}
+              {title}
             </Text>
-            {earlier.length > 0 && (
-              <IconButton
-                icon={History}
-                plain
-                size={36}
-                label={tr('Earlier conversations')}
-                onPress={() => {
-                  setCamera(false);
-                  setBrowsing((b) => !b);
-                }}
-              />
-            )}
-            <IconButton
-              icon={SquarePen}
-              plain
-              size={36}
-              label={tr('New chat')}
-              disabled={busy || runningVoice}
-              onPress={() => void create()}
-            />
+            {actions}
             <IconButton
               icon={ChevronDown}
               plain
@@ -723,97 +1201,7 @@ export function RecipeStudio({
             />
             <IconButton icon={X} plain size={36} label={tr('Close the sous-chef')} onPress={exit} />
           </View>
-          {runningVoice && !camera && (
-            <View
-              style={{
-                margin: 12,
-                marginBottom: 0,
-                borderRadius: radius.md,
-                backgroundColor: color.ink,
-                padding: 16,
-                gap: 12,
-              }}
-            >
-              <View style={[s.row, { gap: 12 }]}>
-                <View
-                  style={{
-                    width: 48,
-                    height: 48,
-                    borderRadius: 24,
-                    borderWidth: 1,
-                    borderColor: color.glassBorder,
-                    backgroundColor: color.ink2,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  {voiceState === 'connecting' ? (
-                    <ActivityIndicator color={color.white} />
-                  ) : muted ? (
-                    <MicOff size={22} color={color.white} />
-                  ) : (
-                    <Mic size={22} color={color.white} strokeWidth={1.5} />
-                  )}
-                </View>
-                <View style={{ flex: 1, gap: 3 }}>
-                  <Text accessibilityLiveRegion="polite" style={{ ...s.h3, color: color.white }}>
-                    {voiceState === 'connecting'
-                      ? tr('Connecting your sous-chef…')
-                      : muted
-                        ? tr('Microphone paused')
-                        : tr('I’m listening. Take your time.')}
-                  </Text>
-                  <Text style={{ ...s.small, color: color.onInk }}>
-                    {tr('Talk naturally. Interrupt or correct me anytime.')}
-                  </Text>
-                </View>
-              </View>
-              {!!caption && (
-                <Text numberOfLines={3} style={{ ...s.body, color: color.white }}>
-                  {caption}
-                </Text>
-              )}
-              <View style={[s.row, { gap: 12 }]}>
-                <IconButton
-                  icon={muted ? Mic : MicOff}
-                  label={muted ? tr('Resume microphone') : tr('Mute microphone')}
-                  disabled={voiceState === 'connecting'}
-                  size={40}
-                  onPress={() => {
-                    connection.current?.mute(!muted);
-                    setMuted(!muted);
-                  }}
-                />
-                <Button
-                  title={tr('End voice')}
-                  icon={Square}
-                  small
-                  variant="secondary"
-                  onPress={() => void stop()}
-                />
-                <Text style={{ ...s.small, color: color.onInk, flex: 1, textAlign: 'right' }}>
-                  {Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, '0')}
-                </Text>
-              </View>
-              {audioBlocked && (
-                <Button
-                  title={tr('Enable assistant audio')}
-                  icon={Volume2}
-                  small
-                  variant="secondary"
-                  onPress={() =>
-                    void connection.current
-                      ?.enableAudio()
-                      .then(() => setAudioBlocked(false))
-                      .catch(() => setError('Audio playback is blocked in your browser settings.'))
-                  }
-                />
-              )}
-              <Text style={{ ...s.small, color: color.onInk }}>
-                {tr('Voice is processed live. We save your transcript, not an audio recording.')}
-              </Text>
-            </View>
-          )}
+          {!camera && voiceCard}
           <ScrollView
             ref={list}
             keyboardShouldPersistTaps="handled"
@@ -829,223 +1217,8 @@ export function RecipeStudio({
               gap: 12,
             }}
           >
-            {camera ? (
-              <RecipeCamera onPhoto={(uri) => void upload(uri)} onCancel={() => setCamera(false)} />
-            ) : browsing ? (
-              <>
-                <View style={[s.card, { paddingVertical: 4, paddingHorizontal: 16 }]}>
-                  {earlier.map((p, n) => (
-                    <Press
-                      key={p.id}
-                      accessibilityRole="button"
-                      scale={0.98}
-                      onPress={() => void selectProject(p).catch((e) => setError(e.message))}
-                      style={[
-                        s.row,
-                        { gap: 12, paddingVertical: 13 },
-                        n > 0 && {
-                          borderTopWidth: StyleSheet.hairlineWidth,
-                          borderColor: color.line,
-                        },
-                      ]}
-                    >
-                      <View style={{ flex: 1, gap: 2 }}>
-                        <Text numberOfLines={1} style={[s.h3, { fontSize: 15 }]}>
-                          {p.recipe?.title || p.title || tr('Earlier conversation')}
-                        </Text>
-                        <Text style={s.small}>{day(p.updatedAt)}</Text>
-                      </View>
-                      <ChevronRight size={16} color={color.soft} />
-                    </Press>
-                  ))}
-                </View>
-                <Text style={s.small}>{tr('Your conversation saves automatically.')}</Text>
-              </>
-            ) : (
-              <>
-                {!groups.length && !runningVoice && (
-                  <View style={{ paddingVertical: 6, gap: 10 }}>
-                    <ChefHat size={28} color={color.ink} />
-                    <Text style={s.h2}>{tr('How can I help in the kitchen?')}</Text>
-                    <Text style={s.muted}>
-                      {tr(
-                        'Find recipes, plan meals, sort out your shopping, or create a recipe together. Type, add a photo, or talk live.',
-                      )}
-                    </Text>
-                    <View style={[s.wrap, { gap: 8 }]}>
-                      {(nearby.length ? [] : suggestions).map((phrase) => (
-                        <Button
-                          key={phrase}
-                          title={tr(phrase)}
-                          small
-                          variant="secondary"
-                          disabled={!ready}
-                          onPress={() => void send(tr(phrase), null)}
-                        />
-                      ))}
-                    </View>
-                    <Text style={s.small}>{tr('Your conversation saves automatically.')}</Text>
-                  </View>
-                )}
-                {groups.map((event) => (
-                  <View
-                    key={event.seq}
-                    style={{
-                      alignSelf: event.role === 'user' ? 'flex-end' : 'flex-start',
-                      maxWidth: '92%',
-                      padding: 14,
-                      borderRadius: radius.md,
-                      backgroundColor: event.role === 'user' ? color.ink : color.white,
-                      gap: 5,
-                    }}
-                  >
-                    <Text
-                      style={{
-                        ...s.small,
-                        color: event.role === 'user' ? color.onInk : color.muted,
-                      }}
-                    >
-                      {event.role === 'user' ? tr('You') : tr('Sous-chef')}
-                      {event.imageCount
-                        ? tr(' · {{v0}} recipe photo', { v0: event.imageCount })
-                        : ''}
-                    </Text>
-                    <Text
-                      selectable
-                      style={{ ...s.body, color: event.role === 'user' ? color.white : color.ink }}
-                    >
-                      {event.content}
-                    </Text>
-                    {!!event.recipes?.length && (
-                      <ScrollView
-                        horizontal
-                        showsHorizontalScrollIndicator={false}
-                        contentContainerStyle={{ gap: 10, paddingTop: 6 }}
-                      >
-                        {event.recipes.map((r) => (
-                          <Press
-                            key={r.id}
-                            accessibilityRole="button"
-                            accessibilityLabel={tr('Open {{v0}}', { v0: r.title })}
-                            onPress={() => void openRecipe(r.id)}
-                            style={{ width: 140, gap: 6 }}
-                          >
-                            <FoodImage
-                              uri={r.image}
-                              style={{ width: 140, height: 100, borderRadius: radius.sm }}
-                            />
-                            <Text numberOfLines={2} style={s.h3}>
-                              {r.title}
-                            </Text>
-                            <Text style={s.small}>{tr('{{v0}} min', { v0: r.minutes })}</Text>
-                          </Press>
-                        ))}
-                      </ScrollView>
-                    )}
-                  </View>
-                ))}
-                {project?.busy && (
-                  <View style={[s.row, { gap: 9, padding: 10 }]}>
-                    <ActivityIndicator size="small" color={color.ink} />
-                    <Text accessibilityLiveRegion="polite" style={s.muted}>
-                      {tr('Your sous-chef is working…')}
-                    </Text>
-                  </View>
-                )}
-                {busy && <ActivityIndicator color={color.ink} />}
-                {project?.recipe && (
-                  <View style={[s.card, { gap: 14, padding: 16 }]}>
-                    <View style={[s.row, { gap: 14 }]}>
-                      {!!project.recipe.image && (
-                        <FoodImage
-                          uri={project.recipe.image}
-                          style={{ width: 68, height: 80, borderRadius: radius.md }}
-                        />
-                      )}
-                      <View style={{ flex: 1, gap: 6 }}>
-                        <Pill
-                          title={
-                            project.recipe.published ? tr('Published') : tr('Private draft saved')
-                          }
-                          icon={Check}
-                        />
-                        <Text style={s.h3}>{project.recipe.title}</Text>
-                        <Text style={s.small}>
-                          {tr('{{v0}} min · {{v1}} servings · {{v2}} ingredients', {
-                            v0: project.recipe.minutes,
-                            v1: project.recipe.servings,
-                            v2: project.recipe.ingredients.length,
-                          })}
-                        </Text>
-                      </View>
-                    </View>
-                    {project.assets.map((asset) => (
-                      <View key={asset.kind} style={{ gap: 4 }}>
-                        <View style={[s.row, { gap: 8 }]}>
-                          {asset.kind === 'image' ? (
-                            <ImagePlus size={17} color={color.ink} />
-                          ) : (
-                            <Video size={17} color={color.ink} />
-                          )}
-                          <Text style={[s.body, { flex: 1 }]}>
-                            {asset.kind === 'image' ? tr('AI cover photo') : tr('AI recipe video')}
-                          </Text>
-                          <Text style={s.small}>
-                            {asset.status === 'completed'
-                              ? tr('Ready')
-                              : asset.status === 'failed'
-                                ? tr('Needs attention')
-                                : tr('Creating…')}
-                          </Text>
-                        </View>
-                        {asset.status === 'failed' && (
-                          <Text style={s.muted}>{tr(asset.error)}</Text>
-                        )}
-                      </View>
-                    ))}
-                    <View style={[s.row, { gap: 8 }]}>
-                      <Button
-                        title={tr('Open recipe')}
-                        small
-                        onPress={() => {
-                          stepAside();
-                          onRecipe(project.recipe!);
-                        }}
-                      />
-                      {project.assets.some((a) => a.status === 'failed') && (
-                        <Button
-                          title={tr('Retry media')}
-                          small
-                          variant="secondary"
-                          disabled={project.busy || busy}
-                          onPress={() =>
-                            void send(
-                              tr(
-                                'Retry the failed media generation. I understand it may incur a new generation charge.',
-                              ),
-                              null,
-                            )
-                          }
-                        />
-                      )}
-                    </View>
-                    <Text style={s.small}>
-                      {tr('Media keeps creating when you close this conversation.')}
-                    </Text>
-                  </View>
-                )}
-              </>
-            )}
-            {!!error && (
-              <Text accessibilityRole="alert" style={{ ...s.muted, color: color.error }}>
-                {tr(error)}
-              </Text>
-            )}
-            {!!project?.error && project.error !== error && (
-              <Text accessibilityRole="alert" style={{ ...s.muted, color: color.error }}>
-                {tr(project.error)}
-              </Text>
-            )}
+            {body}
+            {errors}
           </ScrollView>
           {chatting && (
             <View
@@ -1058,155 +1231,27 @@ export function RecipeStudio({
                 borderColor: color.line,
               }}
             >
-              {attachment && (
-                <View style={[s.row, { gap: 12 }]}>
-                  <FoodImage
-                    uri={attachment.uri}
-                    style={{ width: 48, height: 60, borderRadius: radius.sm }}
-                  />
-                  <View style={{ flex: 1 }}>
-                    <Text style={s.h3}>{tr('Recipe photo attached')}</Text>
-                    <Text style={s.small}>{tr('Add a note or send it as it is.')}</Text>
-                  </View>
-                  <IconButton
-                    icon={X}
-                    label={tr('Remove attached recipe photo')}
-                    size={40}
-                    onPress={() => setAttachment(null)}
-                  />
-                </View>
-              )}
-              {/* It follows what's open, so "this" means the page or recipe in front of you. */}
-              <View style={[s.row, { gap: 6, paddingHorizontal: 6 }]}>
-                <Eye size={15} color={color.muted} />
-                <Text numberOfLines={1} style={[s.small, { flex: 1 }]}>
-                  {context.recipe
-                    ? context.cookingStep
-                      ? tr('Cooking {{v0}} · step {{v1}}', {
-                          v0: context.recipe.title,
-                          v1: context.cookingStep,
-                        })
-                      : tr('Viewing {{v0}}', { v0: context.recipe.title })
-                    : tr('Viewing {{v0}}', { v0: context.title })}
-                </Text>
-              </View>
-              {!!nearby.length && !runningVoice && (
-                <ScrollView
-                  horizontal
-                  keyboardShouldPersistTaps="handled"
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={{ gap: 8 }}
-                >
-                  {nearby.map((phrase) => (
-                    <Button
-                      key={phrase}
-                      title={tr(phrase)}
-                      small
-                      variant="secondary"
-                      disabled={!ready}
-                      onPress={() => void send(tr(phrase), null)}
-                    />
-                  ))}
-                </ScrollView>
-              )}
-              <View
-                style={{
-                  flexDirection: 'row',
-                  alignItems: 'flex-end',
-                  gap: 2,
-                  padding: 6,
-                  backgroundColor: color.white,
-                  borderRadius: 26,
-                  borderWidth: 1,
-                  borderColor: color.border,
-                }}
-              >
-                {/* A tight pair, so they read as one set of photo tools. */}
-                <View style={[s.row, { height: 40 }]}>
-                  <IconButton
-                    icon={Camera}
-                    label={tr('Take a photo')}
-                    plain
-                    size={34}
-                    onPress={() => {
-                      setBrowsing(false);
-                      setCamera(true);
-                    }}
-                    disabled={!project || busy}
-                  />
-                  <IconButton
-                    icon={ImagePlus}
-                    label={tr('Add a photo')}
-                    plain
-                    size={34}
-                    onPress={() => void pick()}
-                    disabled={!project || busy}
-                  />
-                </View>
-                <TextInput
-                  accessibilityLabel={tr('Message your sous-chef')}
-                  placeholder={attachment ? tr('Add a note (optional)…') : tr('Ask anything…')}
-                  placeholderTextColor={color.soft}
-                  value={text}
-                  onChangeText={setText}
-                  // A desktop browser types straight in; phones wait for a tap, not the keyboard.
-                  autoFocus={Platform.OS === 'web' && desktop}
-                  multiline
-                  // One line until it needs more; the web textarea doesn't grow on its own.
-                  numberOfLines={1}
-                  onContentSizeChange={(e) =>
-                    setInputHeight(Math.ceil(e.nativeEvent.contentSize.height))
-                  }
-                  maxLength={24000}
-                  style={{
-                    ...s.body,
-                    flex: 1,
-                    minHeight: 40,
-                    maxHeight: 132,
-                    height:
-                      Platform.OS === 'web' ? Math.min(132, Math.max(40, inputHeight)) : undefined,
-                    paddingHorizontal: 6,
-                    paddingVertical: 10,
-                    lineHeight: 20,
-                  }}
-                />
-                {text.trim() || attachment || runningVoice ? (
-                  <IconButton
-                    icon={Send}
-                    label={tr('Send message')}
-                    selected
-                    size={40}
-                    disabled={!ready || (!text.trim() && !attachment)}
-                    onPress={() => void send()}
-                  />
-                ) : (
-                  <Button
-                    title={tr('Talk')}
-                    label={tr('Start live conversation')}
-                    icon={AudioLines}
-                    small
-                    disabled={!project}
-                    onPress={() => void startVoice()}
-                  />
-                )}
-              </View>
-              {project?.recipe && (
-                <View style={[s.row, { gap: 4 }]}>
-                  {['Read it back', 'Publish'].map((phrase) => (
-                    <Button
-                      key={phrase}
-                      title={tr(phrase)}
-                      small
-                      variant="ghost"
-                      disabled={!ready}
-                      onPress={() => void send(tr(phrase), null)}
-                    />
-                  ))}
-                </View>
-              )}
+              {composer}
             </View>
           )}
         </Animated.View>
+      )}
+      {!dock.panel && (
+        <Dialog
+          visible={!hidden}
+          onClose={exit}
+          title={title}
+          leading={avatar}
+          actions={!camera && actions}
+          header={!camera && voiceCard}
+          footer={chatting && composer}
+          stickToEnd={chatting}
+        >
+          <View style={{ gap: 12 }}>
+            {body}
+            {errors}
+          </View>
+        </Dialog>
       )}
     </>
   );

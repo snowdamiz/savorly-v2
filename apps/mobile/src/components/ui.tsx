@@ -859,12 +859,16 @@ export function Segmented<T extends string>({
 // Every Dialog renders into one shared sheet (SheetHost). When one sheet hands off to another, the
 // container stays put: the old page fades out, the sheet eases to the new height, the new page
 // fades in. A sheet opened over another returns to it when closed. The title, anything pinned under
-// it and the close button stay put while the rest scrolls beneath them.
+// it or at the bottom, and the close button stay put while the rest scrolls between them.
 type Sheet = {
   id: number;
   order: number;
   title?: string;
+  leading?: React.ReactNode;
+  actions?: React.ReactNode;
   header?: React.ReactNode;
+  footer?: React.ReactNode;
+  stickToEnd?: boolean;
   children?: React.ReactNode;
   onClose: () => void;
 };
@@ -887,14 +891,26 @@ export function Dialog({
   visible,
   onClose,
   title,
+  leading,
+  actions,
   header,
+  footer,
+  stickToEnd,
   children,
 }: {
   visible: boolean;
   onClose: () => void;
   title?: string;
+  /** Sits before the title, such as an avatar. */
+  leading?: React.ReactNode;
+  /** Buttons beside the close button. */
+  actions?: React.ReactNode;
   /** Stays pinned under the title while the content scrolls, such as a search field. */
   header?: React.ReactNode;
+  /** Stays pinned at the bottom, such as a chat's composer. */
+  footer?: React.ReactNode;
+  /** Keeps the newest content in view as it grows, as a conversation does. */
+  stickToEnd?: boolean;
   children: React.ReactNode;
 }) {
   const [id] = useState(() => ++sheetSeq);
@@ -906,7 +922,13 @@ export function Dialog({
   // Runs after every render so the sheet always shows the owner's latest content.
   useLayoutEffect(() => {
     if (visible)
-      setSheets(sheets.map((e) => (e.id === id ? { ...e, title, header, children, onClose } : e)));
+      setSheets(
+        sheets.map((e) =>
+          e.id === id
+            ? { ...e, title, leading, actions, header, footer, stickToEnd, children, onClose }
+            : e,
+        ),
+      );
   });
   return null;
 }
@@ -1138,11 +1160,12 @@ export function SheetHost() {
   const keyboard = useKeyboardScroll(scroller, rise);
   // Once content has scrolled under the header, a hairline separates them.
   const [scrolled, setScrolled] = useState(false);
-  // The sheet fits its header and content; either can change size on its own.
-  const sizes = useRef({ header: compact ? 48 : 70, content: -1 });
+  // The sheet fits its header, content and footer; each can change size on its own.
+  const sizes = useRef({ header: compact ? 48 : 70, content: -1, footer: -1 });
   const show = (next: string) => {
     m.current.page = next;
     sizes.current.content = -1;
+    sizes.current.footer = -1;
     dragger.reset();
     setScrolled(false);
     setPage(next);
@@ -1263,11 +1286,11 @@ export function SheetHost() {
   useEffect(() => {
     transition(topPage);
   }, [topPage]);
-  const measure = (part: 'header' | 'content', size: number) => {
+  const measure = (part: 'header' | 'content' | 'footer', size: number) => {
     sizes.current[part] = size;
-    const { header, content } = sizes.current;
-    if (content < 0) return;
-    const target = Math.min(chrome + header + content, maxHeight);
+    const { header, content, footer } = sizes.current;
+    if (content < 0 || (entry?.footer && footer < 0)) return;
+    const target = Math.min(chrome + header + content + Math.max(0, footer), maxHeight);
     if (!sized) {
       h.setValue(target);
       setSized(true);
@@ -1378,16 +1401,20 @@ export function SheetHost() {
                   }}
                 >
                   <View style={[s.row, { gap: 12 }]}>
-                    <Animated.View style={{ flex: 1, opacity: fade }}>
-                      {!!entry?.title && (
-                        <Text
-                          accessibilityRole="header"
-                          numberOfLines={2}
-                          style={[s.h2, { fontSize: 22, lineHeight: 28 }]}
-                        >
-                          {entry.title}
-                        </Text>
-                      )}
+                    <Animated.View style={[s.row, { flex: 1, gap: 10, opacity: fade }]}>
+                      {entry?.leading}
+                      <View style={{ flex: 1 }}>
+                        {!!entry?.title && (
+                          <Text
+                            accessibilityRole="header"
+                            numberOfLines={2}
+                            style={[s.h2, { fontSize: 22, lineHeight: 28 }]}
+                          >
+                            {entry.title}
+                          </Text>
+                        )}
+                      </View>
+                      {entry?.actions}
                     </Animated.View>
                     <IconButton
                       icon={X}
@@ -1422,14 +1449,21 @@ export function SheetHost() {
                         keyboard.onScroll(e);
                         if (offset > 1 !== scrolled) setScrolled(offset > 1);
                       }}
-                      onLayout={keyboard.onLayout}
-                      onContentSizeChange={(_, content) => measure('content', content)}
+                      onLayout={(e) => {
+                        keyboard.onLayout(e);
+                        if (entry.stickToEnd) scroller.current?.scrollToEnd({ animated: false });
+                      }}
+                      onContentSizeChange={(_, content) => {
+                        measure('content', content);
+                        if (entry.stickToEnd) scroller.current?.scrollToEnd({ animated: true });
+                      }}
                       style={{ opacity: fade }}
                     >
                       <View
                         style={{
                           padding: compact ? 22 : 30,
                           paddingTop: 8,
+                          paddingBottom: entry.footer ? 14 : compact ? 22 : 30,
                           gap: 18,
                         }}
                       >
@@ -1439,6 +1473,22 @@ export function SheetHost() {
                       </View>
                     </Animated.ScrollView>,
                   )}
+                {!!entry?.footer && (
+                  <Animated.View
+                    onLayout={(e) => measure('footer', e.nativeEvent.layout.height)}
+                    style={{
+                      opacity: fade,
+                      gap: 10,
+                      paddingHorizontal: compact ? 16 : 24,
+                      paddingTop: 10,
+                      paddingBottom: compact ? 4 : 20,
+                      borderTopWidth: StyleSheet.hairlineWidth,
+                      borderColor: color.line,
+                    }}
+                  >
+                    {entry.footer}
+                  </Animated.View>
+                )}
               </Animated.View>
             </Animated.View>,
           )}

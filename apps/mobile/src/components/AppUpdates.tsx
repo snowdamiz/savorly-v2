@@ -6,7 +6,7 @@ import { useI18n } from '../lib/i18n';
 import { useApp } from '../lib/store';
 import { color, font, radius, s, shadow } from '../lib/theme';
 import { checkForUpdate, updatesSupported, useForegroundUpdateChecks } from '../lib/updates';
-import { Button, FadeIn, IconButton, Press } from './ui';
+import { FadeIn, IconButton, Press } from './ui';
 
 function useRestart() {
   const app = useApp();
@@ -16,7 +16,10 @@ function useRestart() {
     );
 }
 
-/** Offers a restart once an update has downloaded; otherwise it runs from the next launch. */
+/**
+ * Offers a restart once an update has downloaded; otherwise it runs from the next launch. The
+ * message is the button, so it stays one short line on the narrowest phone in every language.
+ */
 export function UpdateBanner() {
   const { t } = useI18n();
   const { isUpdatePending, downloadedUpdate } = Updates.useUpdates();
@@ -27,38 +30,47 @@ export function UpdateBanner() {
   useForegroundUpdateChecks();
   if (!updatesSupported || !isUpdatePending || dismissed === pending) return null;
   return (
-    <FadeIn offset={-12} style={{ width: '100%', maxWidth: 640 }}>
+    <FadeIn offset={-12} style={{ maxWidth: '100%' }}>
       <View
         accessibilityRole="alert"
-        style={{
-          flexDirection: 'row',
-          alignItems: 'center',
-          gap: 12,
-          paddingLeft: 18,
-          paddingRight: 8,
-          paddingVertical: 10,
-          minHeight: 56,
-          borderRadius: radius.lg,
-          backgroundColor: color.ink,
-          boxShadow: shadow.card,
-        }}
+        style={[
+          s.row,
+          {
+            gap: 2,
+            padding: 4,
+            borderRadius: radius.pill,
+            backgroundColor: color.ink,
+            borderWidth: 1,
+            borderColor: color.glassBorder,
+            boxShadow: shadow.float,
+          },
+        ]}
       >
-        <RefreshCw size={18} color={color.white} strokeWidth={2} />
-        <Text
-          style={{
-            flex: 1,
-            fontFamily: font.semibold,
-            fontSize: 14,
-            lineHeight: 20,
-            color: color.white,
-          }}
+        <Press
+          accessibilityRole="button"
+          accessibilityLabel={t('Restart to update')}
+          onPress={restart}
+          style={[
+            s.row,
+            { flexShrink: 1, gap: 9, minHeight: 36, paddingLeft: 12, paddingRight: 6 },
+          ]}
         >
-          {t('A new version of Savorly is ready.')}
-        </Text>
-        <Button title={t('Restart')} variant="inverse" small onPress={restart} />
+          <RefreshCw size={16} color={color.white} strokeWidth={2.2} />
+          <Text
+            style={{
+              flexShrink: 1,
+              fontFamily: font.semibold,
+              fontSize: 14,
+              lineHeight: 20,
+              color: color.white,
+            }}
+          >
+            {t('Restart to update')}
+          </Text>
+        </Press>
         <IconButton
           icon={X}
-          size={36}
+          size={34}
           dark
           label={t('Not now')}
           onPress={() => setDismissed(pending)}
