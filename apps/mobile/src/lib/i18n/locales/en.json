@@ -729,5 +729,22 @@
   "Touch up the cover photo": "Touch up the cover photo",
   "Touch up": "Touch up",
   "Touch up photo {{v0}}": "Touch up photo {{v0}}",
-  "Photo touch-up": "Photo touch-up"
+  "Photo touch-up": "Photo touch-up",
+  "A new version of Savorly is ready.": "A new version of Savorly is ready.",
+  "Restart": "Restart",
+  "Not now": "Not now",
+  "App updates": "App updates",
+  "Update ready. Tap to restart.": "Update ready. Tap to restart.",
+  "Downloading an update…": "Downloading an update…",
+  "Checking for updates…": "Checking for updates…",
+  "Installed version": "Installed version",
+  "Updated {{date}}": "Updated {{date}}",
+  "You’re on the latest version.": "You’re on the latest version.",
+  "Couldn’t check for updates. Try again later.": "Couldn’t check for updates. Try again later.",
+  "Couldn’t restart. Close and reopen Savorly to update.": "Couldn’t restart. Close and reopen Savorly to update.",
+  "Share": "Share",
+  "Save": "Save",
+  "In your cookbooks": "In your cookbooks",
+  "Link copied to your clipboard.": "Link copied to your clipboard.",
+  "Use ← and → to move between steps, and Esc to close.": "Use ← and → to move between steps, and Esc to close."
 }

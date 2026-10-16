@@ -6,6 +6,8 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
+    "runtimeVersion": { "policy": "fingerprint" },
+    "updates": { "url": "https://u.expo.dev/c0e4c4a0-bfbf-4b82-9701-0e46c9463c6c" },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "app.savorly.mobile",

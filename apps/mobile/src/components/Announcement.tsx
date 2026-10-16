@@ -5,7 +5,7 @@ import { AlertTriangle, Megaphone, X } from 'lucide-react-native';
 import { useI18n } from '../lib/i18n';
 import { Announcement } from '../lib/types';
 import { color, font, radius, shadow } from '../lib/theme';
-import { FadeIn, IconButton, useChrome } from './ui';
+import { FadeIn, IconButton } from './ui';
 
 const DISMISSED_KEY = 'savorly.announcement.dismissed';
 
@@ -62,9 +62,8 @@ export function AnnouncementCard({
   );
 }
 
-/** Floats over the top of every screen until dismissed; a new message shows again. */
+/** Shown in the shell's top banners until dismissed; a new message shows again. */
 export function AnnouncementBanner({ announcement }: { announcement?: Announcement | null }) {
-  const { desktop, insets, gutter } = useChrome();
   // Unknown until storage answers, so a dismissed message never flashes.
   const [dismissed, setDismissed] = useState<string | null>(null);
   useEffect(() => {
@@ -82,19 +81,8 @@ export function AnnouncementBanner({ announcement }: { announcement?: Announceme
     AsyncStorage.setItem(DISMISSED_KEY, announcement.text).catch(() => {});
   };
   return (
-    <View
-      style={{
-        position: 'absolute',
-        top: desktop ? insets.top + 84 + 12 : insets.top + 8,
-        left: desktop ? 248 + gutter : 12,
-        right: desktop ? gutter : 12,
-        alignItems: 'center',
-        pointerEvents: 'box-none',
-      }}
-    >
-      <FadeIn offset={-12} style={{ width: '100%', maxWidth: 640 }}>
-        <AnnouncementCard announcement={announcement} onDismiss={dismiss} />
-      </FadeIn>
-    </View>
+    <FadeIn offset={-12} style={{ width: '100%', maxWidth: 640 }}>
+      <AnnouncementCard announcement={announcement} onDismiss={dismiss} />
+    </FadeIn>
   );
 }

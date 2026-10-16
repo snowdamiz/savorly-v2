@@ -2,15 +2,15 @@
 
 Staging is a full copy of Savorly for testing on real devices, at [staging.savorly.cooking](https://staging.savorly.cooking):
 
-| Piece                                     | Where                                                                                                                                   |
-| ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| Web app, `/api` gateway, Go API container | Cloudflare Worker `savorly-staging` on `staging.savorly.cooking`, `env.staging` in [wrangler.jsonc](../infra/cloudflare/wrangler.jsonc) |
-| Database                                  | Neon project `savorly-staging` (fixture recipes are seeded on startup)                                                                  |
-| Media                                     | R2 buckets `savorly-staging-media` (public via r2.dev, CORS for the staging site) and `savorly-staging-sources` (private)               |
-| Email                                     | Cloudflare Email Service on `savorly.cooking`, sending as `noreply@savorly.cooking`                                                     |
-| Android app                               | EAS profile `staging`: "Savorly Staging", package `app.savorly.mobile.staging`, installs beside production                              |
+| Piece                                     | Where                                                                                                                                                                         |
+| ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Web app, `/api` gateway, Go API container | Cloudflare Worker `savorly-staging` on `staging.savorly.cooking`, `env.staging` in [wrangler.jsonc](../infra/cloudflare/wrangler.jsonc)                                       |
+| Database                                  | Neon project `savorly-staging` (fixture recipes are seeded on startup)                                                                                                        |
+| Media                                     | R2 buckets `savorly-staging-media` (public via r2.dev, CORS for the staging site) and `savorly-staging-sources` (private)                                                     |
+| Email                                     | Cloudflare Email Service on `savorly.cooking`, sending as `noreply@savorly.cooking`                                                                                           |
+| Android app                               | EAS profile `staging`: "Savorly Staging", package `app.savorly.mobile.staging`, installs beside production; updates over the air on channel `staging` ([updates](UPDATES.md)) |
 
-Every push to the `staging` branch that passes verification redeploys the backend and queues an Android build ([ci.yml](../.github/workflows/ci.yml)). To put what is on `main` on staging:
+Every push to the `staging` branch that passes verification redeploys the backend, then ships the Android app ([ci.yml](../.github/workflows/ci.yml)): JavaScript-only changes reach installed staging apps as an over-the-air update, and native changes queue a new build ([updates](UPDATES.md)). To put what is on `main` on staging:
 
 ```sh
 git push origin main:staging
@@ -42,19 +42,19 @@ Pushes to `main` only run verification. [Production](PRODUCTION.md) deploys from
     - Secret `CLOUDFLARE_ACCOUNT_ID`: shown by `wrangler whoami`.
     - Secret `EXPO_TOKEN`: expo.dev → Account settings → Access tokens.
     - Variable `STAGING_URL` = `https://staging.savorly.cooking`, so CI waits for `/api/health` after deploying.
-11. **Install:** open the build on expo.dev on your phone (or scan its QR code), download the APK and allow installing from your browser when Android asks.
+11. **Install:** open the build on expo.dev on your phone (or scan its QR code), download the APK and allow installing from your browser when Android asks. Later pushes arrive as updates in the installed app; you only install again after a native change ([try it](UPDATES.md#try-it-on-staging)).
 
 ## Optional features
 
 Add the key to `.env.staging` and run `npm run deploy:staging`; the app shows each feature once `/api/v1/capabilities` reports it.
 
-| Feature                                         | Keys                                                                | From                                                                                                                                                                                                                                                        |
-| ----------------------------------------------- | ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Sous-chef, recipe generation, covers, narration | `OPENROUTER_API_KEY`                                                | openrouter.ai → Keys (set a spending limit)                                                                                                                                                                                                                 |
-| Live voice                                      | `OPENAI_API_KEY`, `OPENAI_PROJECT_ID`                               | platform.openai.com project with `gpt-live-1` access                                                                                                                                                                                                        |
-| Recipe videos                                   | `REAPI_API_KEY`                                                     | reapi.ai → API Keys                                                                                                                                                                                                                                         |
-| Google sign-in                                  | `GOOGLE_WEB_CLIENT_ID`                                              | Google Cloud OAuth **Web** client with JavaScript origin `https://staging.savorly.cooking` (no redirect URIs), plus an **Android** client for `app.savorly.mobile.staging` with the SHA-1 from `eas credentials --platform android` ([sign-in](SIGN-IN.md)) |
-| Password reset email                            | `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_EMAIL_API_TOKEN`, `EMAIL_FROM` | Step 5 above ([accounts](ACCOUNTS.md#password-reset-email)). Workers Paid includes 3,000 emails a month                                                                                                                                                     |
+| Feature                                         | Keys                                                                | From                                                                                                                                                                                                                                                                                         |
+| ----------------------------------------------- | ------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Sous-chef, recipe generation, covers, narration | `OPENROUTER_API_KEY`                                                | openrouter.ai → Keys (set a spending limit)                                                                                                                                                                                                                                                  |
+| Live voice                                      | `OPENAI_API_KEY`, `OPENAI_PROJECT_ID`                               | platform.openai.com project with `gpt-live-1` access                                                                                                                                                                                                                                         |
+| Recipe videos                                   | `REAPI_API_KEY`                                                     | reapi.ai → API Keys                                                                                                                                                                                                                                                                          |
+| Google sign-in                                  | `GOOGLE_WEB_CLIENT_ID`                                              | Google Cloud OAuth **Web** client with JavaScript origin `https://staging.savorly.cooking` and redirect URI `https://staging.savorly.cooking/`, plus an **Android** client for `app.savorly.mobile.staging` with the SHA-1 from `eas credentials --platform android` ([sign-in](SIGN-IN.md)) |
+| Password reset email                            | `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_EMAIL_API_TOKEN`, `EMAIL_FROM` | Step 5 above ([accounts](ACCOUNTS.md#password-reset-email)). Workers Paid includes 3,000 emails a month                                                                                                                                                                                      |
 
 Email/password accounts work without any of these.
 
@@ -66,4 +66,4 @@ Email/password accounts work without any of these.
 - `savorly.cooking` publishes DMARC `p=reject`: mail claiming to be from it is rejected unless Cloudflare Email Service sent it. Add any other sender (a mailbox provider, a newsletter tool) to SPF/DKIM before using it.
 - Paid plans are off (`PAID_PLANS=false`): every tester has unlimited Free use, the app shows no plans or prices, and no Stripe keys are needed. The shared daily ceilings (`AI_FREE_DAILY_BUDGET_USD` and `AI_DAILY_BUDGET_USD`, $10 each) are the only spend guard; adjust them in `wrangler.jsonc`, or override them without a redeploy from the [admin console](ADMIN.md)'s Settings. With `REAPI_API_KEY` set, each sous-chef recipe also generates a video (about $1.50).
 - The [admin console](ADMIN.md) opens for `yurlovandrew@gmail.com` once that account's email is verified, because staging runs in production mode. Sign in or connect Google with that address, reset the password (when email is configured), or set `email_verified` in Neon's SQL editor.
-- Each push to `staging` uses one EAS build from your plan's quota. Builds are queued with `--no-wait`; their status is on expo.dev, not in the GitHub check.
+- A push to `staging` uses an EAS build from your plan's quota only when native code changed; otherwise it publishes an update. Builds are queued with `--no-wait`; their status is on expo.dev, not in the GitHub check.

@@ -178,9 +178,16 @@ export function useChrome() {
     insets,
     desktop,
     compact: !desktop,
+    // A desktop browser shows recipes as pages inside the sidebar and header, like a website,
+    // where phones and tablets slide a sheet over everything.
+    webPage: Platform.OS === 'web' && desktop,
     gutter: desktop ? 40 : width > 650 ? 28 : 20,
     top: desktop ? 32 : 12,
   };
+}
+/** Web-only CSS positions that React Native's style types leave out; nothing on native. */
+export function webPosition(position: 'sticky' | 'fixed', style?: ViewStyle) {
+  return Platform.OS === 'web' ? ({ position, ...style } as unknown as ViewStyle) : undefined;
 }
 export function Button({
   title,
@@ -1546,6 +1553,25 @@ export function NumberField({
         }
       }}
     />
+  );
+}
+/** Stacks notices (announcements, app updates) over the top of every screen. */
+export function TopBanners({ children }: { children: React.ReactNode }) {
+  const { desktop, insets, gutter } = useChrome();
+  return (
+    <View
+      style={{
+        position: 'absolute',
+        top: desktop ? insets.top + 84 + 12 : insets.top + 8,
+        left: desktop ? 248 + gutter : 12,
+        right: desktop ? gutter : 12,
+        alignItems: 'center',
+        gap: 8,
+        pointerEvents: 'box-none',
+      }}
+    >
+      {children}
+    </View>
   );
 }
 // Rendered by the shell and again inside full-screen modals, which sit above the shell.

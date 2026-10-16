@@ -23,7 +23,8 @@ test('discovery, filters, details and mobile layout', async ({ page }, testInfo)
   await page.getByRole('button', { name: 'Next step', exact: true }).click();
   await expect(page.getByText('STEP 2 OF 3')).toBeVisible();
   await page.getByRole('button', { name: 'Close cooking mode', exact: true }).click();
-  await page.getByRole('button', { name: 'Close recipe', exact: true }).click();
+  // A desktop browser shows the recipe as a page with a Back link; phones close a sheet.
+  await page.getByRole('button', { name: 'Back', exact: true }).click();
   await page.getByRole('button', { name: 'Clear search', exact: true }).click();
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.getByRole('button', { name: 'My kitchen', exact: true })).toBeVisible();
@@ -73,7 +74,7 @@ test('register, save, groceries, plan and publish a recipe', async ({ page }) =>
     await page.getByRole('button', { name: 'Add to my week', exact: true }).click();
     await expect(page.getByText('A delicious plan. Added to your week.')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Close dialog', exact: true })).toHaveCount(0);
-    await page.getByRole('button', { name: 'Close recipe', exact: true }).click();
+    await page.getByRole('button', { name: 'Back', exact: true }).click();
     await page.getByRole('button', { name: 'Create recipe', exact: true }).click();
     await page.getByRole('button', { name: 'Write a recipe yourself', exact: true }).click();
     await page
