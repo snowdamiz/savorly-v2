@@ -3,6 +3,7 @@ import React, {
   useCallback,
   useContext,
   useEffect,
+  useEffectEvent,
   useLayoutEffect,
   useRef,
   useState,
@@ -1163,7 +1164,8 @@ export function SheetHost() {
       st.timer = setTimeout(() => st.phase === 'measuring' && reveal(), 300);
     });
   };
-  useEffect(() => {
+  // A sheet-page change drives the transition; content and viewport updates must not restart it.
+  const transition = useEffectEvent((topPage: string | undefined) => {
     const st = m.current;
     clearTimeout(st.timer);
     if (topPage) {
@@ -1238,6 +1240,9 @@ export function SheetHost() {
         });
       }, 40);
     }
+  });
+  useEffect(() => {
+    transition(topPage);
   }, [topPage]);
   const measure = (content: number) => {
     const target = Math.min(chrome + content, maxHeight);

@@ -1,5 +1,5 @@
 import { useI18n } from '../lib/i18n';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
   Pressable,
@@ -192,13 +192,16 @@ export function RecipeDetail({
           },
     [still, scrollY, settle, heroHeight],
   );
-  const loadReviews = () =>
-    api<Review[]>(`/recipes/${recipe.id}/reviews`)
-      .then(setReviews)
-      .catch((e) => setReviewError(e.message));
+  const loadReviews = useCallback(
+    () =>
+      api<Review[]>(`/recipes/${recipe.id}/reviews`)
+        .then(setReviews)
+        .catch((e) => setReviewError(e.message)),
+    [recipe.id],
+  );
   useEffect(() => {
     void loadReviews();
-  }, [recipe.id]);
+  }, [loadReviews]);
   const perform = async (fn: () => Promise<unknown>, message: string) => {
     if (busy || !app.requireUser()) return;
     setBusy(true);

@@ -73,6 +73,8 @@ export const useRevealFocus = () => useContext(RevealFocus);
 export function useKeyboardScroll(ref: React.RefObject<ScrollView | null>, lift: number) {
   const frame = useRef({ y: 0, height: 0, lift: 0 });
   const reveal = useCallback(() => {
+    // Browsers keep focused inputs visible themselves and do not expose this native API.
+    if (Platform.OS === 'web' || !frame.current.lift) return;
     // Let the focus and the keyboard's new layout land before measuring.
     setTimeout(() => {
       const scroller = ref.current;

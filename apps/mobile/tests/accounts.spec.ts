@@ -158,6 +158,35 @@ async function mockAccounts(page: Page, signedIn: boolean, catalogLive = true, c
   return posts;
 }
 
+test('profile edits reset on reopening and desktop/mobile chrome stays warning-free', async ({
+  page,
+}) => {
+  const diagnostics: string[] = [];
+  page.on('console', (message) => {
+    if (message.type() === 'warning' || message.type() === 'error')
+      diagnostics.push(message.text());
+  });
+  page.on('pageerror', (error) => diagnostics.push(error.message));
+  await mockAccounts(page, true);
+  const originalName = user.name;
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Open my kitchen', exact: true }).click();
+  await page.getByRole('button', { name: 'Edit your profile', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Your name', exact: true }).fill('Unsaved name');
+  await page.getByRole('button', { name: 'Close dialog', exact: true }).click();
+  await page.getByRole('button', { name: 'Edit your profile', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: 'Your name', exact: true })).toHaveValue(
+    originalName,
+  );
+  await page.getByRole('button', { name: 'Close dialog', exact: true }).click();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole('button', { name: 'Edit your profile', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: 'Your name', exact: true })).toHaveValue(
+    originalName,
+  );
+  expect(diagnostics).toEqual([]);
+});
+
 test('the web offers Apple and Google sign-in, each bound to a fresh server nonce', async ({
   page,
 }) => {

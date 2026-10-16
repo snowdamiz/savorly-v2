@@ -69,9 +69,23 @@ npm test
 npm run test:integration
 npm --prefix apps/mobile run test:e2e
 npm run build
+# All three JS/Hermes exports and the Worker/container build (nothing deployed):
+cd apps/mobile && npx expo export --platform all && cd ../..
+npm --prefix infra/cloudflare run build
 ```
 
 Browser tests use installed Google Chrome locally and Playwright Chromium in CI. API integration tests create isolated accounts and remove them; run against a development database. Provider tests use local mock servers and do not spend money. `make check` additionally runs Go vet and the race detector.
+
+`make setup` installs both the app and Worker dependencies; `npm run typecheck` checks both projects. Lint rejects warnings. Browser screenshots go to the ignored `test-results` directory.
+
+For a checkout running on different ports, set `EXPO_PUBLIC_API_URL` when starting Expo and pass matching `TEST_WEB_URL` and `TEST_API_URL` to the browser tests. Set the API's `PORT` and `ALLOWED_ORIGINS` to match. For example, Expo on 8181 with the API on 8180 uses:
+
+```sh
+TEST_WEB_URL=http://localhost:8181 TEST_API_URL=http://localhost:8180 npm --prefix apps/mobile run test:e2e
+TEST_API_URL=http://localhost:8180 npm run test:integration
+```
+
+Database and object-storage Go tests are opt-in: see the [current verification record](docs/VERIFICATION.md#local-checks-update--2026-10-15) for their environment and remaining upstream dependency diagnostics.
 
 ## Configuration and design decisions
 
