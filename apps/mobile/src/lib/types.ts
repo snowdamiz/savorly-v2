@@ -218,6 +218,8 @@ export type CookCommand = { step?: number; timerFrom?: number; n: number };
 /** What the user has open, so "this recipe" and "next step" mean something. */
 export type StudioContext = {
   screen: Screen;
+  /** The page's name as the user sees it. */
+  title: string;
   recipe: { id: string; title: string } | null;
   cookingStep: number | null;
 };
