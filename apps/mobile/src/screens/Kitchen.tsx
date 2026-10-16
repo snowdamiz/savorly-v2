@@ -393,26 +393,32 @@ export function Planner({
         }}
       />
     ));
+  const tabs = (
+    <Segmented
+      value={tab}
+      onChange={setTab}
+      options={[
+        { value: 'week', label: tr('Week') },
+        {
+          value: 'groceries',
+          label: tr('{{v0}}{{v1}}', {
+            v0: tr('Groceries'),
+            v1: groceries.length - checked ? ` · ${groceries.length - checked}` : '',
+          }),
+        },
+      ]}
+    />
+  );
   return (
     <View style={{ gap: 22 }}>
+      {/* Desktops keep the switch beside the title rather than stretched across the page. */}
       <PageHeading
         title={tr('Meal planner')}
         subtitle={tr('A little plan for the week, and a list to match.')}
-      />
-      <Segmented
-        value={tab}
-        onChange={setTab}
-        options={[
-          { value: 'week', label: tr('Week') },
-          {
-            value: 'groceries',
-            label: tr('{{v0}}{{v1}}', {
-              v0: tr('Groceries'),
-              v1: groceries.length - checked ? ` · ${groceries.length - checked}` : '',
-            }),
-          },
-        ]}
-      />
+      >
+        {!compact && <View style={{ width: 320 }}>{tabs}</View>}
+      </PageHeading>
+      {compact && tabs}
       {!app.user ? (
         <SignInKitchen
           title={tr('A little planning goes a long way')}
@@ -809,6 +815,153 @@ export function Pantry({
         `${p.name}${p.quantity ? ` (${p.quantity})` : ''}${p.expiresOn ? `, best before ${p.expiresOn}` : ''}`,
     )
     .join('; ');
+  const ask = (
+    <AskCard
+      title={tr('What can I make with this?')}
+      text={tr('The sous-chef builds a recipe around your pantry, using what expires first.')}
+      onPress={() =>
+        onAI({
+          kind: 'recipe',
+          title: tr('Cook from your pantry'),
+          context: pantryList ? `My pantry: ${pantryList}` : 'My pantry is nearly empty.',
+          suggestions: [
+            tr('Something quick, under 30 minutes'),
+            tr('Something cozy and comforting'),
+            tr('Use what expires soonest'),
+          ],
+        })
+      }
+    />
+  );
+  const add = (
+    <View style={[s.card, { gap: 12 }]}>
+      <Text style={s.h3}>{tr('Add an ingredient')}</Text>
+      <View style={{ gap: 8 }}>
+        <Field
+          placeholder={tr('Chickpeas, lemons, rice…')}
+          accessibilityLabel={tr('Ingredient')}
+          value={name}
+          onChangeText={setName}
+          style={{ backgroundColor: color.bg, borderColor: color.bg }}
+        />
+        <View style={[s.row, { gap: 8 }]}>
+          <Field
+            placeholder={tr('Quantity')}
+            value={quantity}
+            onChangeText={setQuantity}
+            style={{ backgroundColor: color.bg, borderColor: color.bg }}
+          />
+          <Field
+            placeholder={tr('Best before')}
+            accessibilityLabel={tr('Best before (YYYY-MM-DD)')}
+            value={expires}
+            onChangeText={setExpires}
+            style={{ backgroundColor: color.bg, borderColor: color.bg }}
+          />
+        </View>
+      </View>
+      <Button
+        title={tr('Add to pantry')}
+        icon={Plus}
+        disabled={!name.trim()}
+        onPress={() =>
+          void app.act(async () => {
+            await api('/pantry', {
+              method: 'POST',
+              body: { name, quantity, expiresOn: expires || null },
+            });
+            setName('');
+            setQuantity('');
+            setExpires('');
+            await app.refreshPrivate();
+          }, 'Added to your pantry.')
+        }
+      />
+    </View>
+  );
+  const stock = (
+    <>
+      {app.kitchen.pantry.length ? (
+        <View style={[s.card, { paddingVertical: 4, paddingRight: 8 }]}>
+          {app.kitchen.pantry.map((p, n) => {
+            const expired = !!p.expiresOn && p.expiresOn < today;
+            const soon = !!p.expiresOn && !expired && p.expiresOn <= soonDate;
+            return (
+              <View
+                key={p.id}
+                style={[
+                  s.row,
+                  { gap: 12, paddingVertical: 12 },
+                  n > 0 && {
+                    borderTopWidth: StyleSheet.hairlineWidth,
+                    borderColor: color.line,
+                  },
+                ]}
+              >
+                <View
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 20,
+                    backgroundColor: color.bg,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <Leaf size={17} color={color.ink} strokeWidth={1.8} />
+                </View>
+                <View style={{ flex: 1, gap: 2 }}>
+                  <Text style={[s.h3, { textTransform: 'capitalize', fontSize: 15 }]}>
+                    {p.name}
+                  </Text>
+                  <Text style={s.small}>
+                    {p.quantity || tr('In the pantry')}
+                    {p.expiresOn && !soon && !expired
+                      ? tr(' · best before {{v0}}', {
+                          v0: new Date(`${p.expiresOn}T12:00:00`).toLocaleDateString(locale),
+                        })
+                      : ''}
+                  </Text>
+                </View>
+                {expired ? (
+                  <Pill title={tr('Expired')} tone="error" />
+                ) : soon ? (
+                  <Pill title={tr('Use soon')} tone="warning" />
+                ) : null}
+                <IconButton
+                  icon={X}
+                  plain
+                  size={34}
+                  label={tr('Remove {{v0}}', { v0: p.name })}
+                  onPress={() =>
+                    void app.act(async () => {
+                      await api(`/pantry/${p.id}`, { method: 'DELETE' });
+                      await app.refreshPrivate();
+                    })
+                  }
+                />
+              </View>
+            );
+          })}
+        </View>
+      ) : (
+        <Empty
+          title={tr('Let’s look in the fridge')}
+          text={tr('Add a few ingredients and we’ll find recipes you can already make.')}
+          icon={Leaf}
+        />
+      )}
+      {matching.length > 0 && (
+        <View>
+          <SectionTitle
+            title={tr('You’re partway there')}
+            subtitle={tr('Recipes that use what you have.')}
+          />
+          <RecipeGrid recipes={matching.map((m) => m.recipe)} onOpen={onOpen} />
+        </View>
+      )}
+    </>
+  );
   return (
     <View style={{ gap: 22 }}>
       <PageHeading
@@ -821,147 +974,20 @@ export function Pantry({
           text={tr('Sign in to track ingredients and find recipes that use what you already have.')}
           icon={Leaf}
         />
+      ) : desktop ? (
+        // Adding on the left, what you have and what it makes on the right.
+        <View style={{ flexDirection: 'row', gap: 32, alignItems: 'flex-start' }}>
+          <View style={{ width: 380, gap: 16 }}>
+            {ask}
+            {add}
+          </View>
+          <View style={{ flex: 1, gap: 22 }}>{stock}</View>
+        </View>
       ) : (
         <>
-          <AskCard
-            title={tr('What can I make with this?')}
-            text={tr('The sous-chef builds a recipe around your pantry, using what expires first.')}
-            onPress={() =>
-              onAI({
-                kind: 'recipe',
-                title: tr('Cook from your pantry'),
-                context: pantryList ? `My pantry: ${pantryList}` : 'My pantry is nearly empty.',
-                suggestions: [
-                  tr('Something quick, under 30 minutes'),
-                  tr('Something cozy and comforting'),
-                  tr('Use what expires soonest'),
-                ],
-              })
-            }
-          />
-          <View style={[s.card, { gap: 12 }]}>
-            <Text style={s.h3}>{tr('Add an ingredient')}</Text>
-            <View style={{ flexDirection: desktop ? 'row' : 'column', gap: 8 }}>
-              <Field
-                placeholder={tr('Chickpeas, lemons, rice…')}
-                accessibilityLabel={tr('Ingredient')}
-                value={name}
-                onChangeText={setName}
-                style={{ backgroundColor: color.bg, borderColor: color.bg }}
-              />
-              <View style={[s.row, { gap: 8, flex: desktop ? 1.2 : undefined }]}>
-                <Field
-                  placeholder={tr('Quantity')}
-                  value={quantity}
-                  onChangeText={setQuantity}
-                  style={{ backgroundColor: color.bg, borderColor: color.bg }}
-                />
-                <Field
-                  placeholder={tr('Best before')}
-                  accessibilityLabel={tr('Best before (YYYY-MM-DD)')}
-                  value={expires}
-                  onChangeText={setExpires}
-                  style={{ backgroundColor: color.bg, borderColor: color.bg }}
-                />
-              </View>
-            </View>
-            <Button
-              title={tr('Add to pantry')}
-              icon={Plus}
-              disabled={!name.trim()}
-              onPress={() =>
-                void app.act(async () => {
-                  await api('/pantry', {
-                    method: 'POST',
-                    body: { name, quantity, expiresOn: expires || null },
-                  });
-                  setName('');
-                  setQuantity('');
-                  setExpires('');
-                  await app.refreshPrivate();
-                }, 'Added to your pantry.')
-              }
-            />
-          </View>
-          {app.kitchen.pantry.length ? (
-            <View style={[s.card, { paddingVertical: 4, paddingRight: 8 }]}>
-              {app.kitchen.pantry.map((p, n) => {
-                const expired = !!p.expiresOn && p.expiresOn < today;
-                const soon = !!p.expiresOn && !expired && p.expiresOn <= soonDate;
-                return (
-                  <View
-                    key={p.id}
-                    style={[
-                      s.row,
-                      { gap: 12, paddingVertical: 12 },
-                      n > 0 && {
-                        borderTopWidth: StyleSheet.hairlineWidth,
-                        borderColor: color.line,
-                      },
-                    ]}
-                  >
-                    <View
-                      style={{
-                        width: 40,
-                        height: 40,
-                        borderRadius: 20,
-                        backgroundColor: color.bg,
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                      }}
-                    >
-                      <Leaf size={17} color={color.ink} strokeWidth={1.8} />
-                    </View>
-                    <View style={{ flex: 1, gap: 2 }}>
-                      <Text style={[s.h3, { textTransform: 'capitalize', fontSize: 15 }]}>
-                        {p.name}
-                      </Text>
-                      <Text style={s.small}>
-                        {p.quantity || tr('In the pantry')}
-                        {p.expiresOn && !soon && !expired
-                          ? tr(' · best before {{v0}}', {
-                              v0: new Date(`${p.expiresOn}T12:00:00`).toLocaleDateString(locale),
-                            })
-                          : ''}
-                      </Text>
-                    </View>
-                    {expired ? (
-                      <Pill title={tr('Expired')} tone="error" />
-                    ) : soon ? (
-                      <Pill title={tr('Use soon')} tone="warning" />
-                    ) : null}
-                    <IconButton
-                      icon={X}
-                      plain
-                      size={34}
-                      label={tr('Remove {{v0}}', { v0: p.name })}
-                      onPress={() =>
-                        void app.act(async () => {
-                          await api(`/pantry/${p.id}`, { method: 'DELETE' });
-                          await app.refreshPrivate();
-                        })
-                      }
-                    />
-                  </View>
-                );
-              })}
-            </View>
-          ) : (
-            <Empty
-              title={tr('Let’s look in the fridge')}
-              text={tr('Add a few ingredients and we’ll find recipes you can already make.')}
-              icon={Leaf}
-            />
-          )}
-          {matching.length > 0 && (
-            <View>
-              <SectionTitle
-                title={tr('You’re partway there')}
-                subtitle={tr('Recipes that use what you have.')}
-              />
-              <RecipeGrid recipes={matching.map((m) => m.recipe)} onOpen={onOpen} />
-            </View>
-          )}
+          {ask}
+          {add}
+          {stock}
         </>
       )}
     </View>

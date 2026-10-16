@@ -113,17 +113,19 @@ const screenNames: Record<Screen, string> = {
   admin: 'Admin console',
 };
 const tabScreens: Screen[] = ['discover', 'explore', 'create', 'saved', 'profile'];
+const DESKTOP_HEADER = 84;
 function Shell() {
   const { t: tr, locale, setLanguage } = useI18n();
   const app = useApp();
-  const { desktop, compact, gutter, top, insets, width } = useChrome();
+  const { desktop, compact, gutter, top, insets, width, webPage } = useChrome();
   const [screen, setScreen] = useState<Screen>('discover');
+  const [selected, setSelected] = useState<Recipe | null>(null);
   useEffect(() => {
-    if (Platform.OS === 'web') document.title = `${tr(screenNames[screen])} · Savorly`;
-  }, [screen, locale, tr]);
+    if (Platform.OS === 'web')
+      document.title = `${selected ? selected.title : tr(screenNames[screen])} · Savorly`;
+  }, [screen, selected, locale, tr]);
   const [origin, setOrigin] = useState<Screen>('profile');
   const [query, setQuery] = useState('');
-  const [selected, setSelected] = useState<Recipe | null>(null);
   const [creator, setCreator] = useState<Creator | null>(null);
   const [editor, setEditor] = useState<Recipe | RecipeInput | undefined>();
   const [editorKey, setEditorKey] = useState(0);
@@ -181,6 +183,9 @@ function Shell() {
   };
   const go = (next: Screen) => {
     if (!tabScreens.includes(next) && tabScreens.includes(screen)) setOrigin(screen);
+    // On the web the sidebar stays usable beside an open recipe, so moving on closes it.
+    setSelected(null);
+    setCookingStep(null);
     setScreen(next);
     setQuery('');
     if (next === 'create') {
@@ -359,6 +364,24 @@ function Shell() {
     },
   });
   const feed = screen === 'discover' || screen === 'explore';
+  // Phones and tablets slide the recipe over everything; a desktop browser opens it as a page in
+  // the content area, under the header and beside the sidebar.
+  const recipePage = selected && (
+    <RecipeDetail
+      key={selected.id}
+      recipe={selected}
+      onClose={close}
+      onCreator={(c) => {
+        close();
+        setCreator(c);
+      }}
+      onEdit={edit}
+      onAI={ai}
+      onAsk={openSousChef}
+      onCooking={setCookingStep}
+      cookCommand={cookCommand}
+    />
+  );
   return (
     <View style={{ flex: 1, backgroundColor: color.bg, paddingTop: desktop ? insets.top : 0 }}>
       <StatusBar
@@ -367,8 +390,8 @@ function Shell() {
         backgroundColor="transparent"
       />
       <View
-        aria-hidden={!!selected}
-        importantForAccessibility={selected ? 'no-hide-descendants' : 'auto'}
+        aria-hidden={!!selected && !webPage}
+        importantForAccessibility={selected && !webPage ? 'no-hide-descendants' : 'auto'}
         style={{ flex: 1, flexDirection: 'row' }}
       >
         {desktop && (
@@ -456,7 +479,7 @@ function Shell() {
           {desktop && (
             <View
               style={{
-                height: 84,
+                height: DESKTOP_HEADER,
                 paddingHorizontal: gutter,
                 flexDirection: 'row',
                 alignItems: 'center',
@@ -472,6 +495,7 @@ function Shell() {
                     placeholder={tr('Search recipes, ingredients, cooks…')}
                     onChangeText={(v) => {
                       setQuery(v);
+                      if (selected) close();
                       if (screen !== 'discover' && screen !== 'explore') setScreen('explore');
                     }}
                   />
@@ -551,6 +575,13 @@ function Shell() {
               </FadeIn>
             )}
           </Animated.ScrollView>
+          {webPage && recipePage && (
+            <View
+              style={{ position: 'absolute', top: DESKTOP_HEADER, left: 0, right: 0, bottom: 0 }}
+            >
+              {recipePage}
+            </View>
+          )}
           {compact && (
             <View
               style={{
@@ -667,8 +698,8 @@ function Shell() {
           )}
         </View>
       )}
-      {/* The sous-chef is one tap away everywhere; recipe pages and sheets cover it. */}
-      {!studioMode && (
+      {/* The sous-chef is one tap away everywhere; recipe pages, sheets and cooking cover it. */}
+      {!studioMode && cookingStep === null && (
         <Press
           accessibilityRole="button"
           accessibilityLabel={tr('Ask your sous-chef')}
@@ -700,22 +731,7 @@ function Shell() {
       <Toast message={selected ? '' : app.toast} />
       <AuthDialog />
       <RecipeStart visible={creating} onClose={() => setCreating(false)} onStart={create} />
-      {selected && (
-        <RecipeDetail
-          key={selected.id}
-          recipe={selected}
-          onClose={close}
-          onCreator={(c) => {
-            close();
-            setCreator(c);
-          }}
-          onEdit={edit}
-          onAI={ai}
-          onAsk={openSousChef}
-          onCooking={setCookingStep}
-          cookCommand={cookCommand}
-        />
-      )}
+      {!webPage && recipePage}
       {studioMode && app.user && (
         <RecipeStudio
           initialMode={studioMode}

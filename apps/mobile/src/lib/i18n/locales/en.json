@@ -741,5 +741,10 @@
   "Updated {{date}}": "Updated {{date}}",
   "You’re on the latest version.": "You’re on the latest version.",
   "Couldn’t check for updates. Try again later.": "Couldn’t check for updates. Try again later.",
-  "Couldn’t restart. Close and reopen Savorly to update.": "Couldn’t restart. Close and reopen Savorly to update."
+  "Couldn’t restart. Close and reopen Savorly to update.": "Couldn’t restart. Close and reopen Savorly to update.",
+  "Share": "Share",
+  "Save": "Save",
+  "In your cookbooks": "In your cookbooks",
+  "Link copied to your clipboard.": "Link copied to your clipboard.",
+  "Use ← and → to move between steps, and Esc to close.": "Use ← and → to move between steps, and Esc to close."
 }

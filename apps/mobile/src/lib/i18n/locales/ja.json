@@ -741,5 +741,10 @@
   "Updated {{date}}": "{{date}} に更新",
   "You’re on the latest version.": "最新バージョンです。",
   "Couldn’t check for updates. Try again later.": "アップデートを確認できませんでした。しばらくしてからもう一度お試しください。",
-  "Couldn’t restart. Close and reopen Savorly to update.": "再起動できませんでした。Savorly を閉じてから開き直すとアップデートされます。"
+  "Couldn’t restart. Close and reopen Savorly to update.": "再起動できませんでした。Savorly を閉じてから開き直すとアップデートされます。",
+  "Share": "共有",
+  "Save": "保存",
+  "In your cookbooks": "レシピ集に保存済み",
+  "Link copied to your clipboard.": "リンクをクリップボードにコピーしました。",
+  "Use ← and → to move between steps, and Esc to close.": "← と → でステップを移動、Esc で閉じます。"
 }

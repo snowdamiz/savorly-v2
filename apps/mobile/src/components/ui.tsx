@@ -177,9 +177,16 @@ export function useChrome() {
     insets,
     desktop,
     compact: !desktop,
+    // A desktop browser shows recipes as pages inside the sidebar and header, like a website,
+    // where phones and tablets slide a sheet over everything.
+    webPage: Platform.OS === 'web' && desktop,
     gutter: desktop ? 40 : width > 650 ? 28 : 20,
     top: desktop ? 32 : 12,
   };
+}
+/** Web-only CSS positions that React Native's style types leave out; nothing on native. */
+export function webPosition(position: 'sticky' | 'fixed', style?: ViewStyle) {
+  return Platform.OS === 'web' ? ({ position, ...style } as unknown as ViewStyle) : undefined;
 }
 export function Button({
   title,

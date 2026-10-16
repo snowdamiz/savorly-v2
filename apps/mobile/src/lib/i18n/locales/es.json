@@ -741,5 +741,10 @@
   "Updated {{date}}": "Actualizada el {{date}}",
   "You’re on the latest version.": "Tienes la última versión.",
   "Couldn’t check for updates. Try again later.": "No se pudieron buscar actualizaciones. Inténtalo más tarde.",
-  "Couldn’t restart. Close and reopen Savorly to update.": "No se pudo reiniciar. Cierra y vuelve a abrir Savorly para actualizarla."
+  "Couldn’t restart. Close and reopen Savorly to update.": "No se pudo reiniciar. Cierra y vuelve a abrir Savorly para actualizarla.",
+  "Share": "Compartir",
+  "Save": "Guardar",
+  "In your cookbooks": "En tus recetarios",
+  "Link copied to your clipboard.": "Enlace copiado al portapapeles.",
+  "Use ← and → to move between steps, and Esc to close.": "Usa ← y → para moverte entre los pasos y Esc para cerrar."
 }

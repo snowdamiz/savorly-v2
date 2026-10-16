@@ -2,6 +2,7 @@ import { useI18n } from '../lib/i18n';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
+  Platform,
   Pressable,
   ScrollView,
   Share,
@@ -58,6 +59,7 @@ import {
   native,
   useChrome,
   useSlideOver,
+  webPosition,
 } from './ui';
 import { CookMode } from './CookMode';
 import { VideoPlayer } from './VideoPlayer';
@@ -95,8 +97,14 @@ export function RecipeDetail({
   const { t: tr, number, locale } = useI18n();
   const app = useApp();
   const page = useSlideOver(onClose);
-  const { width, height, insets, gutter } = useChrome();
+  const { width, height, insets, gutter, webPage } = useChrome();
   const wide = width > 900;
+  // The web page shows one photo at a time with thumbnails, and fades in rather than sliding up.
+  const [photo, setPhoto] = useState(0);
+  const [shown] = useState(() => new Animated.Value(webPage ? 0 : 1));
+  useEffect(() => {
+    if (webPage) animate(shown, 1, 200).start();
+  }, [webPage, shown]);
   const [tab, setTab] = useState<'ingredients' | 'method' | 'reviews'>('ingredients');
   const [servings, setServings] = useState(recipe.servings);
   const [checked, setChecked] = useState<string[]>([]);
@@ -205,6 +213,15 @@ export function RecipeDetail({
     await app.act(fn, message);
     setBusy(false);
   };
+  const link = `${WEB_URL}/?recipe=${recipe.id}`;
+  // Desktop browsers mostly have no share sheet, so there the link goes to the clipboard.
+  const share = () =>
+    void app.act(async () => {
+      if (Platform.OS === 'web' && !navigator.share) {
+        await navigator.clipboard.writeText(link);
+        app.notify('Link copied to your clipboard.');
+      } else await Share.share({ message: `${recipe.title} — ${recipe.minutes} minutes. ${link}` });
+    });
   const context = JSON.stringify({
     title: recipe.title,
     servings,
@@ -236,6 +253,20 @@ export function RecipeDetail({
         },
     { icon: Gauge, value: recipe.difficulty, label: tr('Level') },
   ];
+  const twistChips = twists.map(([title, prompt]) => (
+    <Chip
+      key={title}
+      title={tr(title)}
+      icon={foodIcon(title)}
+      onPress={() =>
+        ask({
+          kind: 'adapt',
+          title: tr('A {{v0}} version', { v0: tr(title) }),
+          prompt,
+        })
+      }
+    />
+  ));
   const ingredients = (
     <View style={{ gap: 14 }}>
       <View style={[s.between, { gap: 12 }]}>
@@ -266,7 +297,10 @@ export function RecipeDetail({
           />
         </View>
       </View>
-      <View style={[s.card, { paddingVertical: 4, paddingRight: 8 }]}>
+      {/* The web page frames the whole column in one card, so the list sits straight in it. */}
+      <View
+        style={webPage ? { marginRight: -8 } : [s.card, { paddingVertical: 4, paddingRight: 8 }]}
+      >
         {recipe.ingredients.map((i, n) => (
           <View
             key={n}
@@ -331,72 +365,87 @@ export function RecipeDetail({
             {tr('· a new version in seconds')}
           </Text>
         </View>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={{ flexGrow: 0, marginHorizontal: wide ? 0 : -gutter }}
-          contentContainerStyle={{ paddingHorizontal: wide ? 0 : gutter, gap: 8 }}
-        >
-          {twists.map(([title, prompt]) => (
-            <Chip
-              key={title}
-              title={tr(title)}
-              icon={foodIcon(title)}
-              onPress={() =>
-                ask({
-                  kind: 'adapt',
-                  title: tr('A {{v0}} version', { v0: tr(title) }),
-                  prompt,
-                })
-              }
-            />
-          ))}
-        </ScrollView>
+        {webPage ? (
+          <View style={[s.row, { flexWrap: 'wrap', gap: 8 }]}>{twistChips}</View>
+        ) : (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={{ flexGrow: 0, marginHorizontal: wide ? 0 : -gutter }}
+            contentContainerStyle={{ paddingHorizontal: wide ? 0 : gutter, gap: 8 }}
+          >
+            {twistChips}
+          </ScrollView>
+        )}
       </View>
     </View>
   );
+  // A card per step on phones; on the web page, one card of steps divided by lines, set larger
+  // for reading at a distance from the stove.
   const method = (
-    <View style={{ gap: 12 }}>
-      <Text style={[s.h2, { marginBottom: 2 }]}>{tr('Let’s make it')}</Text>
-      {recipe.steps.map((st, i) => (
-        <View key={i} style={[s.card, { flexDirection: 'row', gap: 14 }]}>
+    <View style={{ gap: webPage ? 16 : 12 }}>
+      <Text style={[s.h2, { marginBottom: 2 }, webPage && styles.webHeading]}>
+        {tr('Let’s make it')}
+      </Text>
+      <View style={webPage ? [s.card, { paddingVertical: 6, paddingHorizontal: 28 }] : { gap: 12 }}>
+        {recipe.steps.map((st, i) => (
           <View
-            style={{
-              backgroundColor: color.ink,
-              width: 32,
-              height: 32,
-              borderRadius: 16,
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
+            key={i}
+            style={
+              webPage
+                ? [
+                    { flexDirection: 'row', gap: 20, paddingVertical: 22 },
+                    i > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderColor: color.line },
+                  ]
+                : [s.card, { flexDirection: 'row', gap: 14 }]
+            }
           >
-            <Text style={{ color: color.white, fontFamily: font.bold, fontSize: 13 }}>{i + 1}</Text>
+            <View
+              style={{
+                backgroundColor: color.ink,
+                width: webPage ? 36 : 32,
+                height: webPage ? 36 : 32,
+                borderRadius: 18,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <Text
+                style={{ color: color.white, fontFamily: font.bold, fontSize: webPage ? 15 : 13 }}
+              >
+                {i + 1}
+              </Text>
+            </View>
+            <View style={{ flex: 1, gap: webPage ? 8 : 6 }}>
+              <Text style={[s.h3, webPage && { fontSize: 18, lineHeight: 24 }]}>{st.title}</Text>
+              <Text
+                style={[s.body, { color: '#3A3A3A' }, webPage && { fontSize: 16, lineHeight: 26 }]}
+              >
+                {st.text}
+              </Text>
+              {st.seconds > 0 && (
+                <View style={[s.row, { gap: 6, marginTop: 2 }]}>
+                  <Timer size={14} color={color.muted} />
+                  <Text style={s.small}>
+                    {tr('{{v0}} min timer in cooking mode', { v0: Math.round(st.seconds / 60) })}
+                  </Text>
+                </View>
+              )}
+            </View>
           </View>
-          <View style={{ flex: 1, gap: 6 }}>
-            <Text style={s.h3}>{st.title}</Text>
-            <Text style={[s.body, { color: '#3A3A3A' }]}>{st.text}</Text>
-            {st.seconds > 0 && (
-              <View style={[s.row, { gap: 6, marginTop: 2 }]}>
-                <Timer size={14} color={color.muted} />
-                <Text style={s.small}>
-                  {tr('{{v0}} min timer in cooking mode', { v0: Math.round(st.seconds / 60) })}
-                </Text>
-              </View>
-            )}
-          </View>
-        </View>
-      ))}
+        ))}
+      </View>
     </View>
   );
   const table = (
     <View style={{ gap: 14 }}>
       <View style={{ gap: 2 }}>
-        <Text style={s.h2}>{tr('Around the table')}</Text>
+        <Text style={[s.h2, webPage && styles.webHeading]}>{tr('Around the table')}</Text>
         <Text style={s.muted}>{tr('Made it? Share a note with the next cook.')}</Text>
       </View>
       {!!reviewError && <Text style={{ color: color.error }}>{tr(reviewError)}</Text>}
       {reviews.map((r) => (
-        <View key={r.id} style={[s.card, { gap: 10 }]}>
+        <View key={r.id} style={[s.card, { gap: 10 }, webPage && { padding: 24 }]}>
           <View style={[s.row, { gap: 10 }]}>
             <Avatar name={r.author.name} uri={r.author.avatar} size={32} />
             <Text style={[s.h3, { flex: 1, fontSize: 14 }]}>{r.author.name}</Text>
@@ -415,7 +464,7 @@ export function RecipeDetail({
         </View>
       ))}
       {!mine && (
-        <View style={[s.card, { gap: 14 }]}>
+        <View style={[s.card, { gap: 14 }, webPage && { padding: 24 }]}>
           <Text style={s.h3}>{tr('How did it turn out?')}</Text>
           <View style={[s.row, { gap: 6 }]}>
             {[1, 2, 3, 4, 5].map((n) => (
@@ -459,357 +508,9 @@ export function RecipeDetail({
       )}
     </View>
   );
-  const actions = [
-    {
-      icon: CalendarDays,
-      title: tr('Plan'),
-      label: tr('Plan this meal'),
-      onPress: () => app.requireUser(() => setPlan(true)),
-    },
-    {
-      icon: BookmarkPlus,
-      title: tr('Cookbook'),
-      label: tr('Add to cookbook'),
-      onPress: () => app.requireUser(() => setCollections(true)),
-    },
-    ...(recipe.video
-      ? [
-          {
-            icon: Play,
-            title: tr('Video'),
-            label: tr('Watch video'),
-            onPress: () => setWatch(true),
-          },
-        ]
-      : []),
-    { icon: Sparkles, title: tr('Ask'), label: tr('Ask the sous-chef'), onPress: onAsk },
-  ];
-  return (
-    <Animated.View aria-modal style={page.style}>
-      <ScrollStatusBar y={scrollY} past={barEnd - 40} />
-      <View style={{ flex: 1, backgroundColor: color.bg }}>
-        <Animated.ScrollView
-          scrollEventThrottle={16}
-          onScroll={onScroll}
-          contentContainerStyle={{ paddingBottom: insets.bottom + 120 }}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-        >
-          <View style={{ height: heroHeight, backgroundColor: color.ink }}>
-            {/* The scrim rides with the photo so an overscroll never shows its edge. */}
-            <Gallery
-              photos={[recipe.image, ...(recipe.photos || [])]}
-              width={width}
-              height={heroHeight}
-              motion={heroMotion}
-            />
-          </View>
-          <View
-            style={{
-              marginTop: -radius.xl,
-              borderTopLeftRadius: radius.xl,
-              borderTopRightRadius: radius.xl,
-              backgroundColor: color.bg,
-              paddingTop: 26,
-              paddingHorizontal: gutter,
-            }}
-          >
-            <View style={{ width: '100%', maxWidth: 1080, alignSelf: 'center', gap: 22 }}>
-              <FadeIn delay={60} style={{ gap: 12 }}>
-                <View style={[s.row, { gap: 6, flexWrap: 'wrap' }]}>
-                  <Pill
-                    title={
-                      recipe.rating > 0
-                        ? `${number(recipe.rating, { minimumFractionDigits: 1, maximumFractionDigits: 1 })} · ${recipe.reviewCount}`
-                        : tr('New')
-                    }
-                    icon={Star}
-                    fill
-                  />
-                  <Pill
-                    title={tr(recipe.cuisine)}
-                    leading={<CuisineIcon name={recipe.cuisine} size={22} />}
-                  />
-                  {/* One line of badges on phones; the tags are all in the recipe anyway. */}
-                  {recipe.tags.slice(0, wide ? 2 : 1).map((t) => (
-                    <Pill key={t} title={tr(t)} icon={foodIcon(t)} />
-                  ))}
-                  {recipe.aiGenerated && (
-                    <Pill title={tr('AI assisted')} icon={Sparkles} tone="dark" />
-                  )}
-                </View>
-                <Text
-                  onLayout={(e) =>
-                    setTitleBottom(e.nativeEvent.layout.y + e.nativeEvent.layout.height)
-                  }
-                  style={[s.display, !wide && { fontSize: 29, lineHeight: 35 }]}
-                >
-                  {recipe.title}
-                </Text>
-                <View style={[s.row, { gap: 12, marginVertical: 2 }, wide && { maxWidth: 620 }]}>
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={tr('Visit {{v0}}’s kitchen', { v0: recipe.author.name })}
-                    onPress={() => onCreator(recipe.author)}
-                    style={[s.row, { gap: 10, flex: 1 }]}
-                  >
-                    <Avatar name={recipe.author.name} uri={recipe.author.avatar} size={36} />
-                    <View style={{ flex: 1 }}>
-                      <Text numberOfLines={1} style={[s.h3, { fontSize: 15, lineHeight: 20 }]}>
-                        {recipe.author.name}
-                      </Text>
-                      <Text numberOfLines={1} style={s.small}>
-                        {recipe.author.followerCount
-                          ? tr('{{v0}} followers', { v0: recipe.author.followerCount })
-                          : `@${recipe.author.handle}`}
-                      </Text>
-                    </View>
-                  </Pressable>
-                  {mine ? (
-                    <Button
-                      title={tr('Edit')}
-                      label={tr('Edit recipe')}
-                      icon={Pencil}
-                      variant="secondary"
-                      small
-                      onPress={() => onEdit(recipe)}
-                    />
-                  ) : (
-                    <Button
-                      title={following ? tr('Following') : tr('Follow')}
-                      icon={following ? Check : undefined}
-                      variant={following ? 'secondary' : 'primary'}
-                      small
-                      onPress={() =>
-                        void perform(async () => {
-                          await api(`/creators/${recipe.author.id}/follow`, {
-                            method: following ? 'DELETE' : 'PUT',
-                          });
-                          await app.refreshPrivate();
-                        }, 'Your community is updated.')
-                      }
-                    />
-                  )}
-                </View>
-                {!!recipe.description && (
-                  <Text style={[s.muted, { fontSize: 15, lineHeight: 23 }]}>
-                    {recipe.description}
-                  </Text>
-                )}
-              </FadeIn>
-              {/* The facts in one card and the things to do in one row, so the page goes
-                  straight from the story to the cooking. */}
-              <FadeIn
-                delay={130}
-                style={[
-                  s.row,
-                  {
-                    alignItems: 'stretch',
-                    backgroundColor: color.white,
-                    borderRadius: radius.lg,
-                    paddingVertical: 14,
-                  },
-                  wide && { maxWidth: 620 },
-                ]}
-              >
-                {stats.map((x, i) => {
-                  const Icon = x.icon;
-                  const fact = (
-                    <View
-                      style={{
-                        flex: 1,
-                        alignItems: 'center',
-                        gap: 5,
-                        paddingHorizontal: 4,
-                        borderLeftWidth: i > 0 ? StyleSheet.hairlineWidth : 0,
-                        borderColor: color.line,
-                      }}
-                    >
-                      <Icon size={17} color={color.ink} strokeWidth={1.8} />
-                      <Text numberOfLines={1} style={[s.h3, { fontSize: 14, lineHeight: 18 }]}>
-                        {tr(x.value)}
-                      </Text>
-                      <Text numberOfLines={1} style={[s.small, { fontSize: 11, lineHeight: 14 }]}>
-                        {tr(x.label)}
-                      </Text>
-                    </View>
-                  );
-                  return 'onPress' in x && x.onPress ? (
-                    <Pressable
-                      key={tr(x.label)}
-                      accessibilityRole="button"
-                      accessibilityLabel={tr('Estimate nutrition')}
-                      onPress={x.onPress}
-                      style={{ flex: 1, display: 'flex' }}
-                    >
-                      {fact}
-                    </Pressable>
-                  ) : (
-                    <React.Fragment key={tr(x.label)}>{fact}</React.Fragment>
-                  );
-                })}
-              </FadeIn>
-              <FadeIn delay={200} style={[s.row, { gap: 8, flexWrap: 'wrap' }]}>
-                {actions.map((a) => {
-                  const Icon = a.icon;
-                  return (
-                    <Press
-                      key={tr(a.title)}
-                      accessibilityRole="button"
-                      accessibilityLabel={tr(a.label)}
-                      onPress={a.onPress}
-                      scale={0.97}
-                      style={[
-                        s.row,
-                        styles.action,
-                        wide
-                          ? { paddingHorizontal: 20 }
-                          : { flexGrow: 1, flexBasis: actions.length > 3 ? '40%' : 'auto' },
-                      ]}
-                    >
-                      <Icon size={17} color={color.ink} strokeWidth={2} />
-                      <Text numberOfLines={1} style={styles.actionText}>
-                        {tr(a.title)}
-                      </Text>
-                    </Press>
-                  );
-                })}
-              </FadeIn>
-              {wide ? (
-                <View style={{ flexDirection: 'row', gap: 32, alignItems: 'flex-start' }}>
-                  <View style={{ flex: 0.9 }}>{ingredients}</View>
-                  <View style={{ flex: 1.2 }}>{method}</View>
-                </View>
-              ) : (
-                <>
-                  <Segmented
-                    value={tab}
-                    onChange={setTab}
-                    options={[
-                      { value: 'ingredients', label: tr('Ingredients') },
-                      { value: 'method', label: tr('Method') },
-                      {
-                        value: 'reviews',
-                        label: tr('{{v0}}{{v1}}', {
-                          v0: tr('Reviews'),
-                          v1: reviews.length ? ` · ${reviews.length}` : '',
-                        }),
-                      },
-                    ]}
-                  />
-                  <FadeIn key={tab} offset={10}>
-                    {tab === 'ingredients' ? ingredients : tab === 'method' ? method : table}
-                  </FadeIn>
-                </>
-              )}
-              {wide && table}
-              <Button
-                title={tr('Report a problem with this recipe')}
-                variant="ghost"
-                icon={Flag}
-                small
-                style={{ alignSelf: 'center' }}
-                onPress={() => app.requireUser(() => setReport(true))}
-              />
-            </View>
-          </View>
-        </Animated.ScrollView>
-        <View
-          style={[
-            s.between,
-            {
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              right: 0,
-              paddingTop: insets.top + 10,
-              paddingBottom: 10,
-              paddingHorizontal: gutter,
-              gap: 12,
-            },
-          ]}
-        >
-          <Animated.View
-            style={[
-              StyleSheet.absoluteFill,
-              {
-                backgroundColor: color.bg,
-                borderBottomWidth: StyleSheet.hairlineWidth,
-                borderColor: color.line,
-                opacity: bar,
-              },
-            ]}
-          />
-          <IconButton icon={ArrowLeft} label={tr('Close recipe')} onPress={page.leave} glass />
-          <Animated.Text
-            numberOfLines={1}
-            style={[
-              s.h3,
-              {
-                flex: 1,
-                textAlign: 'center',
-                opacity: titleIn,
-                transform: [{ translateY: titleRise }],
-              },
-            ]}
-          >
-            {recipe.title}
-          </Animated.Text>
-          <View style={[s.row, { gap: 10 }]}>
-            <IconButton
-              icon={Share2}
-              glass
-              label={tr('Share recipe')}
-              onPress={() =>
-                void app.act(async () => {
-                  await Share.share({
-                    message: `${recipe.title} — ${recipe.minutes} minutes. ${WEB_URL}/?recipe=${recipe.id}`,
-                  });
-                })
-              }
-            />
-            <IconButton
-              icon={Bookmark}
-              glass
-              label={tr('Save recipe')}
-              selected={saved}
-              onPress={() => void app.toggleSave(recipe)}
-            />
-          </View>
-        </View>
-        <FadeIn
-          delay={220}
-          offset={40}
-          style={{
-            position: 'absolute',
-            left: 0,
-            right: 0,
-            bottom: 0,
-            paddingHorizontal: gutter,
-            paddingTop: 26,
-            paddingBottom: insets.bottom + 14,
-          }}
-        >
-          <LinearGradient
-            colors={['rgba(244,244,244,0)', color.bg]}
-            locations={[0, 0.5]}
-            style={[StyleSheet.absoluteFill, { pointerEvents: 'none' }]}
-          />
-          <Button
-            title={tr('Start cooking')}
-            icon={ChefHat}
-            large
-            onPress={() => setCook(true)}
-            style={{
-              width: '100%',
-              maxWidth: 520,
-              alignSelf: 'center',
-              boxShadow: '0px 10px 30px rgba(0,0,0,0.22)',
-            }}
-          />
-        </FadeIn>
-        <Toast message={app.toast} bottom={insets.bottom + 96} />
-      </View>
+  // Cooking mode and the sheets, shared by both layouts.
+  const overlays = (
+    <>
       {cooking && (
         <CookMode
           recipe={recipe}
@@ -943,6 +644,488 @@ export function RecipeDetail({
           }
         />
       </Dialog>
+    </>
+  );
+  const actions = [
+    {
+      icon: CalendarDays,
+      title: tr('Plan'),
+      label: tr('Plan this meal'),
+      onPress: () => app.requireUser(() => setPlan(true)),
+    },
+    {
+      icon: BookmarkPlus,
+      title: tr('Cookbook'),
+      label: tr('Add to cookbook'),
+      onPress: () => app.requireUser(() => setCollections(true)),
+    },
+    ...(recipe.video
+      ? [
+          {
+            icon: Play,
+            title: tr('Video'),
+            label: tr('Watch video'),
+            onPress: () => setWatch(true),
+          },
+        ]
+      : []),
+    { icon: Sparkles, title: tr('Ask'), label: tr('Ask the sous-chef'), onPress: onAsk },
+  ];
+  const photos = [recipe.image, ...(recipe.photos || [])].filter(Boolean);
+  const pills = (
+    <View style={[s.row, { gap: 6, flexWrap: 'wrap' }]}>
+      <Pill
+        title={
+          recipe.rating > 0
+            ? `${number(recipe.rating, { minimumFractionDigits: 1, maximumFractionDigits: 1 })} · ${recipe.reviewCount}`
+            : tr('New')
+        }
+        icon={Star}
+        fill
+      />
+      <Pill title={tr(recipe.cuisine)} leading={<CuisineIcon name={recipe.cuisine} size={22} />} />
+      {/* One line of badges on phones; the tags are all in the recipe anyway. */}
+      {recipe.tags.slice(0, webPage ? 3 : wide ? 2 : 1).map((t) => (
+        <Pill key={t} title={tr(t)} icon={foodIcon(t)} />
+      ))}
+      {recipe.aiGenerated && <Pill title={tr('AI assisted')} icon={Sparkles} tone="dark" />}
+    </View>
+  );
+  const byline = (
+    <View style={[s.row, { gap: 12, marginVertical: 2 }, wide && { maxWidth: 620 }]}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={tr('Visit {{v0}}’s kitchen', { v0: recipe.author.name })}
+        onPress={() => onCreator(recipe.author)}
+        style={[s.row, { gap: 10, flex: 1 }]}
+      >
+        <Avatar name={recipe.author.name} uri={recipe.author.avatar} size={webPage ? 44 : 36} />
+        <View style={{ flex: 1 }}>
+          <Text numberOfLines={1} style={[s.h3, { fontSize: 15, lineHeight: 20 }]}>
+            {recipe.author.name}
+          </Text>
+          <Text numberOfLines={1} style={s.small}>
+            {recipe.author.followerCount
+              ? tr('{{v0}} followers', { v0: recipe.author.followerCount })
+              : `@${recipe.author.handle}`}
+          </Text>
+        </View>
+      </Pressable>
+      {mine ? (
+        <Button
+          title={tr('Edit')}
+          label={tr('Edit recipe')}
+          icon={Pencil}
+          variant="secondary"
+          small
+          onPress={() => onEdit(recipe)}
+        />
+      ) : (
+        <Button
+          title={following ? tr('Following') : tr('Follow')}
+          icon={following ? Check : undefined}
+          variant={following ? 'secondary' : 'primary'}
+          small
+          onPress={() =>
+            void perform(async () => {
+              await api(`/creators/${recipe.author.id}/follow`, {
+                method: following ? 'DELETE' : 'PUT',
+              });
+              await app.refreshPrivate();
+            }, 'Your community is updated.')
+          }
+        />
+      )}
+    </View>
+  );
+  const facts = (
+    <View
+      style={[
+        s.row,
+        {
+          alignItems: 'stretch',
+          backgroundColor: color.white,
+          borderRadius: radius.lg,
+          paddingVertical: webPage ? 18 : 14,
+        },
+        wide && !webPage && { maxWidth: 620 },
+      ]}
+    >
+      {stats.map((x, i) => {
+        const Icon = x.icon;
+        const fact = (
+          <View
+            style={{
+              flex: 1,
+              alignItems: 'center',
+              gap: 5,
+              paddingHorizontal: 4,
+              borderLeftWidth: i > 0 ? StyleSheet.hairlineWidth : 0,
+              borderColor: color.line,
+            }}
+          >
+            <Icon size={17} color={color.ink} strokeWidth={1.8} />
+            <Text
+              numberOfLines={1}
+              style={[s.h3, { fontSize: webPage ? 16 : 14, lineHeight: webPage ? 21 : 18 }]}
+            >
+              {tr(x.value)}
+            </Text>
+            <Text numberOfLines={1} style={[s.small, { fontSize: 11, lineHeight: 14 }]}>
+              {tr(x.label)}
+            </Text>
+          </View>
+        );
+        return 'onPress' in x && x.onPress ? (
+          <Pressable
+            key={tr(x.label)}
+            accessibilityRole="button"
+            accessibilityLabel={tr('Estimate nutrition')}
+            onPress={x.onPress}
+            style={{ flex: 1, display: 'flex' }}
+          >
+            {fact}
+          </Pressable>
+        ) : (
+          <React.Fragment key={tr(x.label)}>{fact}</React.Fragment>
+        );
+      })}
+    </View>
+  );
+  const actionButtons = actions.map((a) => {
+    const Icon = a.icon;
+    return (
+      <Press
+        key={tr(a.title)}
+        accessibilityRole="button"
+        accessibilityLabel={tr(a.label)}
+        onPress={a.onPress}
+        scale={0.97}
+        style={[
+          s.row,
+          styles.action,
+          wide
+            ? { paddingHorizontal: 20 }
+            : { flexGrow: 1, flexBasis: actions.length > 3 ? '40%' : 'auto' },
+        ]}
+      >
+        <Icon size={17} color={color.ink} strokeWidth={2} />
+        <Text numberOfLines={1} style={styles.actionText}>
+          {tr(a.title)}
+        </Text>
+      </Press>
+    );
+  });
+  // A desktop browser gets a page inside the app's sidebar and header: the photo beside the story
+  // and the things to do, then the ingredients held in view beside the method as it scrolls.
+  // Narrower windows (beside the 248px sidebar) stack them instead.
+  const split = width - 248 - gutter * 2 >= 880;
+  if (webPage)
+    return (
+      <Animated.View
+        style={[StyleSheet.absoluteFill, { backgroundColor: color.bg, opacity: shown }]}
+      >
+        <ScrollView
+          contentContainerStyle={{ paddingHorizontal: gutter, paddingTop: 20, paddingBottom: 120 }}
+          keyboardShouldPersistTaps="handled"
+        >
+          <View style={{ width: '100%', maxWidth: 1200, alignSelf: 'center', gap: 28 }}>
+            <View style={s.between}>
+              <Button
+                title={tr('Back')}
+                icon={ArrowLeft}
+                variant="ghost"
+                small
+                onPress={onClose}
+                style={{ marginLeft: -12 }}
+              />
+              <View style={[s.row, { gap: 8 }]}>
+                <Button
+                  title={tr('Share')}
+                  label={tr('Share recipe')}
+                  icon={Share2}
+                  variant="secondary"
+                  small
+                  onPress={share}
+                />
+                <Button
+                  title={saved ? tr('In your cookbooks') : tr('Save')}
+                  label={saved ? tr('In your cookbooks') : tr('Save recipe')}
+                  icon={Bookmark}
+                  variant={saved ? 'primary' : 'secondary'}
+                  small
+                  onPress={() => void app.toggleSave(recipe)}
+                />
+              </View>
+            </View>
+            <View style={{ flexDirection: split ? 'row' : 'column', gap: split ? 48 : 28 }}>
+              <View style={split ? { flex: 1.1, gap: 12 } : { gap: 12 }}>
+                <FoodImage
+                  uri={photos[photo] || ''}
+                  style={{
+                    width: '100%',
+                    aspectRatio: split ? 4 / 3 : 16 / 9,
+                    borderRadius: radius.xl,
+                  }}
+                />
+                {photos.length > 1 && (
+                  <View style={[s.row, { gap: 10, flexWrap: 'wrap' }]}>
+                    {photos.map((uri, i) => (
+                      <Press
+                        key={uri}
+                        accessibilityRole="button"
+                        accessibilityLabel={tr('Show photo {{v0}} of {{v1}}', {
+                          v0: i + 1,
+                          v1: photos.length,
+                        })}
+                        accessibilityState={{ selected: i === photo }}
+                        onPress={() => setPhoto(i)}
+                        scale={0.96}
+                        style={{
+                          borderRadius: radius.md,
+                          borderWidth: 2,
+                          borderColor: i === photo ? color.ink : 'transparent',
+                          padding: 2,
+                        }}
+                      >
+                        <FoodImage uri={uri} style={{ width: 76, height: 60, borderRadius: 15 }} />
+                      </Press>
+                    ))}
+                  </View>
+                )}
+              </View>
+              <View style={split ? { flex: 1, gap: 20, paddingTop: 4 } : { gap: 20 }}>
+                {pills}
+                <Text style={[s.display, { fontSize: 44, lineHeight: 50, letterSpacing: -1.6 }]}>
+                  {recipe.title}
+                </Text>
+                {!!recipe.description && (
+                  <Text style={[s.muted, { fontSize: 17, lineHeight: 27 }]}>
+                    {recipe.description}
+                  </Text>
+                )}
+                {byline}
+                {facts}
+                <View style={{ gap: 10 }}>
+                  <Button
+                    title={tr('Start cooking')}
+                    icon={ChefHat}
+                    large
+                    onPress={() => setCook(true)}
+                  />
+                  <View style={[s.row, { gap: 8, flexWrap: 'wrap' }]}>{actionButtons}</View>
+                </View>
+              </View>
+            </View>
+            <View
+              style={{
+                flexDirection: split ? 'row' : 'column',
+                gap: 48,
+                alignItems: split ? 'flex-start' : 'stretch',
+                marginTop: 24,
+              }}
+            >
+              <View style={split && [{ width: 380 }, webPosition('sticky', { top: 24 })]}>
+                <View style={[s.card, { padding: 24 }]}>{ingredients}</View>
+              </View>
+              <View style={{ flex: split ? 1 : undefined, gap: 48, maxWidth: 760 }}>
+                {method}
+                {table}
+                <Button
+                  title={tr('Report a problem with this recipe')}
+                  variant="ghost"
+                  icon={Flag}
+                  small
+                  style={{ alignSelf: 'flex-start', marginLeft: -12 }}
+                  onPress={() => app.requireUser(() => setReport(true))}
+                />
+              </View>
+            </View>
+          </View>
+        </ScrollView>
+        <Toast message={app.toast} />
+        {overlays}
+      </Animated.View>
+    );
+  return (
+    <Animated.View aria-modal style={page.style}>
+      <ScrollStatusBar y={scrollY} past={barEnd - 40} />
+      <View style={{ flex: 1, backgroundColor: color.bg }}>
+        <Animated.ScrollView
+          scrollEventThrottle={16}
+          onScroll={onScroll}
+          contentContainerStyle={{ paddingBottom: insets.bottom + 120 }}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
+          <View style={{ height: heroHeight, backgroundColor: color.ink }}>
+            {/* The scrim rides with the photo so an overscroll never shows its edge. */}
+            <Gallery
+              photos={[recipe.image, ...(recipe.photos || [])]}
+              width={width}
+              height={heroHeight}
+              motion={heroMotion}
+            />
+          </View>
+          <View
+            style={{
+              marginTop: -radius.xl,
+              borderTopLeftRadius: radius.xl,
+              borderTopRightRadius: radius.xl,
+              backgroundColor: color.bg,
+              paddingTop: 26,
+              paddingHorizontal: gutter,
+            }}
+          >
+            <View style={{ width: '100%', maxWidth: 1080, alignSelf: 'center', gap: 22 }}>
+              <FadeIn delay={60} style={{ gap: 12 }}>
+                {pills}
+                <Text
+                  onLayout={(e) =>
+                    setTitleBottom(e.nativeEvent.layout.y + e.nativeEvent.layout.height)
+                  }
+                  style={[s.display, !wide && { fontSize: 29, lineHeight: 35 }]}
+                >
+                  {recipe.title}
+                </Text>
+                {byline}
+                {!!recipe.description && (
+                  <Text style={[s.muted, { fontSize: 15, lineHeight: 23 }]}>
+                    {recipe.description}
+                  </Text>
+                )}
+              </FadeIn>
+              {/* The facts in one card and the things to do in one row, so the page goes
+                  straight from the story to the cooking. */}
+              <FadeIn delay={130}>{facts}</FadeIn>
+              <FadeIn delay={200} style={[s.row, { gap: 8, flexWrap: 'wrap' }]}>
+                {actionButtons}
+              </FadeIn>
+              {wide ? (
+                <View style={{ flexDirection: 'row', gap: 32, alignItems: 'flex-start' }}>
+                  <View style={{ flex: 0.9 }}>{ingredients}</View>
+                  <View style={{ flex: 1.2 }}>{method}</View>
+                </View>
+              ) : (
+                <>
+                  <Segmented
+                    value={tab}
+                    onChange={setTab}
+                    options={[
+                      { value: 'ingredients', label: tr('Ingredients') },
+                      { value: 'method', label: tr('Method') },
+                      {
+                        value: 'reviews',
+                        label: tr('{{v0}}{{v1}}', {
+                          v0: tr('Reviews'),
+                          v1: reviews.length ? ` · ${reviews.length}` : '',
+                        }),
+                      },
+                    ]}
+                  />
+                  <FadeIn key={tab} offset={10}>
+                    {tab === 'ingredients' ? ingredients : tab === 'method' ? method : table}
+                  </FadeIn>
+                </>
+              )}
+              {wide && table}
+              <Button
+                title={tr('Report a problem with this recipe')}
+                variant="ghost"
+                icon={Flag}
+                small
+                style={{ alignSelf: 'center' }}
+                onPress={() => app.requireUser(() => setReport(true))}
+              />
+            </View>
+          </View>
+        </Animated.ScrollView>
+        <View
+          style={[
+            s.between,
+            {
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              paddingTop: insets.top + 10,
+              paddingBottom: 10,
+              paddingHorizontal: gutter,
+              gap: 12,
+            },
+          ]}
+        >
+          <Animated.View
+            style={[
+              StyleSheet.absoluteFill,
+              {
+                backgroundColor: color.bg,
+                borderBottomWidth: StyleSheet.hairlineWidth,
+                borderColor: color.line,
+                opacity: bar,
+              },
+            ]}
+          />
+          <IconButton icon={ArrowLeft} label={tr('Close recipe')} onPress={page.leave} glass />
+          <Animated.Text
+            numberOfLines={1}
+            style={[
+              s.h3,
+              {
+                flex: 1,
+                textAlign: 'center',
+                opacity: titleIn,
+                transform: [{ translateY: titleRise }],
+              },
+            ]}
+          >
+            {recipe.title}
+          </Animated.Text>
+          <View style={[s.row, { gap: 10 }]}>
+            <IconButton icon={Share2} glass label={tr('Share recipe')} onPress={share} />
+            <IconButton
+              icon={Bookmark}
+              glass
+              label={tr('Save recipe')}
+              selected={saved}
+              onPress={() => void app.toggleSave(recipe)}
+            />
+          </View>
+        </View>
+        <FadeIn
+          delay={220}
+          offset={40}
+          style={{
+            position: 'absolute',
+            left: 0,
+            right: 0,
+            bottom: 0,
+            paddingHorizontal: gutter,
+            paddingTop: 26,
+            paddingBottom: insets.bottom + 14,
+          }}
+        >
+          <LinearGradient
+            colors={['rgba(244,244,244,0)', color.bg]}
+            locations={[0, 0.5]}
+            style={[StyleSheet.absoluteFill, { pointerEvents: 'none' }]}
+          />
+          <Button
+            title={tr('Start cooking')}
+            icon={ChefHat}
+            large
+            onPress={() => setCook(true)}
+            style={{
+              width: '100%',
+              maxWidth: 520,
+              alignSelf: 'center',
+              boxShadow: '0px 10px 30px rgba(0,0,0,0.22)',
+            }}
+          />
+        </FadeIn>
+        <Toast message={app.toast} bottom={insets.bottom + 96} />
+      </View>
+      {overlays}
     </Animated.View>
   );
 }
@@ -1083,4 +1266,5 @@ const styles = StyleSheet.create({
     borderColor: color.border,
   },
   actionText: { fontFamily: font.bold, fontSize: 13, color: color.ink, flexShrink: 1 },
+  webHeading: { fontSize: 24, lineHeight: 30, letterSpacing: -0.6 },
 });
