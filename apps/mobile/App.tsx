@@ -79,7 +79,7 @@ import { useGoogleReturn } from './src/lib/auth/googleRedirect';
 import { BrandMark, BrandWordmark } from './src/components/Brand';
 import { RecipeDetail } from './src/components/RecipeDetail';
 import { RecipeStart } from './src/components/RecipeStart';
-import { RecipeStudio } from './src/components/RecipeStudio';
+import { RecipeStudio, useSousChefDock } from './src/components/RecipeStudio';
 import { SousChef } from './src/components/SousChef';
 import { Discover } from './src/screens/Discover';
 import { Splash } from './src/components/Splash';
@@ -134,9 +134,11 @@ function Shell() {
   const [ask, setAsk] = useState<AIRequest | null>(null);
   const [askKey, setAskKey] = useState(0);
   const [activity, setActivity] = useState(false);
-  const [studioMode, setStudioMode] = useState<StudioMode | null>(null);
-  // Minimized keeps a live voice conversation running while the user looks at the app.
+  // Each explicit start counts, so Speak or Scan reaches a sous-chef that is already open.
+  const [studio, setStudio] = useState<{ mode: StudioMode; n: number } | null>(null);
+  // Minimized keeps the conversation (and any live voice) while the user looks at the app.
   const [studioHidden, setStudioHidden] = useState(false);
+  const [studioLive, setStudioLive] = useState(false);
   const [cookingStep, setCookingStep] = useState<number | null>(null);
   const [cookCommand, setCookCommand] = useState<CookCommand | null>(null);
   const [pendingStudio, setPendingStudio] = useState<StudioMode | null>(null);
@@ -151,18 +153,19 @@ function Shell() {
       setPendingStudio(mode);
       app.setAuthOpen(true);
     } else {
-      setStudioMode(mode);
+      setStudio((old) => ({ mode, n: (old?.n || 0) + 1 }));
       setStudioHidden(false);
     }
   };
   useEffect(() => {
     if (app.user && pendingStudio) {
-      setStudioMode(pendingStudio);
+      setStudio((old) => ({ mode: pendingStudio, n: (old?.n || 0) + 1 }));
+      setStudioHidden(false);
       setPendingStudio(null);
     }
   }, [app.user, pendingStudio]);
   useEffect(() => {
-    if (!app.user) setStudioMode(null);
+    if (!app.user) setStudio(null);
   }, [app.user]);
   useEffect(() => {
     if (!app.authOpen && !app.user) setPendingStudio(null);
@@ -245,7 +248,7 @@ function Shell() {
     const sub = Linking.addEventListener('url', ({ url }) => handle(url));
     return () => sub.remove();
   }, []);
-  const openSousChef = () => (studioMode ? setStudioHidden(false) : startStudio('chat'));
+  const openSousChef = () => (studio ? setStudioHidden(false) : startStudio('chat'));
   const recipeAt = (id: string) => api<Recipe>(`/recipes/${encodeURIComponent(id)}`);
   const act = (action: AppAction) => {
     if (action.type === 'set_language') void setLanguage(action.language as LanguagePreference);
@@ -307,6 +310,8 @@ function Shell() {
     }).start();
   }, [tabIndex, tabSlide]);
   const barWidth = Math.min(width - 32, 400);
+  const dock = useSousChefDock();
+  const studioOpen = !!studio && !studioHidden;
   // Discover and Explore share one component (and its filters), so they share one page key.
   const page = screen === 'explore' ? 'discover' : screen;
   // Every page but Discover rises in; Discover's black header must stay put under the status bar.
@@ -556,8 +561,12 @@ function Shell() {
             contentContainerStyle={{
               paddingHorizontal: gutter,
               paddingTop: top,
-              // Clears the tab bar and the sous-chef button above it.
-              paddingBottom: compact ? Math.max(16, insets.bottom) + 170 : 100,
+              // Clears the tab bar and the sous-chef button above it, or its panel while it's out,
+              // so everything on the page can still scroll into view beside it.
+              paddingBottom: Math.max(
+                compact ? Math.max(16, insets.bottom) + 170 : 100,
+                studioOpen ? dock.bottom + dock.panel.height + 24 : 0,
+              ),
               maxWidth: 1600,
               width: '100%',
               alignSelf: 'center',
@@ -709,8 +718,9 @@ function Shell() {
           )}
         </View>
       )}
-      {/* The sous-chef is one tap away everywhere; recipe pages, sheets and cooking cover it. */}
-      {!studioMode && cookingStep === null && (
+      {/* The sous-chef is one tap away everywhere; recipe pages, sheets and cooking cover it. It
+          pops out of here and folds back into it, or into a pill while voice keeps going. */}
+      {(!studio || (studioHidden && !studioLive)) && cookingStep === null && (
         <Press
           accessibilityRole="button"
           accessibilityLabel={tr('Ask your sous-chef')}
@@ -721,8 +731,8 @@ function Shell() {
           scale={0.9}
           style={{
             position: 'absolute',
-            right: compact ? (width - barWidth) / 2 : 28,
-            bottom: compact ? Math.max(16, insets.bottom) + 82 : 28,
+            right: dock.right,
+            bottom: dock.bottom,
             width: 58,
             height: 58,
             borderRadius: 29,
@@ -739,24 +749,30 @@ function Shell() {
         <AnnouncementBanner announcement={app.capabilities?.announcement} />
         <UpdateBanner />
       </TopBanners>
-      <Toast message={selected ? '' : app.toast} />
+      <Toast
+        message={selected ? '' : app.toast}
+        // Phones lift it over the sous-chef's panel; a desktop's sits clear of it already.
+        bottom={studioOpen && compact ? dock.bottom + dock.panel.height + 12 : undefined}
+      />
       <AuthDialog />
       <RecipeStart visible={creating} onClose={() => setCreating(false)} onStart={create} />
       {!webPage && recipePage}
-      {studioMode && app.user && (
+      {studio && app.user && (
         <RecipeStudio
-          initialMode={studioMode}
+          start={studio}
           hidden={studioHidden}
           onHide={setStudioHidden}
+          onLive={setStudioLive}
           context={{
             screen,
+            title: tr(screenNames[screen]),
             recipe: selected ? { id: selected.id, title: selected.title } : null,
             cookingStep: selected ? cookingStep : null,
           }}
           onAction={act}
           onChanged={studioChanged}
           onClose={() => {
-            setStudioMode(null);
+            setStudio(null);
             setStudioHidden(false);
           }}
           onRecipe={open}

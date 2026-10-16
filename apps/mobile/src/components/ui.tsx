@@ -858,11 +858,13 @@ export function Segmented<T extends string>({
 }
 // Every Dialog renders into one shared sheet (SheetHost). When one sheet hands off to another, the
 // container stays put: the old page fades out, the sheet eases to the new height, the new page
-// fades in. A sheet opened over another returns to it when closed.
+// fades in. A sheet opened over another returns to it when closed. The title, anything pinned under
+// it and the close button stay put while the rest scrolls beneath them.
 type Sheet = {
   id: number;
   order: number;
   title?: string;
+  header?: React.ReactNode;
   children?: React.ReactNode;
   onClose: () => void;
 };
@@ -885,11 +887,14 @@ export function Dialog({
   visible,
   onClose,
   title,
+  header,
   children,
 }: {
   visible: boolean;
   onClose: () => void;
   title?: string;
+  /** Stays pinned under the title while the content scrolls, such as a search field. */
+  header?: React.ReactNode;
   children: React.ReactNode;
 }) {
   const [id] = useState(() => ++sheetSeq);
@@ -901,7 +906,7 @@ export function Dialog({
   // Runs after every render so the sheet always shows the owner's latest content.
   useLayoutEffect(() => {
     if (visible)
-      setSheets(sheets.map((e) => (e.id === id ? { ...e, title, children, onClose } : e)));
+      setSheets(sheets.map((e) => (e.id === id ? { ...e, title, header, children, onClose } : e)));
   });
   return null;
 }
@@ -917,7 +922,8 @@ type SheetDragHost = {
   busy: () => boolean;
   lockScroll: (locked: boolean) => void;
 };
-const HEADER = 64;
+// The grabber and the header under it, for a single-line title.
+const HEADER = 70;
 function sheetDrag(y: Animated.Value, backdrop: Animated.Value) {
   let host: SheetDragHost = {
     compact: false,
@@ -1130,9 +1136,15 @@ export function SheetHost() {
   const rise = open && compact ? lift : 0;
   const scroller = useRef<ScrollView>(null);
   const keyboard = useKeyboardScroll(scroller, rise);
+  // Once content has scrolled under the header, a hairline separates them.
+  const [scrolled, setScrolled] = useState(false);
+  // The sheet fits its header and content; either can change size on its own.
+  const sizes = useRef({ header: compact ? 48 : 70, content: -1 });
   const show = (next: string) => {
     m.current.page = next;
+    sizes.current.content = -1;
     dragger.reset();
+    setScrolled(false);
     setPage(next);
   };
   const [dragger] = useState(() => sheetDrag(y, backdrop));
@@ -1251,8 +1263,11 @@ export function SheetHost() {
   useEffect(() => {
     transition(topPage);
   }, [topPage]);
-  const measure = (content: number) => {
-    const target = Math.min(chrome + content, maxHeight);
+  const measure = (part: 'header' | 'content', size: number) => {
+    sizes.current[part] = size;
+    const { header, content } = sizes.current;
+    if (content < 0) return;
+    const target = Math.min(chrome + header + content, maxHeight);
     if (!sized) {
       h.setValue(target);
       setSized(true);
@@ -1351,9 +1366,42 @@ export function SheetHost() {
                   />
                 )}
                 <View
-                  style={{ position: 'absolute', top: compact ? 18 : 20, right: 18, zIndex: 20 }}
+                  onLayout={(e) => measure('header', e.nativeEvent.layout.height)}
+                  style={{
+                    paddingTop: compact ? 0 : 22,
+                    paddingBottom: 10,
+                    paddingLeft: compact ? 22 : 30,
+                    paddingRight: 18,
+                    gap: 14,
+                    borderBottomWidth: StyleSheet.hairlineWidth,
+                    borderColor: scrolled ? color.line : 'transparent',
+                  }}
                 >
-                  <IconButton icon={X} label={tr('Close dialog')} onPress={close} size={38} glass />
+                  <View style={[s.row, { gap: 12 }]}>
+                    <Animated.View style={{ flex: 1, opacity: fade }}>
+                      {!!entry?.title && (
+                        <Text
+                          accessibilityRole="header"
+                          numberOfLines={2}
+                          style={[s.h2, { fontSize: 22, lineHeight: 28 }]}
+                        >
+                          {entry.title}
+                        </Text>
+                      )}
+                    </Animated.View>
+                    <IconButton
+                      icon={X}
+                      label={tr('Close dialog')}
+                      onPress={close}
+                      size={38}
+                      glass
+                    />
+                  </View>
+                  {!!entry?.header && (
+                    <Animated.View style={{ opacity: fade, marginRight: compact ? 4 : 12 }}>
+                      {entry.header}
+                    </Animated.View>
+                  )}
                 </View>
                 {entry &&
                   draggable(
@@ -1369,25 +1417,22 @@ export function SheetHost() {
                       overScrollMode="never"
                       scrollEventThrottle={16}
                       onScroll={(e) => {
-                        dragger.scrolled(e.nativeEvent.contentOffset.y);
+                        const offset = e.nativeEvent.contentOffset.y;
+                        dragger.scrolled(offset);
                         keyboard.onScroll(e);
+                        if (offset > 1 !== scrolled) setScrolled(offset > 1);
                       }}
                       onLayout={keyboard.onLayout}
-                      onContentSizeChange={(_, content) => measure(content)}
+                      onContentSizeChange={(_, content) => measure('content', content)}
                       style={{ opacity: fade }}
                     >
                       <View
                         style={{
                           padding: compact ? 22 : 30,
-                          paddingTop: compact ? 12 : 30,
+                          paddingTop: 8,
                           gap: 18,
                         }}
                       >
-                        {entry.title && (
-                          <Text style={[s.h2, { paddingRight: 50, fontSize: 22, lineHeight: 28 }]}>
-                            {entry.title}
-                          </Text>
-                        )}
                         <RevealFocus.Provider value={keyboard.reveal}>
                           {entry.children}
                         </RevealFocus.Provider>

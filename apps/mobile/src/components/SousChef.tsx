@@ -219,7 +219,7 @@ export function SousChef({
   }, [job]);
   return (
     <Dialog visible onClose={onClose}>
-      <View style={{ gap: 8, paddingRight: 48 }}>
+      <View style={{ gap: 8 }}>
         <View style={[s.row, { gap: 8 }]}>
           <View
             style={{

@@ -161,7 +161,7 @@ export function CreatorDialog({
   const following = app.library.followingIds.includes(creator.id);
   return (
     <Dialog visible onClose={onClose}>
-      <View style={{ gap: 12, alignItems: 'center', paddingTop: 12 }}>
+      <View style={{ gap: 12, alignItems: 'center' }}>
         <Avatar uri={creator.avatar} name={creator.name} size={88} />
         <View style={{ alignItems: 'center', gap: 2 }}>
           <Text style={[s.h1, { fontSize: 26, textAlign: 'center' }]}>{creator.name}</Text>
