@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -72,6 +73,32 @@ func (s *MediaStore) Put(ctx context.Context, owner string, data []byte) (string
 		return "", e
 	}
 	return s.BaseURL + "/" + key, nil
+}
+
+// Own reports whether url is a file this owner uploaded or generated, as opposed to anyone else's.
+func (s *MediaStore) Own(owner, url string) bool {
+	return s.BaseURL != "" && strings.HasPrefix(url, s.BaseURL+"/"+owner+"/") && !strings.Contains(url, "..")
+}
+
+// Read returns a photo of at most limit bytes: the owner's own files straight from storage,
+// anything else downloaded from its public HTTPS address.
+func (s *MediaStore) Read(ctx context.Context, owner, url string, limit int64) ([]byte, error) {
+	if !s.Own(owner, url) {
+		return download(ctx, url, limit)
+	}
+	if s.S3 == nil {
+		return nil, fiber.NewError(503, "Media storage has not been configured.")
+	}
+	out, e := s.S3.GetObject(ctx, &s3.GetObjectInput{Bucket: aws.String(s.Bucket), Key: aws.String(strings.TrimPrefix(url, s.BaseURL+"/"))})
+	if e != nil {
+		return nil, e
+	}
+	defer out.Body.Close()
+	data, e := io.ReadAll(io.LimitReader(out.Body, limit+1))
+	if e == nil && int64(len(data)) > limit {
+		e = fmt.Errorf("media exceeds %d bytes", limit)
+	}
+	return data, e
 }
 func (a *App) uploadMedia(c fiber.Ctx) error {
 	file, e := c.FormFile("file")

@@ -27,6 +27,8 @@ To run the API in Docker: `docker compose --profile full up --build`. Run Expo s
 - Recipe discovery, ingredient/text search, cuisine/diet/time filters, and creator profiles.
 - Nine interface languages with automatic device/browser detection, a saved language choice in My kitchen, and localized dates and quantities. See [localization](docs/LOCALIZATION.md).
 - Account registration/login/logout, Sign in with Apple (iOS, web) and Google (iOS, Android, web), secure persistent sessions, editable profiles, dietary preferences, password recovery integration, and account deletion. See [sign-in](docs/SIGN-IN.md).
+- A first-launch welcome on phones (language, then join, sign in or look around) and a skippable kitchen setup for every new account: photo, name and username, food preferences, and cooks to follow.
+- Profile photos taken with the camera or chosen from the library (cropped square and resized on the device), changed by tapping the photo in My kitchen, and an optional AI touch-up (GPT Image 2.5 Sunburst) that improves light, color and focus while keeping the person the same, with a before/after comparison. Uploaded recipe photos get the same touch-up, keeping the dish, plating and portions.
 - Free, Plus and Pro plans sold through Stripe on the web, with per-member allowances and AI spend ceilings that keep every plan cash-flow positive, and no app-store commission. See [pricing](docs/PRICING.md).
 - Recipe creation, editing, private drafts, device draft autosave, ingredient and instruction editors, optional uploaded photos/video, and AI disclosure.
 - Serving scaling, ingredient checklists, guided cooking, step timers, spoken instructions, video playback, and recipe sharing.

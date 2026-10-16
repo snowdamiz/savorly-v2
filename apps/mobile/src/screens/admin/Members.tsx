@@ -6,6 +6,7 @@ import {
   LogOut,
   MailCheck,
   PencilLine,
+  RotateCcw,
   ShieldCheck,
   ShieldOff,
   Trash2,
@@ -13,6 +14,7 @@ import {
 } from 'lucide-react-native';
 import { api } from '../../lib/api';
 import { AdminMember, AdminMemberDetail } from '../../lib/admin';
+import { useApp } from '../../lib/store';
 import { PlanID } from '../../lib/types';
 import { color, s } from '../../lib/theme';
 import { Avatar, Button, Dialog, Field, Segmented } from '../../components/ui';
@@ -124,9 +126,10 @@ export function Members() {
   );
 }
 
-type Pending = 'suspend' | 'unsuspend' | 'signout' | 'verify' | 'admin' | 'delete' | null;
+type Pending = 'suspend' | 'unsuspend' | 'signout' | 'verify' | 'admin' | 'setup' | 'delete' | null;
 
 export function MemberDialog({ id, onClose }: { id: string; onClose: () => void }) {
+  const app = useApp();
   const nav = useNav();
   const f = useFormat();
   const { data: m, error } = useLoad<AdminMemberDetail>(`/admin/users/${encodeURIComponent(id)}`);
@@ -397,6 +400,19 @@ export function MemberDialog({ id, onClose }: { id: string; onClose: () => void 
                   small
                   onPress={() => setEditing(true)}
                 />
+                {m.onboarded === false ? (
+                  <Text style={s.small}>
+                    Their kitchen setup is waiting for them the next time they open Savorly.
+                  </Text>
+                ) : (
+                  <Button
+                    title={me ? 'Restart my kitchen setup' : 'Restart kitchen setup'}
+                    icon={RotateCcw}
+                    variant="secondary"
+                    small
+                    onPress={() => setConfirm('setup')}
+                  />
+                )}
                 <View style={{ gap: 8 }}>
                   <Text style={s.small}>
                     Complimentary plan
@@ -540,6 +556,36 @@ export function MemberDialog({ id, onClose }: { id: string; onClose: () => void 
                 () => api(`${path}/sign-out`, { method: 'POST' }),
                 `${m.name} is signed out everywhere.`,
               )
+            }
+            onClose={() => setConfirm(null)}
+          />
+          <Confirm
+            visible={confirm === 'setup'}
+            title={me ? 'Restart your kitchen setup?' : 'Restart kitchen setup?'}
+            text={
+              me
+                ? 'The new-kitchen setup (photo, name and username, food preferences, cooks to follow) opens straight away, so you can try it. Your profile stays as it is; each step starts from what you have.'
+                : `${m.name} sees the new-kitchen setup (photo, name and username, food preferences, cooks to follow) the next time they open Savorly. Their profile stays as it is until they save a step.`
+            }
+            action="Restart setup"
+            busy={action.busy === 'setup'}
+            result={action.result}
+            onConfirm={() =>
+              void action
+                .run(
+                  'setup',
+                  () => api(`${path}/setup`, { method: 'POST' }),
+                  me ? '' : `${m.name}’s kitchen setup will open next time.`,
+                )
+                .then(async (ok) => {
+                  if (!ok) return;
+                  setConfirm(null);
+                  // Your own setup takes over the screen, so the record makes way for it.
+                  if (me) {
+                    onClose();
+                    await app.refreshUser();
+                  }
+                })
             }
             onClose={() => setConfirm(null)}
           />

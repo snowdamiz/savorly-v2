@@ -15,10 +15,13 @@ import (
 	"savorly/api/internal/ai"
 )
 
-const jobJSON = `jsonb_build_object('id',id,'kind',kind,'prompt',prompt,'status',status,'result',result,'error',error,'createdAt',created_at)`
+const jobJSON = `jsonb_build_object('id',id,'kind',kind,'prompt',prompt,'source',source,'status',status,'result',result,'error',error,'createdAt',created_at)`
 
 func (a *App) jobs(c fiber.Ctx) error {
 	return a.queryMany(c, `SELECT `+jobJSON+` FROM ai_jobs WHERE user_id=$1 ORDER BY created_at DESC LIMIT 30`, userID(c))
+}
+func (a *App) job(c fiber.Ctx) error {
+	return a.queryOne(c, `SELECT `+jobJSON+` FROM ai_jobs WHERE id=$1 AND user_id=$2`, c.Params("id"), userID(c))
 }
 func (a *App) createJob(c fiber.Ctx) error {
 	var in struct{ Kind, Prompt string }
@@ -35,6 +38,44 @@ func (a *App) createJob(c fiber.Ctx) error {
 	if in.Kind != "video" && !a.AI.TextEnabled() {
 		return fiber.NewError(503, "The sous-chef is not connected yet. Add an OpenRouter key on the server.")
 	}
+	return a.queueJob(c, in.Kind, in.Prompt, "")
+}
+
+// Touch-ups keep the subject exactly as it is: they polish a photo rather than invent one.
+var touchUps = map[string]string{
+	"avatar": "Retouch this photo into a polished profile picture. Keep the same person or subject exactly as they are: identical face, features, skin tone, age, expression, hair, clothing and pose, so it is unmistakably them. Improve exposure, white balance, color and sharpness, gently soften harsh shadows and noise, and calm a distracting background with a soft natural blur. Keep the subject centered and the framing the same. Photorealistic and natural: no filters, illustration, beauty smoothing, text, borders or added objects.",
+	"dish":   "Retouch this food photo so the dish looks its best. Keep the same dish, plating, ingredients, portions and tableware exactly as they are, in the same framing. Improve light, white balance, color and sharpness, reduce noise and glare, and tidy small smudges or crumbs on the plate and table. Photorealistic editorial food photography: no text, watermarks, filters, or added food or props.",
+}
+
+// touchUp queues an AI retouch of a photo the member already has: one they uploaded or
+// generated, or the profile photo they use now (such as one from their Google account).
+func (a *App) touchUp(c fiber.Ctx) error {
+	var in struct{ URL, Kind string }
+	if e := decode(c, &in); e != nil {
+		return e
+	}
+	prompt, known := touchUps[in.Kind]
+	if !known || !validMedia(in.URL) || in.URL == "" {
+		return fiber.NewError(400, "Choose a photo to touch up.")
+	}
+	if !a.AI.TextEnabled() {
+		return fiber.NewError(503, "AI photos are not connected yet. Add an OpenRouter key on the server.")
+	}
+	if !a.Media.Own(userID(c), in.URL) {
+		var avatar string
+		if e := a.DB.QueryRow(c.Context(), `SELECT avatar FROM users WHERE id=$1`, userID(c)).Scan(&avatar); e != nil {
+			return e
+		}
+		if avatar != in.URL || !strings.HasPrefix(in.URL, "https://") {
+			return fiber.NewError(400, "Touch up a photo you’ve added to Savorly.")
+		}
+	}
+	return a.queueJob(c, "image", prompt, in.URL)
+}
+
+// queueJob reserves the member's allowance and budget for one generation and queues it, once
+// per Idempotency-Key.
+func (a *App) queueJob(c fiber.Ctx, kind, prompt, source string) error {
 	key := c.Get("Idempotency-Key")
 	if len(key) < 8 || len(key) > 100 {
 		return fiber.NewError(400, "A valid Idempotency-Key is required.")
@@ -51,9 +92,9 @@ func (a *App) createJob(c fiber.Ctx) error {
 	var existing []byte
 	e = tx.QueryRow(c.Context(), `SELECT `+jobJSON+` FROM ai_jobs WHERE user_id=$1 AND request_key=$2`, userID(c), key).Scan(&existing)
 	if e == nil {
-		var old struct{ Kind, Prompt string }
+		var old struct{ Kind, Prompt, Source string }
 		json.Unmarshal(existing, &old)
-		if old.Kind != in.Kind || old.Prompt != in.Prompt {
+		if old.Kind != kind || old.Prompt != prompt || old.Source != source {
 			return fiber.NewError(409, "This request key was used for a different generation.")
 		}
 		return c.Type("json").Send(existing)
@@ -62,15 +103,15 @@ func (a *App) createJob(c fiber.Ctx) error {
 		return e
 	}
 
-	estimate := ai.GenerationEstimate(in.Kind)
-	if e = allowance(c.Context(), tx, userID(c), in.Kind); e != nil {
+	estimate := ai.GenerationEstimate(kind)
+	if e = allowance(c.Context(), tx, userID(c), kind); e != nil {
 		return e
 	}
 	if e = reserveGeneration(c.Context(), tx, userID(c), estimate); e != nil {
 		return e
 	}
 	var result []byte
-	e = tx.QueryRow(c.Context(), `INSERT INTO ai_jobs(id,user_id,kind,prompt,request_key,estimated_cost) VALUES($1,$2,$3,$4,$5,$6) RETURNING `+jobJSON, uuid.NewString(), userID(c), in.Kind, in.Prompt, key, estimate).Scan(&result)
+	e = tx.QueryRow(c.Context(), `INSERT INTO ai_jobs(id,user_id,kind,prompt,source,request_key,estimated_cost) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING `+jobJSON, uuid.NewString(), userID(c), kind, prompt, source, key, estimate).Scan(&result)
 	if e != nil {
 		return e
 	}
@@ -102,8 +143,8 @@ func RunWorker(ctx context.Context, db *pgxpool.Pool, config Config) {
 			default:
 				continue
 			}
-			var id, owner, kind, prompt string
-			e = db.QueryRow(ctx, `UPDATE ai_jobs SET status='running',updated_at=now() WHERE id=(SELECT id FROM ai_jobs WHERE status='queued' ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1) RETURNING id,user_id,kind,prompt`).Scan(&id, &owner, &kind, &prompt)
+			var id, owner, kind, prompt, source string
+			e = db.QueryRow(ctx, `UPDATE ai_jobs SET status='running',updated_at=now() WHERE id=(SELECT id FROM ai_jobs WHERE status='queued' ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1) RETURNING id,user_id,kind,prompt,source`).Scan(&id, &owner, &kind, &prompt, &source)
 			if errors.Is(e, pgx.ErrNoRows) {
 				<-slots
 				continue
@@ -113,11 +154,11 @@ func RunWorker(ctx context.Context, db *pgxpool.Pool, config Config) {
 				<-slots
 				continue
 			}
-			go func() { defer func() { <-slots }(); a.processJob(ctx, id, owner, kind, prompt) }()
+			go func() { defer func() { <-slots }(); a.processJob(ctx, id, owner, kind, prompt, source) }()
 		}
 	}
 }
-func (a *App) processJob(parent context.Context, id, owner, kind, prompt string) {
+func (a *App) processJob(parent context.Context, id, owner, kind, prompt, source string) {
 	ctx, cancel := context.WithTimeout(parent, 4*time.Minute)
 	defer cancel()
 	var result json.RawMessage
@@ -125,7 +166,11 @@ func (a *App) processJob(parent context.Context, id, owner, kind, prompt string)
 	switch kind {
 	case "image":
 		var b []byte
-		b, _, err = a.AI.Image(ctx, prompt)
+		if source != "" {
+			b, err = a.retouch(ctx, owner, prompt, source)
+		} else {
+			b, _, err = a.AI.Image(ctx, prompt)
+		}
 		if err == nil {
 			var url string
 			url, err = a.Media.Put(ctx, owner, b)
@@ -171,6 +216,18 @@ func (a *App) processJob(parent context.Context, id, owner, kind, prompt string)
 		return
 	}
 	a.finishJob(parent, id, result, "")
+}
+func (a *App) retouch(ctx context.Context, owner, prompt, source string) ([]byte, error) {
+	photo, e := a.Media.Read(ctx, owner, source, 20*1024*1024)
+	if e != nil {
+		return nil, e
+	}
+	mime, _ := mediaType(photo)
+	if !strings.HasPrefix(mime, "image/") {
+		return nil, errors.New("touch-up source is not a supported photo")
+	}
+	b, _, e := a.AI.EditImage(ctx, prompt, photo, mime)
+	return b, e
 }
 func (a *App) finishJob(ctx context.Context, id string, result []byte, message string) {
 	status := "completed"
