@@ -1,26 +1,28 @@
-# Savorly — The Happy Clove
+# Savorly — The Curious Chef
 
-The selected identity pairs an asymmetric garlic-clove character with a flowing, hand-lettered
+The selected identity pairs chef-hat concept **06, The Curious Chef**, with a flowing, hand-lettered
 `savorly` wordmark for the web sidebar and standalone brand artwork. Mobile screens and sheets
-use only the clove icon, directly on the surrounding surface without a colored tile.
-The crescent eyes and curved clove separation remain readable at small sizes.
+use only the chef icon, directly on the surrounding surface without a colored tile.
+The tilted crown, curved fold, raised eyebrows, and visible pupils preserve the chosen character.
 The logo palette is charcoal (`#1B1C1A`) and cream (`#F7F8F5`).
 
-![Happy Clove logo and platform variants](brand/preview.png)
+![Curious Chef logo and platform variants](brand/preview.png)
 
 ## Artwork and use
 
 - `apps/mobile/assets/brand-artwork.json` is the shared vector source for the app and icon renderer.
 - `BrandMark` and `BrandWordmark` in `src/components/Brand.tsx` render the shared artwork with the
   existing `react-native-svg` dependency. The wordmark is outlined artwork and requires no additional font.
-- The web sidebar shows the clove and wordmark together. The welcome screen, sign-in dialog,
-  signed-out kitchen, and native navigation use only the clove icon, without a background tile. Cooking
+- The web sidebar shows the chef and wordmark together. The welcome screen, sign-in dialog,
+  signed-out kitchen, and native navigation use only the chef icon, without a background tile. Cooking
   controls and recipe placeholders keep their functional Lucide icons.
 - `brand-mark.svg` and `brand-wordmark.svg` are transparent exports. `brand.svg` is the square
   app icon with its neutral cream background.
-- The transparent generated masters and their prompts are in `docs/brand/`. They were refined
-  with built-in image generation from the selected concept, then traced to clean vector paths.
-  Production rendering does not use those raster masters or require an image-generation service.
+- The approved chef concept sheet and its built-in image-generation prompt are in `docs/brand/`.
+  The large **06** drawing was traced directly into clean vector paths; the handwritten wordmark
+  retains its existing artwork and transparent master. Production rendering requires no image service.
+- The loading screen animates the eyes and pupils together over the solid hat, with the blink
+  centered on the chef's eye position. The eyebrows stay still.
 
 ## Regenerate platform assets
 
@@ -36,13 +38,13 @@ SVG exports and these PNGs:
 | Asset                         | Size        | Use                                                                   |
 | ----------------------------- | ----------- | --------------------------------------------------------------------- |
 | `icon.png`                    | 1024 × 1024 | Opaque iOS / default app icon                                         |
-| `favicon.png`                 | 64 × 64     | Browser icon, with a slightly larger clove                            |
+| `favicon.png`                 | 64 × 64     | Browser icon, with a larger chef to retain facial detail at 16–32 px  |
 | `android-icon-foreground.png` | 512 × 512   | Transparent adaptive foreground                                       |
-| `android-icon-monochrome.png` | 512 × 512   | Alpha-only themed icon with eye and clove cutouts                     |
+| `android-icon-monochrome.png` | 512 × 512   | Alpha-only themed icon with light-detail cutouts and opaque pupils    |
 | `splash-icon.png`             | 1024 × 1024 | Transparent splash artwork, available for future splash configuration |
 
 Android's adaptive background in `app.json` must match the cream brand color; the renderer checks
-this. The adaptive clove is smaller than the default icon to fit the guaranteed 66/108 safe circle.
+this. The adaptive chef is smaller than the default icon to fit the guaranteed 66/108 safe circle.
 See [Android's adaptive icon guidelines](https://developer.android.com/develop/ui/compose/system/icon_design_adaptive).
 Launcher icon changes require a new native build; updating JavaScript alone does not replace the
 installed launcher icon. See [Expo's icon documentation](https://docs.expo.dev/develop/user-interface/splash-screen-and-app-icon/).

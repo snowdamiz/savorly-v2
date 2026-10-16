@@ -1,12 +1,16 @@
-Built-in image generation was used to refine approved concept 08, The Happy Clove.
-The resulting transparent PNG masters are preserved beside this file.
-The production artwork is traced, flat-color vector geometry in apps/mobile/assets/brand-artwork.json.
+Built-in image generation produced the chef-hat concept sheet in chef-concepts.png.
+The user selected concept 06, The Curious Chef, from that sheet.
+The full successful generation prompt is preserved in chef-concepts-prompt.txt.
 
-MASCOT MASTER
-Use case: background-extraction / logo-brand.
-Input image: approved concept board; ONLY concept "08 / THE HAPPY CLOVE" in the BOTTOM LEFT is the edit target. All other panels are irrelevant.
-Deliver a single production master of ONLY the garlic-clove mascot from concept 08, centered large on a genuinely transparent background, square image. Preserve its exact recognizable design: a plump asymmetric charcoal garlic clove with a gently hooked pointed tip leaning right, a single elegant curved white separation sweeping down its right side, and two small expressive white crescent eyes glancing upward/right. Preserve the warmth and proportions of the approved mascot. Clean up edge precision for logo use, smoothly flowing contours, flat solid charcoal #1B1C1A, white eye shapes and white curved separation. Do not reinvent the character. Fill most of the square but allow breathing room so nothing clips.
-No lettering, no labels, no app-icon tile, no shadows, no gradient, no texture, no extra details, no mouth, no arms or legs, no leaf. One isolated mascot only. Transparent background, not a white or checkerboard backdrop.
+MASCOT VECTOR
+The approved large 06 drawing (bottom row, second column) was traced directly from
+chef-concepts.png into apps/mobile/assets/brand-artwork.json, using the source region
+x=430, y=540, width=300, height=275. The original concept sheet is unmodified.
+The vector separates the hat, eyebrow accents, eyes, and pupils for the loading animation.
+The favicon uses a larger optical size, while Android layers retain safe-circle padding.
+No runtime image service or tracing dependency is required.
+
+The handwritten wordmark retains the existing approved artwork. Its original prompt follows.
 
 WORDMARK MASTER
 Use case: background-extraction / logo-brand.

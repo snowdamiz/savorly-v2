@@ -10,13 +10,15 @@ export function BrandMark({ size = 40 }: { size?: number }) {
     <Svg
       width={size}
       height={size}
-      viewBox={artwork.clove.viewBox}
+      viewBox={artwork.mascot.viewBox}
       accessible={false}
       aria-hidden
       pointerEvents="none"
     >
-      <Path d={artwork.clove.path} fill={brandColors.ink} fillRule="evenodd" />
-      <Path d={artwork.clove.eyes} fill={brandColors.cream} />
+      <Path d={artwork.mascot.path} fill={brandColors.ink} />
+      <Path d={artwork.mascot.accents} fill={brandColors.cream} />
+      <Path d={artwork.mascot.eyes} fill={brandColors.cream} />
+      <Path d={artwork.mascot.pupils} fill={brandColors.ink} />
     </Svg>
   );
 }
