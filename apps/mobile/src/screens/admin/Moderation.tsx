@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Text, View } from 'react-native';
-import { Ban, Check, EyeOff, Flag, Trash2 } from 'lucide-react-native';
+import { Ban, Check, EyeOff, Flag, Trash2 } from '../../components/icons';
 import { api } from '../../lib/api';
 import { AdminReview, ReportGroup, ReportStatus } from '../../lib/admin';
 import { color, radius, s } from '../../lib/theme';
@@ -153,7 +153,7 @@ export function Reports() {
       <Confirm
         visible={pending?.kind === 'unpublish'}
         title="Unpublish this recipe?"
-        text="It leaves public view and becomes a draft its author can still see. The reports are marked resolved. You can restore it from the recipe."
+        text="It leaves public view. Its author can still see it, but can’t publish it again until an admin restores it from the recipe. The reports are marked resolved."
         action="Unpublish"
         danger
         input={{ label: 'Note for other admins (optional)' }}

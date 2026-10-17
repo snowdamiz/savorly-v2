@@ -34,7 +34,7 @@ import {
   Video,
   Volume2,
   X,
-} from 'lucide-react-native';
+} from './icons';
 import { api } from '../lib/api';
 import { useApp } from '../lib/store';
 import {
@@ -46,31 +46,14 @@ import {
   StudioProject,
 } from '../lib/types';
 import { color, radius, s, shadow } from '../lib/theme';
-import {
-  Button,
-  Dialog,
-  FoodImage,
-  IconButton,
-  Pill,
-  Press,
-  animate,
-  motionReduced,
-  useChrome,
-} from './ui';
+import { Button, Dialog, FoodImage, IconButton, Pill, Press, animate, motionReduced } from './ui';
 import { RecipeCamera } from './RecipeCamera';
+import { useSousChefDock } from './sousChefDock';
 import { fileForm } from '../lib/photos';
+import { requestKey } from '../lib/utils';
 import { openVoice } from '../lib/voice/transport';
 import { VoiceConnection, VoiceEvent } from '../lib/voice/connection';
 
-function requestKey() {
-  return (
-    globalThis.crypto?.randomUUID?.() ||
-    'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-      const r = Math.floor(Math.random() * 16);
-      return (c === 'x' ? r : (r & 3) | 8).toString(16);
-    })
-  );
-}
 function mergeEvents(events: StudioEvent[]) {
   const groups: StudioEvent[] = [];
   for (const event of events) {
@@ -156,18 +139,6 @@ const timeZone = (() => {
     return '';
   }
 })();
-// The sous-chef's corner: its launcher sits here, and in a desktop browser the panel pops out of it.
-export function useSousChefDock() {
-  const { compact, width, height, insets, webPage } = useChrome();
-  const bar = Math.min(width - 32, 400);
-  return {
-    right: compact ? (width - bar) / 2 : 28,
-    // Phones keep it above the tab bar.
-    bottom: compact ? Math.max(16, insets.bottom) + 82 : 28,
-    /** The floating panel, clear of the header; the apps and narrow windows use a sheet instead. */
-    panel: webPage ? { width: 400, height: Math.min(680, height - 128) } : null,
-  };
-}
 // The sous-chef: one conversation for anything in the app, typed, spoken live, or from a photo. In a
 // desktop browser it floats beside the page, which stays usable while it follows along; the apps and
 // narrow windows open it as a sheet.
@@ -196,7 +167,7 @@ export function RecipeStudio({
   onClose: () => void;
   onRecipe: (recipe: Recipe) => void;
 }) {
-  const { t: tr, locale } = useI18n();
+  const { t: tr, locale, language: appLanguage } = useI18n();
   const app = useApp();
   const dock = useSousChefDock();
   const floating = !!dock.panel;
@@ -383,16 +354,17 @@ export function RecipeStudio({
       if (Platform.OS === 'web') document.removeEventListener('visibilitychange', hidden);
     };
   }, [stop]);
-  // The conversation follows what the user has open, and their clock.
+  // The conversation follows what the user has open, their clock, and their language.
   const { screen, cookingStep } = context;
   const viewing = context.recipe?.id;
+  const language = context.language ?? appLanguage;
   useEffect(() => {
     if (!project?.id || !attending) return;
     contextSent.current = api(`/recipe-studio/${project.id}/context`, {
       method: 'PUT',
-      body: { screen, recipeId: viewing || '', cookingStep: cookingStep || 0, timeZone },
+      body: { screen, recipeId: viewing || '', cookingStep: cookingStep || 0, timeZone, language },
     }).catch(() => {});
-  }, [project?.id, screen, viewing, cookingStep, attending]);
+  }, [project?.id, screen, viewing, cookingStep, attending, language]);
   useEffect(() => {
     handlers.current = {
       changed: onChanged,
@@ -463,7 +435,7 @@ export function RecipeStudio({
       ) {
         void stop().then(() => {
           if (!live.current) return;
-          setCaption({ role: 'assistant', text: 'Reconnecting. Hold that thought…' });
+          setCaption({ role: 'assistant', text: tr('Reconnecting. Hold that thought…') });
           // Give the sideband time to finalize the prior lease before the next handshake.
           renewal.current = setTimeout(() => {
             if (live.current) void startVoice();
@@ -593,7 +565,8 @@ export function RecipeStudio({
   }, [hidden, pop]);
   const exit = () => {
     void stop();
-    void Promise.all([app.refreshPrivate(), app.refreshRecipes()]);
+    // Offline, the lists simply stay as they were; the next refresh catches up.
+    void Promise.all([app.refreshPrivate(), app.refreshRecipes()]).catch(() => {});
     if (floating) animate(pop, 0, 160).start(() => onClose());
     else onClose();
   };
@@ -805,7 +778,7 @@ export function RecipeStudio({
             }}
           >
             {event.role === 'user' ? tr('You') : tr('Sous-chef')}
-            {event.imageCount ? tr(' · {{v0}} recipe photo', { v0: event.imageCount }) : ''}
+            {event.imageCount ? tr('recipePhotos', { count: event.imageCount }) : ''}
           </Text>
           <Text
             selectable
@@ -834,7 +807,7 @@ export function RecipeStudio({
                   <Text numberOfLines={2} style={s.h3}>
                     {r.title}
                   </Text>
-                  <Text style={s.small}>{tr('{{v0}} min', { v0: r.minutes })}</Text>
+                  <Text style={s.small}>{tr('minuteCount', { count: r.minutes })}</Text>
                 </Press>
               ))}
             </ScrollView>
@@ -919,7 +892,8 @@ export function RecipeStudio({
           backgroundColor: color.white,
           borderRadius: 26,
           borderWidth: 1,
-          borderColor: color.border,
+          // The composer is the message field's edge.
+          borderColor: color.outline,
         }}
       >
         {/* A tight pair, so they read as one set of photo tools. */}
@@ -1034,11 +1008,11 @@ export function RecipeStudio({
           />
           <Text style={s.h2}>{project.recipe.title}</Text>
           <Text style={s.small}>
-            {tr('{{v0}} min · {{v1}} servings · {{v2}} ingredients', {
-              v0: project.recipe.minutes,
-              v1: project.recipe.servings,
-              v2: project.recipe.ingredients.length,
-            })}
+            {[
+              tr('minuteCount', { count: project.recipe.minutes }),
+              tr('servingCount', { count: project.recipe.servings }),
+              tr('ingredientCount', { count: project.recipe.ingredients.length }),
+            ].join(' · ')}
           </Text>
         </View>
       </View>

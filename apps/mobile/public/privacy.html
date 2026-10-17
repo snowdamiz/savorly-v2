@@ -1,0 +1,283 @@
+<!doctype html>
+<!--
+  LEGAL REVIEW REQUIRED BEFORE LAUNCH (docs/PRODUCTION.md). Written on 16 October 2026 from what
+  the code does (services/api, apps/mobile, docs/ACCOUNTS.md, docs/PROVIDERS.md). Before relying
+  on it:
+  - Name the operator (person or company), a postal address and, if needed, an EU/UK
+    representative; confirm the legal bases, the minimum age and the rights section for the
+    countries Savorly launches in.
+  - privacy@savorly.cooking must receive mail (for example with Cloudflare Email Routing).
+  - Retention: confirm the Neon restore window (30 days is promised here) and Workers Logs
+    retention. Uploaded files are deleted a day after nothing uses them, and never-used uploads two
+    weeks after upload (media_cleanup.go), product
+    events after 90 days (events.go), push messages after 7 days (janitor.go), and the admin audit
+    log keeps names and email addresses (docs/ADMIN.md); this page says so, so update it when any
+    of these changes.
+  - Cloudflare Web Analytics is mentioned as optional (CF_ANALYTICS_TOKEN). The app's own product
+    events are described under "How you use the app" (POST /v1/events, docs/API.md#analytics);
+    keep that list in step with the events the server accepts. Keep the provider list in step
+    with docs/PROVIDERS.md, and update "Last updated" with every change.
+  Linked from account-deletion.html, terms.html and the app.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Privacy policy — Savorly</title>
+    <meta
+      name="description"
+      content="What Savorly collects, why, who processes it for us, how long we keep it and the choices you have."
+    />
+    <meta name="theme-color" content="#F4F4F4" />
+    <link rel="icon" href="/favicon.ico" />
+    <link rel="canonical" href="https://savorly.cooking/privacy" />
+    <link rel="stylesheet" href="/legal.css" />
+  </head>
+  <body>
+    <header>
+      <a class="brand" href="/"><img src="/icons/icon-192.png" alt="" />Savorly</a>
+      <nav aria-label="Legal">
+        <a href="/privacy" aria-current="page">Privacy</a>
+        <a href="/terms">Terms</a>
+        <a href="/account-deletion">Delete your account</a>
+      </nav>
+    </header>
+    <main>
+      <article>
+        <h1>Privacy policy</h1>
+        <p class="updated">Last updated 16 October 2026</p>
+        <p>
+          This policy explains what Savorly collects when you use
+          <a href="https://savorly.cooking">savorly.cooking</a> and the Savorly apps for iPhone,
+          iPad and Android, why we collect it, who processes it for us, how long we keep it and the
+          choices you have. If you have a question, write to
+          <a href="mailto:privacy@savorly.cooking">privacy@savorly.cooking</a>.
+        </p>
+
+        <h2>What we collect</h2>
+        <h3>Your account</h3>
+        <p>
+          Your email address, name and username, and your password, which we store only as a one-way
+          hash (bcrypt), never as the password itself. If you add them: a profile photo, a short
+          bio, food preferences such as diets and allergies, your language, measurement units, and
+          which notifications you want.
+        </p>
+        <h3>Signing in with Apple or Google</h3>
+        <p>
+          The account identifier Apple or Google gives us, the email address it shares (Apple may
+          give a private relay address) and, the first time, your name. With Google we start your
+          profile photo from your Google picture. With Apple we also keep a token that we use only
+          to revoke Savorly's access when you delete your account.
+        </p>
+        <h3>What you post and keep</h3>
+        <p>
+          Recipes with their photos and videos, reviews and ratings, reports about recipes, saved
+          recipes and cookbooks, the cooks you follow, meal plans, grocery lists and pantry items.
+          If you start or join a household, we keep its name, its members and who added each item to
+          its shared grocery list.
+        </p>
+        <h3>The sous-chef and other AI features</h3>
+        <p>
+          What you write or say to the sous-chef, photos you show it, the recipe or cooking step on
+          your screen, the results it produces (recipes, answers, images, videos and retouched
+          photos) and records of use that we need for plan allowances and spending limits. Voice
+          conversations are kept as text transcripts; we don't record or keep the audio. Read-aloud
+          audio of recipe steps is generated from the recipe text and shared by everyone who listens
+          to that step.
+        </p>
+        <h3>Payments</h3>
+        <p>
+          When paid plans are offered, Stripe processes payments. We keep your plan, its status and
+          renewal date, and Stripe's identifiers for you and your subscription. We never see or
+          store your card details.
+        </p>
+        <h3>Technical information</h3>
+        <p>
+          Your IP address, which we use to limit how many requests one visitor can make (it isn't
+          stored in our database); sign-in session tokens, which we store only as hashes; and
+          request logs kept for a few days by our hosting provider. If a page's security policy
+          blocks something, your browser may send us a report with the page address and what was
+          blocked.
+        </p>
+        <h3>On your device</h3>
+        <p>
+          On the website, one strictly necessary cookie keeps you signed in, and your browser's
+          local storage remembers your language, unsaved recipe drafts and announcements you
+          dismissed. In the apps, your sign-in is kept in the device's secure storage. We don't use
+          advertising or cross-site tracking cookies.
+        </p>
+        <h3>Notifications</h3>
+        <p>
+          If you allow notifications on your phone, we keep its push token (an address for your
+          device that Apple or Google gives the app) with your account and the sign-in it came from,
+          to send the notifications you choose: new recipes from cooks you follow, reviews and
+          comments on your recipes, and pantry items about to expire. Signing out of the device
+          removes its token, and you can turn each kind off in the app. We keep each notification we
+          send, with its text, for 7 days.
+        </p>
+        <h3>How you use the app</h3>
+        <p>
+          The apps and the website tell us about a few things you do, to show us what to improve:
+          what you search for and how many recipes it found, which recipes you open and from where,
+          when you start cooking a recipe or a sous-chef chat, when you share or import a recipe,
+          and how far you get through setting up your kitchen. Each event carries a random
+          identifier that changes every time you open the app and, if you're signed in, your
+          account. We don't store your IP address or details of your device with them, we keep them
+          for 90 days, and we delete yours with your account. Our administrators see them only as
+          totals, such as the most common searches.
+        </p>
+        <h3>Visits</h3>
+        <p>
+          We may count visits to the website with Cloudflare Web Analytics, which doesn't use
+          cookies, doesn't follow you across sites and reports only totals such as page views.
+        </p>
+
+        <h2>How we use it</h2>
+        <ul>
+          <li>
+            To run Savorly: your account and kitchen, publishing and showing recipes, following
+            cooks, and the planner, grocery list and pantry.
+          </li>
+          <li>
+            To provide the features you ask for, including the AI features, for which we send the
+            content each request needs to the provider that does the work (listed below), and the
+            notifications you choose.
+          </li>
+          <li>
+            To understand how Savorly is used, from the app's own events described above, and
+            improve it.
+          </li>
+          <li>
+            To keep Savorly safe: limiting request rates, preventing abuse, and reviewing reports
+            and content. Our administrators can see accounts and content to moderate them.
+          </li>
+          <li>To send the emails you ask for, such as password reset codes.</li>
+          <li>To take payment for paid plans.</li>
+        </ul>
+        <p>
+          We don't sell your personal information, we don't show ads, and we don't use your content
+          to train AI models.
+        </p>
+
+        <h2>What others can see</h2>
+        <p>
+          Your profile (name, username, photo and bio), your published recipes and reviews, and
+          counts such as followers and saves are public: anyone can see them, including people
+          without an account and search engines, and links to them show a preview. Your email
+          address, drafts, cookbooks, plans, grocery lists, pantry and sous-chef conversations are
+          private to you, except that the members of a household you join see its shared grocery
+          list, who added each item, and your name, username and photo.
+        </p>
+
+        <h2>Who processes it for us</h2>
+        <ul>
+          <li>
+            <strong>Cloudflare</strong> hosts the website and our servers, stores photos and videos,
+            sends our emails and, if we use it, counts visits.
+          </li>
+          <li><strong>Neon</strong> hosts our database, in the United States.</li>
+          <li>
+            <strong>OpenRouter</strong> passes sous-chef, recipe, image and read-aloud requests to
+            the AI models that do the work (currently OpenAI's models and ElevenLabs voices).
+          </li>
+          <li>
+            <strong>OpenAI</strong> runs live voice conversations: your microphone audio goes
+            straight from your device to OpenAI, which also receives the conversation. We ask OpenAI
+            not to store these sessions.
+          </li>
+          <li><strong>reAPI</strong> generates recipe videos from the recipe.</li>
+          <li><strong>Stripe</strong> processes payments for paid plans.</li>
+          <li>
+            <strong>Apple</strong> and <strong>Google</strong> sign you in when you choose them, and
+            deliver notifications to your devices.
+          </li>
+          <li>
+            <strong>Expo</strong> delivers updates to the iOS and Android apps, and passes our
+            notifications on to Apple and Google.
+          </li>
+        </ul>
+        <p>
+          These providers handle data under their own terms and privacy policies, and only as needed
+          for what they do for us. Apart from them, we share information only when the law requires
+          it, to protect someone's safety or our rights, or as part of a sale or merger of Savorly,
+          in which case this policy keeps applying to your information.
+        </p>
+
+        <h2>Where it is processed</h2>
+        <p>
+          Our database is in the United States, and our providers work in the United States and
+          other countries. Where the law requires it, transfers out of your country are covered by
+          safeguards such as standard contractual clauses.
+        </p>
+
+        <h2>How long we keep it</h2>
+        <ul>
+          <li>Your account and what you post: until you delete them or your account.</li>
+          <li>
+            Photos and videos you add or generate: deleted from storage about a day after they stop
+            being used, for example when you replace one or delete a recipe; files you upload but
+            never use, two weeks after you upload them; and those you never used about a day after
+            you delete your account. A photo that another cook's adaptation of your recipe still
+            shows stays until it no longer does.
+          </li>
+          <li>Events about how you use the app: 90 days. Notifications we sent: 7 days.</li>
+          <li>Sign-in sessions end after 30 days, or when you sign out.</li>
+          <li>Password reset codes expire after 15 minutes.</li>
+          <li>
+            When you delete your account, we delete it and its content from our database at once. A
+            few things are kept for longer; see
+            <a href="/account-deletion">deleting your account</a> for what and for how long.
+          </li>
+        </ul>
+
+        <h2>Your choices and rights</h2>
+        <ul>
+          <li>
+            Change your profile, preferences and language in My kitchen; edit, unpublish or delete
+            your recipes; and delete your account in the app or
+            <a href="/account-deletion">by email</a>.
+          </li>
+          <li>
+            To get a copy of your information, correct it, have it deleted, or object to how we use
+            it, email <a href="mailto:privacy@savorly.cooking">privacy@savorly.cooking</a> from the
+            address on your account. We answer within 30 days.
+          </li>
+          <li>
+            Depending on where you live (for example the EU, the UK or California), data protection
+            law gives you these and other rights, including complaining to your data protection
+            authority.
+          </li>
+        </ul>
+
+        <h2>Children</h2>
+        <p>
+          Savorly isn't meant for children under 13, and we don't knowingly collect their
+          information. If you think a child has an account, tell us and we will delete it.
+        </p>
+
+        <h2>Security</h2>
+        <p>
+          Connections are encrypted (HTTPS), passwords and session tokens are stored only as hashes,
+          every private action checks that it is yours, and access to our systems is limited to the
+          people who run Savorly. No service is perfectly secure; if something happens that affects
+          your information, we will tell you as the law requires.
+        </p>
+
+        <h2>Changes</h2>
+        <p>
+          When this policy changes we update this page and its date, and for significant changes we
+          also tell you in the app or by email.
+        </p>
+
+        <h2>Contact</h2>
+        <p>
+          <a href="mailto:privacy@savorly.cooking">privacy@savorly.cooking</a>
+        </p>
+      </article>
+    </main>
+    <footer>
+      <a href="/">Savorly</a> · <a href="/terms">Terms</a> ·
+      <a href="/account-deletion">Delete your account</a>
+    </footer>
+  </body>
+</html>

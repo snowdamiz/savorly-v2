@@ -1,15 +1,7 @@
 import { languages, useI18n } from '../lib/i18n';
 import React, { useEffect, useRef, useState } from 'react';
 import { Animated, BackHandler, ScrollView, StatusBar, StyleSheet, Text, View } from 'react-native';
-import {
-  ArrowRight,
-  CalendarDays,
-  Check,
-  ChevronLeft,
-  Plus,
-  Sparkles,
-  Users,
-} from 'lucide-react-native';
+import { ArrowRight, CalendarDays, Check, ChevronLeft, Sparkles, Users } from './icons';
 import { api } from '../lib/api';
 import { useApp } from '../lib/store';
 import { RevealFocus, useKeyboardLift, useKeyboardScroll } from '../lib/keyboard';
@@ -22,6 +14,12 @@ import { BrandMark } from './Brand';
 import { PhotoButton, ProfilePhoto } from './ProfilePhoto';
 import { HandleField, useHandle } from './Username';
 import { Avatar, Button, Chip, FadeIn, Field, IconButton, Press, useChrome } from './ui';
+import { FollowPill } from './FollowPill';
+import { track } from '../lib/telemetry';
+
+// The steps' names in the onboarding_step event.
+const welcomeSteps = ['language', 'account'];
+const setupSteps = ['profile', 'preferences', 'cooks', 'sous_chef'];
 
 // One full-screen page of a flow: a header with progress, scrolling content, and actions pinned to
 // the bottom that rise with the keyboard.
@@ -162,6 +160,10 @@ export function Welcome({ onDone }: { onDone: () => void }) {
   const { t: tr, language, detected, setLanguage } = useI18n();
   const app = useApp();
   const [step, setStep] = useState(0);
+  // Where newcomers stop (admin insights): each page shown, and looking around without an account.
+  useEffect(() => {
+    track('onboarding_step', { step: welcomeSteps[step] });
+  }, [step]);
   if (step === 0)
     return (
       <Page
@@ -244,7 +246,14 @@ export function Welcome({ onDone }: { onDone: () => void }) {
             large
             onPress={() => app.setAuthOpen(true)}
           />
-          <Button title={tr('Look around first')} variant="ghost" onPress={onDone} />
+          <Button
+            title={tr('Look around first')}
+            variant="ghost"
+            onPress={() => {
+              track('onboarding_done', { skipped: true });
+              onDone();
+            }}
+          />
         </>
       }
     >
@@ -312,6 +321,11 @@ export function KitchenSetup() {
       .slice(0, 8),
   );
   const last = step === 3;
+  // Each step reached, and whether any was skipped on the way to the end.
+  const skipped = useRef(false);
+  useEffect(() => {
+    track('onboarding_step', { step: setupSteps[step] });
+  }, [step]);
   const go = (next: number) => {
     setError('');
     setStep(next);
@@ -321,6 +335,7 @@ export function KitchenSetup() {
     setError('');
     try {
       await api('/me/onboarded', { method: 'POST' });
+      track('onboarding_done', { skipped: skipped.current });
       await app.refreshUser();
       haptic.tap();
       app.notify(tr('Welcome to the table, @{{v0}}.', { v0: app.user?.handle || user.handle }));
@@ -379,7 +394,15 @@ export function KitchenSetup() {
       step={step}
       steps={4}
       onBack={step > 0 && !busy ? () => go(step - 1) : undefined}
-      onSkip={busy ? undefined : () => (last ? void finish() : go(step + 1))}
+      onSkip={
+        busy
+          ? undefined
+          : () => {
+              skipped.current = true;
+              if (last) void finish();
+              else go(step + 1);
+            }
+      }
       footer={footer}
     >
       {step === 0 && (
@@ -515,8 +538,6 @@ function MeetSousChef() {
 }
 function Cook({ creator }: { creator: Creator }) {
   const { t: tr } = useI18n();
-  const app = useApp();
-  const following = app.library.followingIds.includes(creator.id);
   return (
     <View style={[s.card, s.row, { gap: 14, padding: 14 }]}>
       <Avatar uri={creator.avatar} name={creator.name} size={52} />
@@ -525,45 +546,10 @@ function Cook({ creator }: { creator: Creator }) {
           {creator.name}
         </Text>
         <Text numberOfLines={1} style={s.small}>
-          {tr('{{v0}} recipes', { v0: creator.recipeCount ?? 0 })}
+          {tr('recipeCount', { count: creator.recipeCount ?? 0, more: '' })}
         </Text>
       </View>
-      <Press
-        accessibilityRole="button"
-        accessibilityLabel={
-          following
-            ? tr('Unfollow {{v0}}', { v0: creator.name })
-            : tr('Follow {{v0}}', { v0: creator.name })
-        }
-        accessibilityState={{ selected: following }}
-        onPress={() => {
-          haptic.tap();
-          void app.toggleFollow(creator);
-        }}
-        scale={0.94}
-        style={[
-          s.row,
-          styles.follow,
-          following
-            ? { backgroundColor: color.white, borderColor: color.border }
-            : { backgroundColor: color.ink, borderColor: color.ink },
-        ]}
-      >
-        {following ? (
-          <Check size={14} color={color.ink} strokeWidth={2.4} />
-        ) : (
-          <Plus size={14} color={color.white} strokeWidth={2.4} />
-        )}
-        <Text
-          style={{
-            fontFamily: font.bold,
-            fontSize: 13,
-            color: following ? color.ink : color.white,
-          }}
-        >
-          {following ? tr('Following') : tr('Follow')}
-        </Text>
-      </Press>
+      <FollowPill creator={creator} />
     </View>
   );
 }
@@ -601,12 +587,5 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     boxShadow: shadow.float,
-  },
-  follow: {
-    gap: 5,
-    height: 36,
-    paddingHorizontal: 14,
-    borderRadius: radius.pill,
-    borderWidth: 1,
   },
 });

@@ -1,5 +1,5 @@
 import { I18nProvider, useI18n } from './src/lib/i18n';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Animated,
@@ -36,9 +36,9 @@ import {
   Sparkles,
   UserRound,
   Users,
-} from 'lucide-react-native';
+} from './src/components/icons';
 import { AppProvider, useApp } from './src/lib/store';
-import { api } from './src/lib/api';
+import { api, unreachable } from './src/lib/api';
 import {
   AIRequest,
   AppAction,
@@ -50,7 +50,20 @@ import {
   StudioMode,
 } from './src/lib/types';
 import { LanguagePreference } from './src/lib/i18n/core';
-import { color, font, radius, s, shadow } from './src/lib/theme';
+import { color, font, maxFontScale, radius, s, shadow } from './src/lib/theme';
+import { onPageBack, pushPage, replacePage } from './src/lib/webHistory';
+import {
+  cookbookPath,
+  linkHosts,
+  linkTo,
+  pagePath,
+  parseRoute,
+  pressedInApp,
+  recipePath,
+} from './src/lib/routes';
+import { chunk } from './src/lib/chunk';
+import { installErrorReporting, reportError, track } from './src/lib/telemetry';
+import { cachedRecipe, rememberRecipe } from './src/lib/offline';
 import {
   Avatar,
   Button,
@@ -64,8 +77,10 @@ import {
   SearchBar,
   SheetHost,
   TopBanners,
+  UnderSheets,
   frost,
   native,
+  passThrough,
   useChrome,
 } from './src/components/ui';
 import { AnnouncementBanner } from './src/components/Announcement';
@@ -73,20 +88,36 @@ import { AppToast } from './src/components/AppToast';
 import { UpdateBanner } from './src/components/AppUpdates';
 import { haptic } from './src/lib/haptics';
 import { AuthDialog } from './src/components/AuthDialog';
-import { KitchenSetup, Welcome } from './src/components/Onboarding';
+import { OfflineBanner } from './src/components/OfflineBanner';
 import { finishWelcome, useWelcomePending } from './src/lib/welcome';
 import { useGoogleReturn } from './src/lib/auth/googleRedirect';
+import { usePushNotifications } from './src/lib/usePushNotifications';
 import { BrandMark, BrandWordmark } from './src/components/Brand';
 import { RecipeDetail } from './src/components/RecipeDetail';
 import { RecipeStart } from './src/components/RecipeStart';
-import { RecipeStudio, useSousChefDock } from './src/components/RecipeStudio';
+import { useSousChefDock } from './src/components/sousChefDock';
 import { SousChef } from './src/components/SousChef';
 import { Discover } from './src/screens/Discover';
 import { Splash } from './src/components/Splash';
 import { Cookbooks, Pantry, Planner } from './src/screens/Kitchen';
-import { Editor } from './src/screens/Editor';
+import { CookbookPage } from './src/screens/CookbookPage';
 import { Community, CreatorDialog, Profile } from './src/screens/Profile';
-import { Admin } from './src/screens/admin';
+// Loaded the first time they're needed, so a first visit (often a shared recipe) doesn't download
+// them: on the web each becomes a chunk of its own (Metro splits import()), fetched from the
+// content-hashed /_expo/static/js/web/ path the Worker caches for good; phones have them in the app.
+// A deploy replaces the chunks; chunk() (src/lib/chunk.ts) reloads a tab that misses one.
+const Admin = lazy(chunk(() => import('./src/screens/admin').then((m) => ({ default: m.Admin }))));
+const Editor = lazy(
+  chunk(() => import('./src/screens/Editor').then((m) => ({ default: m.Editor }))),
+);
+const RecipeStudio = lazy(
+  chunk(() => import('./src/components/RecipeStudio').then((m) => ({ default: m.RecipeStudio }))),
+);
+const onboarding = chunk(() => import('./src/components/Onboarding'));
+const Welcome = lazy(() => onboarding().then((m) => ({ default: m.Welcome })));
+const KitchenSetup = lazy(() => onboarding().then((m) => ({ default: m.KitchenSetup })));
+// Uncaught errors and unhandled rejections are reported from the start (telemetry.ts).
+installErrorReporting();
 const tabs = [
   { key: 'discover', title: 'Discover', icon: House },
   { key: 'explore', title: 'Explore', icon: Compass },
@@ -125,6 +156,8 @@ function Shell({ onReady }: { onReady: (ready: boolean) => void }) {
   const { desktop, compact, gutter, top, insets, width, webPage } = useChrome();
   const [screen, setScreen] = useState<Screen>('discover');
   const [selected, setSelected] = useState<Recipe | null>(null);
+  // A public cookbook's page (/cookbooks/<id>), shown in place of the screen until one is chosen.
+  const [cookbook, setCookbook] = useState<string | null>(null);
   useEffect(() => {
     if (Platform.OS === 'web')
       document.title = `${selected ? selected.title : tr(screenNames[screen])} · Savorly`;
@@ -137,6 +170,28 @@ function Shell({ onReady }: { onReady: (ready: boolean) => void }) {
   const [ask, setAsk] = useState<AIRequest | null>(null);
   const [askKey, setAskKey] = useState(0);
   const [activity, setActivity] = useState(false);
+  // The activity sheet's recipes: the newest from followed kitchens, asked for each time it opens.
+  // Without an answer, the ones among the recipes the app already has.
+  const [asked, setAsked] = useState<Recipe[] | 'failed' | null>(null);
+  const openActivity = () => {
+    setAsked(null);
+    setActivity(true);
+  };
+  const followsSomeone = !!app.user && app.library.followingIds.length > 0;
+  useEffect(() => {
+    if (!activity || !followsSomeone) return;
+    let live = true;
+    api<Recipe[]>('/recipes?following=true&limit=8')
+      .then((recipes) => live && setAsked(recipes))
+      .catch(() => live && setAsked('failed'));
+    return () => {
+      live = false;
+    };
+  }, [activity, followsSomeone]);
+  const followed =
+    asked === 'failed'
+      ? app.recipes.filter((r) => app.library.followingIds.includes(r.author.id))
+      : asked;
   // Each explicit start counts, so Speak or Scan reaches a sous-chef that is already open.
   const [studio, setStudio] = useState<{ mode: StudioMode; n: number } | null>(null);
   // Minimized keeps the conversation (and any live voice) while the user looks at the app.
@@ -156,12 +211,14 @@ function Shell({ onReady }: { onReady: (ready: boolean) => void }) {
       setPendingStudio(mode);
       app.setAuthOpen(true);
     } else {
+      track('studio_start', { mode });
       setStudio((old) => ({ mode, n: (old?.n || 0) + 1 }));
       setStudioHidden(false);
     }
   };
   useEffect(() => {
     if (app.user && pendingStudio) {
+      track('studio_start', { mode: pendingStudio });
       setStudio((old) => ({ mode: pendingStudio, n: (old?.n || 0) + 1 }));
       setStudioHidden(false);
       setPendingStudio(null);
@@ -174,9 +231,26 @@ function Shell({ onReady }: { onReady: (ready: boolean) => void }) {
     if (!app.authOpen && !app.user) setPendingStudio(null);
   }, [app.authOpen, app.user]);
   const scroll = useRef<ScrollView>(null);
+  // A desktop browser opens a recipe as a page over the screen it came from, which stays mounted
+  // under it: while it's open, that screen is hidden from screen readers and the keyboard.
+  const covered = webPage && !!selected;
+  useEffect(() => {
+    const node = (
+      scroll.current as unknown as { getScrollableNode?: () => HTMLElement | null } | null
+    )?.getScrollableNode?.();
+    if (Platform.OS === 'web' && node) node.inert = covered;
+  }, [covered]);
   const scrollY = useRef(new Animated.Value(0)).current;
   const [headerHeight, setHeaderHeight] = useState(0);
   const [pastHeader, setPastHeader] = useState(false);
+  // A new page starts at the top, and so does what follows the scroll: the event a jump sends can
+  // be dropped (scroll events are throttled), which left the status bar's shadow, and the home's
+  // dark header, as the last page had them.
+  const toTop = useCallback(() => {
+    scroll.current?.scrollTo({ y: 0, animated: false });
+    scrollY.setValue(0);
+    setPastHeader(false);
+  }, [scrollY]);
   const [refreshing, setRefreshing] = useState(false);
   const refresh = async () => {
     haptic.soft();
@@ -194,16 +268,15 @@ function Shell({ onReady }: { onReady: (ready: boolean) => void }) {
     // On the web the sidebar stays usable beside an open recipe, so moving on closes it.
     setSelected(null);
     setCookingStep(null);
+    setCookbook(null);
     setScreen(next);
     setQuery('');
     if (next === 'create') {
       setEditor(undefined);
       setEditorKey((v) => v + 1);
     }
-    scroll.current?.scrollTo({ y: 0, animated: false });
-    if (Platform.OS === 'web') {
-      window.history.pushState({}, '', `/?page=${next}`);
-    }
+    toTop();
+    pushPage(pagePath(next));
   };
   // Every "create" entry point opens the Add a recipe sheet; writing by hand is one of its choices.
   const navigate = (next: Screen) => (next === 'create' ? setCreating(true) : go(next));
@@ -213,44 +286,99 @@ function Shell({ onReady }: { onReady: (ready: boolean) => void }) {
     // Same tick, so the shared sheet morphs from the menu straight into the studio.
     else startStudio(choice);
   };
-  const open = useCallback((recipe: Recipe, history = true) => {
+  // Where a recipe is opened from, for the recipe_open event: the screen, or a search on it.
+  const place = useRef({ screen, query, cookbook });
+  useEffect(() => {
+    place.current = { screen, query, cookbook };
+  }, [screen, query, cookbook]);
+  /**
+   * Shows a recipe. `history`: give it a history entry (/recipes/<id>) on the web. `from`: what
+   * opened it, for analytics; by default the screen it was opened on; null records nothing (the
+   * browser's Back and Forward return to a recipe rather than open it).
+   */
+  const open = useCallback((recipe: Recipe, history = true, from?: string | null) => {
     setCreator(null);
     setSelected(recipe);
     setCookingStep(null);
     setCookCommand(null);
-    if (Platform.OS === 'web' && history) window.history.pushState({}, '', `/?recipe=${recipe.id}`);
+    if (history) pushPage(recipePath(recipe.id));
+    rememberRecipe(recipe);
+    const here = place.current;
+    if (from !== null)
+      track('recipe_open', {
+        recipeId: recipe.id,
+        from: from ?? (here.cookbook ? 'cookbook' : here.query ? 'search' : here.screen),
+      });
   }, []);
+  const notify = app.notify;
+  // Opens a recipe known by its id. Without a connection, the copy this device kept opens instead.
+  const openById = useCallback(
+    (id: string, from: string | null, history = true) =>
+      api<Recipe>(`/recipes/${encodeURIComponent(id)}`)
+        .then((recipe) => {
+          open(recipe, history, from);
+          return true;
+        })
+        .catch(async (e: Error) => {
+          const kept = unreachable(e) ? await cachedRecipe(id) : null;
+          if (!kept) {
+            notify(e.message);
+            return false;
+          }
+          open(kept, history, from);
+          notify('Showing the copy saved on this device.');
+          return true;
+        }),
+    [open, notify],
+  );
+  const openCookbook = useCallback(
+    (id: string, history = true) => {
+      setSelected(null);
+      setCookingStep(null);
+      setCookbook(id);
+      toTop();
+      if (history) pushPage(cookbookPath(id));
+    },
+    [toTop],
+  );
+  const closeCookbook = () => {
+    setCookbook(null);
+    toTop();
+    replacePage(pagePath(screen));
+  };
   const close = () => {
     setSelected(null);
     setCookingStep(null);
-    if (Platform.OS === 'web') window.history.replaceState({}, '', `/?page=${screen}`);
+    replacePage(cookbook ? cookbookPath(cookbook) : pagePath(screen));
   };
+  // Addresses: the web app's own (on load, and Back and Forward between its pages) and, on phones,
+  // links that open the app. routes.ts reads every form, including the older /?recipe=<id>.
   useEffect(() => {
-    const handle = (url: string) => {
-      try {
-        const u = new URL(url);
-        const id = u.searchParams.get('recipe');
-        const page = u.searchParams.get('page') as Screen;
-        if (id)
-          void api<Recipe>(`/recipes/${encodeURIComponent(id)}`)
-            .then((r) => open(r, false))
-            .catch((e) => app.notify(e.message));
-        else {
-          setSelected(null);
-          if (page && page in screenNames) setScreen(page);
-        }
-      } catch {}
+    const handle = (url: string, visit: boolean) => {
+      const route = parseRoute(url, Platform.OS === 'web' ? undefined : linkHosts);
+      if (!route) return;
+      if (route.type === 'recipe') {
+        // Older links take the recipe's own address, in place of theirs.
+        if (route.legacy) replacePage(recipePath(route.id));
+        void openById(route.id, visit ? 'link' : null, false);
+      } else if (route.type === 'cookbook') openCookbook(route.id, false);
+      else {
+        // Another page (not just a recipe closing over the same one) starts at the top.
+        const was = place.current;
+        if (was.cookbook || (route.screen && route.screen !== was.screen)) toTop();
+        setSelected(null);
+        setCookbook(null);
+        if (route.screen) setScreen(route.screen);
+      }
     };
     if (Platform.OS === 'web') {
-      handle(window.location.href);
-      const pop = () => handle(window.location.href);
-      window.addEventListener('popstate', pop);
-      return () => window.removeEventListener('popstate', pop);
+      handle(window.location.href, true);
+      return onPageBack(() => handle(window.location.href, false));
     }
-    void Linking.getInitialURL().then((url) => url && handle(url));
-    const sub = Linking.addEventListener('url', ({ url }) => handle(url));
+    void Linking.getInitialURL().then((url) => url && handle(url, true));
+    const sub = Linking.addEventListener('url', ({ url }) => handle(url, true));
     return () => sub.remove();
-  }, []);
+  }, [openById, openCookbook, toTop]);
   const openSousChef = () => (studio ? setStudioHidden(false) : startStudio('chat'));
   const recipeAt = (id: string) => api<Recipe>(`/recipes/${encodeURIComponent(id)}`);
   const act = (action: AppAction) => {
@@ -262,14 +390,18 @@ function Shell({ onReady }: { onReady: (ready: boolean) => void }) {
     if (action.type === 'cooking_step') setCookCommand({ step: action.step, n: Date.now() });
     if (action.type === 'start_timer') setCookCommand({ timerFrom: Date.now(), n: Date.now() });
     if (action.type === 'open_recipe' || action.type === 'start_cooking')
-      void recipeAt(action.recipeId)
-        .then((r) => {
-          open(r);
-          if (action.type === 'start_cooking')
-            setCookCommand({ step: action.step || 1, n: Date.now() });
-        })
-        .catch((e) => app.notify(e.message));
+      void openById(action.recipeId, 'sous_chef').then((opened) => {
+        if (opened && action.type === 'start_cooking')
+          setCookCommand({ step: action.step || 1, n: Date.now() });
+      });
   };
+  usePushNotifications(act);
+  // Cooking mode starting, once per cooking session.
+  const cooking = cookingStep !== null;
+  const selectedId = selected?.id;
+  useEffect(() => {
+    if (cooking && selectedId) track('cook_start', { recipeId: selectedId });
+  }, [cooking, selectedId]);
   // The sous-chef may have changed what's on screen: lists, cookbooks, or the open recipe.
   const studioChanged = () => {
     void app.refreshPrivate().catch(() => {});
@@ -293,11 +425,13 @@ function Shell({ onReady }: { onReady: (ready: boolean) => void }) {
   };
   const edit = (r: Recipe | RecipeInput) => {
     setSelected(null);
+    setCookbook(null);
     setAsk(null);
     setEditor(r);
     setEditorKey((v) => v + 1);
     setScreen('create');
-    scroll.current?.scrollTo({ y: 0, animated: false });
+    toTop();
+    pushPage(pagePath('create'));
   };
   const account = () => (app.user ? navigate('profile') : app.setAuthOpen(true));
   const activeTab = tabScreens.includes(screen) ? screen : origin;
@@ -332,7 +466,7 @@ function Shell({ onReady }: { onReady: (ready: boolean) => void }) {
           navigate={navigate}
           onCreator={setCreator}
           onAI={ai}
-          onActivity={() => setActivity(true)}
+          onActivity={openActivity}
           onAccount={account}
           onHeader={setHeaderHeight}
         />
@@ -341,22 +475,28 @@ function Shell({ onReady }: { onReady: (ready: boolean) => void }) {
       {screen === 'planner' && <Planner onOpen={open} onAI={ai} />}
       {screen === 'pantry' && <Pantry onOpen={open} onAI={ai} />}
       {screen === 'create' && (
-        <Editor
-          key={editorKey}
-          initial={editor}
-          onAI={ai}
-          onPublished={(r) => {
-            navigate('profile');
-            if (r.id) open(r);
-          }}
-        />
+        <Suspense fallback={<PageLoading />}>
+          <Editor
+            key={editorKey}
+            initial={editor}
+            onAI={ai}
+            onPublished={(r) => {
+              navigate('profile');
+              if (r.id) open(r);
+            }}
+          />
+        </Suspense>
       )}
       {screen === 'profile' && <Profile onOpen={open} navigate={navigate} onRecipe={edit} />}
       {screen === 'community' && <Community onCreator={setCreator} />}
-      {screen === 'admin' && <Admin onOpen={open} />}
+      {screen === 'admin' && (
+        <Suspense fallback={<PageLoading />}>
+          <Admin onOpen={open} />
+        </Suspense>
+      )}
     </>
   );
-  const darkTop = compact && screen === 'discover' && !app.error;
+  const darkTop = compact && screen === 'discover' && !cookbook && !app.error;
   // The status bar keeps the black header's color until the light sheet's rounded top has passed
   // under it, then eases to the page color so scrolled content never sits under a black band.
   // The header starts at the top of the scroll content, and the sheet overlaps its last radius.xl.
@@ -390,7 +530,7 @@ function Shell({ onReady }: { onReady: (ready: boolean) => void }) {
       if (past !== pastHeader) setPastHeader(past);
     },
   });
-  const feed = screen === 'discover' || screen === 'explore';
+  const feed = (screen === 'discover' || screen === 'explore') && !cookbook;
   // Phones and tablets slide the recipe over everything; a desktop browser opens it as a page in
   // the content area, under the header and beside the sidebar.
   const recipePage = selected && (
@@ -403,6 +543,7 @@ function Shell({ onReady }: { onReady: (ready: boolean) => void }) {
         setCreator(c);
       }}
       onEdit={edit}
+      onOpen={open}
       onAI={ai}
       onAsk={openSousChef}
       onCooking={setCookingStep}
@@ -556,11 +697,7 @@ function Shell({ onReady }: { onReady: (ready: boolean) => void }) {
                 small
                 onPress={() => navigate('create')}
               />
-              <IconButton
-                icon={Bell}
-                label={tr('Kitchen activity')}
-                onPress={() => setActivity(true)}
-              />
+              <IconButton icon={Bell} label={tr('Kitchen activity')} onPress={openActivity} />
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel={app.user ? tr('My profile') : tr('Sign in')}
@@ -572,6 +709,7 @@ function Shell({ onReady }: { onReady: (ready: boolean) => void }) {
           )}
           <Animated.ScrollView
             ref={scroll}
+            aria-hidden={covered}
             onScroll={onScroll}
             scrollEventThrottle={16}
             refreshControl={
@@ -620,6 +758,18 @@ function Shell({ onReady }: { onReady: (ready: boolean) => void }) {
                 action={() => void app.load()}
                 actionTitle={tr('Try again')}
               />
+            ) : cookbook ? (
+              <FadeIn key={`cookbook:${cookbook}`} offset={12}>
+                <View testID="cookbook-page">
+                  <CookbookPage
+                    key={cookbook}
+                    id={cookbook}
+                    onOpen={(recipe) => open(recipe, true, 'cookbook')}
+                    onClose={closeCookbook}
+                    onCreator={setCreator}
+                  />
+                </View>
+              </FadeIn>
             ) : page === 'discover' ? (
               pages
             ) : (
@@ -645,14 +795,16 @@ function Shell({ onReady }: { onReady: (ready: boolean) => void }) {
           )}
           {compact && (
             <View
-              style={{
-                position: 'absolute',
-                left: 0,
-                right: 0,
-                bottom: Math.max(16, insets.bottom),
-                alignItems: 'center',
-                pointerEvents: 'box-none',
-              }}
+              style={[
+                passThrough,
+                {
+                  position: 'absolute',
+                  left: 0,
+                  right: 0,
+                  bottom: Math.max(16, insets.bottom),
+                  alignItems: 'center',
+                },
+              ]}
             >
               <GlassSurface
                 accessibilityRole="tablist"
@@ -788,58 +940,82 @@ function Shell({ onReady }: { onReady: (ready: boolean) => void }) {
         </Press>
       )}
       <TopBanners>
+        {app.offline && (
+          <OfflineBanner busy={app.reconnecting} onRetry={() => void app.reconnect()} />
+        )}
         <AnnouncementBanner announcement={app.capabilities?.announcement} />
         <UpdateBanner />
       </TopBanners>
       <AppToast hidden={!!selected} />
       <AuthDialog />
-      <RecipeStart visible={creating} onClose={() => setCreating(false)} onStart={create} />
+      <RecipeStart
+        visible={creating}
+        onClose={() => setCreating(false)}
+        onStart={create}
+        onImported={edit}
+      />
       {!webPage && recipePage}
       {studio && app.user && (
-        <RecipeStudio
-          start={studio}
-          hidden={studioHidden}
-          onHide={setStudioHidden}
-          onLive={setStudioLive}
-          context={{
-            screen,
-            title: tr(screenNames[screen]),
-            recipe: selected ? { id: selected.id, title: selected.title } : null,
-            cookingStep: selected ? cookingStep : null,
-          }}
-          onAction={act}
-          onChanged={studioChanged}
-          onClose={() => {
-            setStudio(null);
-            setStudioHidden(false);
-          }}
-          onRecipe={open}
-        />
+        <Suspense fallback={null}>
+          <RecipeStudio
+            start={studio}
+            hidden={studioHidden}
+            onHide={setStudioHidden}
+            onLive={setStudioLive}
+            context={{
+              screen,
+              title: tr(screenNames[screen]),
+              recipe: selected ? { id: selected.id, title: selected.title } : null,
+              cookingStep: selected ? cookingStep : null,
+            }}
+            onAction={act}
+            onChanged={studioChanged}
+            onClose={() => {
+              setStudio(null);
+              setStudioHidden(false);
+            }}
+            onRecipe={(recipe) => open(recipe, true, 'sous_chef')}
+          />
+        </Suspense>
       )}
       {creator && (
-        <CreatorDialog creator={creator} onClose={() => setCreator(null)} onOpen={open} />
+        <CreatorDialog
+          creator={creator}
+          onClose={() => setCreator(null)}
+          onOpen={(recipe) => open(recipe, true, 'creator')}
+          onCookbook={(id) => {
+            setCreator(null);
+            openCookbook(id);
+          }}
+        />
       )}
       {ask && <SousChef key={askKey} request={ask} onClose={() => setAsk(null)} onRecipe={edit} />}
       {welcoming && !app.loading && !app.error && !app.user && !selected && (
-        <Welcome onDone={finishWelcome} />
+        <Suspense fallback={<Cover />}>
+          <Welcome onDone={finishWelcome} />
+        </Suspense>
       )}
-      {app.user?.onboarded === false && <KitchenSetup />}
+      {app.user?.onboarded === false && (
+        <Suspense fallback={<Cover />}>
+          <KitchenSetup />
+        </Suspense>
+      )}
       <Dialog
         visible={activity}
         onClose={() => setActivity(false)}
         title={tr('From kitchens you follow')}
       >
-        {app.library.followingIds.length ? (
-          app.recipes
-            .filter((r) => app.library.followingIds.includes(r.author.id))
-            .slice(0, 8)
-            .map((r) => (
+        {app.user && app.library.followingIds.length && followed?.length !== 0 ? (
+          followed ? (
+            followed.slice(0, 8).map((r) => (
               <Pressable
                 key={r.id}
-                accessibilityRole="button"
-                onPress={() => {
+                {...linkTo(recipePath(r.id))}
+                accessibilityRole={Platform.OS === 'web' ? 'link' : 'button'}
+                onPress={(e) => {
+                  if (!pressedInApp(e)) return;
                   setActivity(false);
-                  open(r);
+                  open(r, true, 'activity');
                 }}
                 style={[s.row, { gap: 12 }]}
               >
@@ -853,6 +1029,9 @@ function Shell({ onReady }: { onReady: (ready: boolean) => void }) {
                 <ChevronRight size={18} color={color.soft} />
               </Pressable>
             ))
+          ) : (
+            <ActivityIndicator color={color.ink} style={{ paddingVertical: 24 }} />
+          )
         ) : (
           <Empty
             title={tr('Find your kind of cooks')}
@@ -866,7 +1045,6 @@ function Shell({ onReady }: { onReady: (ready: boolean) => void }) {
           />
         )}
       </Dialog>
-      <SheetHost />
     </View>
   );
 }
@@ -892,13 +1070,14 @@ function NavItem({
         alignItems: 'center',
         gap: 12,
         paddingHorizontal: 16,
-        height: 46,
+        minHeight: 46,
         borderRadius: radius.pill,
         backgroundColor: active ? color.ink : hovered ? color.bg : 'transparent',
       })}
     >
       <Icon size={19} strokeWidth={active ? 2.2 : 1.8} color={active ? color.white : color.muted} />
       <Text
+        maxFontSizeMultiplier={maxFontScale}
         style={{
           fontFamily: active ? font.bold : font.semibold,
           fontSize: 14,
@@ -909,6 +1088,18 @@ function NavItem({
       </Text>
     </Pressable>
   );
+}
+// While a screen loaded on first use (the editor, the admin console) arrives.
+function PageLoading() {
+  return (
+    <View style={{ alignItems: 'center', paddingVertical: 80 }}>
+      <ActivityIndicator color={color.ink} />
+    </View>
+  );
+}
+// Holds a full-screen flow's place while it arrives, so the page under it doesn't flash.
+function Cover() {
+  return <View style={[StyleSheet.absoluteFill, { zIndex: 500, backgroundColor: color.bg }]} />;
 }
 function FailureMessage() {
   const { t: tr } = useI18n();
@@ -927,7 +1118,8 @@ class ErrorBoundary extends React.Component<
   static getDerivedStateFromError() {
     return { failed: true };
   }
-  componentDidCatch() {
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
+    reportError(error, { componentStack: info.componentStack ?? undefined });
     this.props.onReady(true);
   }
   render() {
@@ -958,7 +1150,12 @@ export default function App() {
           {(loaded || error) && (
             <ErrorBoundary onReady={setReady}>
               <AppProvider>
-                <Shell onReady={setReady} />
+                <UnderSheets style={{ flex: 1 }}>
+                  <Shell onReady={setReady} />
+                </UnderSheets>
+                {/* Beside the app rather than in it, so the app can be hidden from screen readers
+                    while a sheet covers it. */}
+                <SheetHost />
               </AppProvider>
             </ErrorBoundary>
           )}

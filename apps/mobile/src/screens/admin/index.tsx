@@ -1,21 +1,24 @@
 // The admin console: moderation, members, recipes, AI operations, settings and the audit log.
 // It's an operator tool, so it stays in English (see docs/ADMIN.md).
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Platform, Text, View } from 'react-native';
-import { RefreshCw, ShieldAlert, ShieldCheck } from 'lucide-react-native';
+import { Platform, View } from 'react-native';
+import { RefreshCw, ShieldAlert, ShieldCheck } from '../../components/icons';
 import { AdminSection, Overview as OverviewData } from '../../lib/admin';
 import { useApp } from '../../lib/store';
-import { color, s } from '../../lib/theme';
 import { Recipe } from '../../lib/types';
-import { Button, Empty, IconButton, PageHeading } from '../../components/ui';
+import { Empty, IconButton, PageHeading } from '../../components/ui';
 import { MemberDialog, Members } from './Members';
 import { Reports, Reviews } from './Moderation';
 import { JobDialog, Operations } from './Operations';
 import { Overview } from './Overview';
-import { Filters, Nav, AdminNav, Notice } from './parts';
+import { Filters, Nav, AdminNav } from './parts';
 import { RecipeDialog, Recipes } from './Recipes';
 import { Audit, Settings } from './Settings';
+import { AdminPending } from './AdminPending';
 import { api } from '../../lib/api';
+
+// Imported from ./AdminPending by My kitchen, so the console stays out of the first download.
+export { AdminPending };
 
 const sections: { value: AdminSection; label: string }[] = [
   { value: 'overview', label: 'Overview' },
@@ -141,31 +144,5 @@ export function Admin({ onOpen }: { onOpen: (r: Recipe) => void }) {
         ),
       )}
     </Nav.Provider>
-  );
-}
-
-/** For an owner whose address isn't verified yet: how to open the console. */
-export function AdminPending() {
-  const app = useApp();
-  if (!app.user?.adminPending) return null;
-  return (
-    <View style={{ gap: 10 }}>
-      <Notice
-        tone="warning"
-        text={`${app.user.email} is an admin address, but it isn’t verified yet, so the admin console stays closed. Verify it by resetting your password from the sign-in screen (sign out first) or by connecting Google with this same address below.`}
-      />
-      {app.capabilities?.passwordRecovery === false && (
-        <Text style={[s.small, { color: color.muted }]}>
-          Password-reset email isn’t configured on this server, so connect Google, or ask whoever
-          runs the database to set email_verified for this account.
-        </Text>
-      )}
-      <Button
-        title="Sign out to reset my password"
-        variant="secondary"
-        small
-        onPress={() => void app.act(app.signOut)}
-      />
-    </View>
   );
 }

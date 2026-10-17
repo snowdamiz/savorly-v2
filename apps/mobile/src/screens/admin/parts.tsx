@@ -12,9 +12,9 @@ import {
   View,
   ViewStyle,
 } from 'react-native';
-import { AlertTriangle, Check, CircleAlert, Info, LucideIcon } from 'lucide-react-native';
+import { AlertTriangle, Check, CircleAlert, Info, LucideIcon } from '../../components/icons';
 import { api, ApiError } from '../../lib/api';
-import { AdminSection, Paged } from '../../lib/admin';
+import { AdminSection, AuditEntry, Paged } from '../../lib/admin';
 import { useI18n } from '../../lib/i18n';
 import { color, font, radius, s } from '../../lib/theme';
 import { User } from '../../lib/types';
@@ -75,7 +75,11 @@ export function useFormat() {
     ago: (iso: string | null) => {
       if (!iso) return 'never';
       const seconds = (Date.now() - new Date(iso).getTime()) / 1000;
-      const rtf = new Intl.RelativeTimeFormat('en', { numeric: 'auto' });
+      // Hermes has no Intl.RelativeTimeFormat; there it reads in English, like the console.
+      const rtf =
+        typeof Intl.RelativeTimeFormat === 'function'
+          ? new Intl.RelativeTimeFormat(locale, { numeric: 'auto' })
+          : null;
       for (const [unit, size] of [
         ['year', 31536000],
         ['month', 2592000],
@@ -83,13 +87,24 @@ export function useFormat() {
         ['hour', 3600],
         ['minute', 60],
       ] as const)
-        if (Math.abs(seconds) >= size) return rtf.format(-Math.round(seconds / size), unit);
-      return 'just now';
+        if (Math.abs(seconds) >= size) {
+          const n = Math.round(seconds / size);
+          if (rtf) return rtf.format(-n, unit);
+          const amount = `${Math.abs(n)} ${unit}${Math.abs(n) === 1 ? '' : 's'}`;
+          return n < 0 ? `in ${amount}` : `${amount} ago`;
+        }
+      return rtf ? rtf.format(-Math.round(seconds), 'second') : 'just now';
     },
     bytes: (n: number) =>
-      n > 1e9 ? `${(n / 1e9).toFixed(1)} GB` : `${Math.max(1, Math.round(n / 1e6))} MB`,
+      n > 1e9
+        ? `${new Intl.NumberFormat(locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(n / 1e9)} GB`
+        : `${number(Math.max(1, Math.round(n / 1e6)))} MB`,
   };
 }
+
+/** What an admin action left to finish by hand, such as a Stripe change Stripe didn't confirm. */
+export const followUp = (e: AuditEntry) =>
+  typeof e.detail.followUp === 'string' ? e.detail.followUp : '';
 
 /** Loads one record, and again whenever the console records a change. */
 export function useLoad<T>(path: string | null) {

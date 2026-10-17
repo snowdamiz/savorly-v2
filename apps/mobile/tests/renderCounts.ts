@@ -13,6 +13,7 @@ export async function observeRenders(page: Page) {
       alternate: Fiber | null;
     };
     const counts: Record<string, number> = {};
+    const state = { lastCommit: 0 };
     const names = new Set([
       'Shell',
       'Discover',
@@ -34,6 +35,7 @@ export async function observeRenders(page: Page) {
     };
     Object.assign(window, {
       renderCounts: counts,
+      renderState: state,
       __REACT_DEVTOOLS_GLOBAL_HOOK__: {
         supportsFiber: true,
         renderers: new Map(),
@@ -43,6 +45,7 @@ export async function observeRenders(page: Page) {
           return id;
         },
         onCommitFiberRoot(_id: number, root: { current: Fiber }) {
+          state.lastCommit = performance.now();
           visit(root.current);
         },
         onCommitFiberUnmount() {},
@@ -61,3 +64,18 @@ export const resetRenderCounts = (page: Page) =>
     const counts = (window as unknown as { renderCounts: Record<string, number> }).renderCounts;
     for (const name of Object.keys(counts)) delete counts[name];
   });
+
+/**
+ * Waits until React has committed nothing for `quietMs`: entry animations have finished and the
+ * refreshes an action started have landed, so counts read next are complete and can't be cut
+ * short or padded by a slow machine.
+ */
+export const rendersSettle = (page: Page, quietMs = 500) =>
+  page.waitForFunction(
+    (quiet) =>
+      performance.now() -
+        (window as unknown as { renderState: { lastCommit: number } }).renderState.lastCommit >
+      quiet,
+    quietMs,
+    { polling: 100, timeout: 15_000 },
+  );

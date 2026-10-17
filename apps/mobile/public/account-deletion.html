@@ -1,0 +1,151 @@
+<!doctype html>
+<!--
+  LEGAL REVIEW REQUIRED BEFORE LAUNCH (docs/PRODUCTION.md). This is the account-deletion page Google
+  Play requires (Play Console → App content → Data deletion). Written on 16 October 2026 from
+  DELETE /v1/me (services/api/internal/app/auth.go deleteMe), the schema's ON DELETE rules and
+  docs/ACCOUNTS.md. Before relying on it:
+  - privacy@savorly.cooking must receive mail, and someone must handle requests within 30 days
+    (admin console → Members → Delete account, which also cancels Stripe and revokes Apple).
+  - Confirm the Neon restore window (30 days promised below) and Workers Logs retention.
+  - Uploaded photos and videos are deleted from storage a day after the account, at the
+    janitor's next hourly pass (services/api/internal/app/media_cleanup.go), except files another
+    member's recipe still shows; revisit the paragraph below if that changes. The admin audit log
+    keeps names and email addresses (docs/ADMIN.md); revisit if that changes.
+  - Use the developer name from the Play listing if it differs from "Savorly".
+  Linked from privacy.html, terms.html and the app.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Delete your account — Savorly</title>
+    <meta
+      name="description"
+      content="How to delete your Savorly account in the app or by email, what is deleted and what is kept."
+    />
+    <meta name="theme-color" content="#F4F4F4" />
+    <link rel="icon" href="/favicon.ico" />
+    <link rel="canonical" href="https://savorly.cooking/account-deletion" />
+    <link rel="stylesheet" href="/legal.css" />
+  </head>
+  <body>
+    <header>
+      <a class="brand" href="/"><img src="/icons/icon-192.png" alt="" />Savorly</a>
+      <nav aria-label="Legal">
+        <a href="/privacy">Privacy</a>
+        <a href="/terms">Terms</a>
+        <a href="/account-deletion" aria-current="page">Delete your account</a>
+      </nav>
+    </header>
+    <main>
+      <article>
+        <h1>Delete your Savorly account</h1>
+        <p class="updated">Last updated 16 October 2026</p>
+        <p>
+          You can delete your account for Savorly (the website
+          <a href="https://savorly.cooking">savorly.cooking</a> and the Savorly apps for iOS and
+          Android) at any time, in the app or by email.
+        </p>
+
+        <h2>In the app or on the website</h2>
+        <ol>
+          <li>Open Savorly and sign in.</li>
+          <li>Go to <strong>My kitchen</strong>.</li>
+          <li>Choose <strong>Delete my account</strong>.</li>
+          <li>
+            Enter your password and choose <strong>Permanently delete my account</strong>. If you
+            sign in only with Apple or Google, confirm by signing in with it once more.
+          </li>
+        </ol>
+        <p>Your account is deleted straight away. This can't be undone.</p>
+
+        <h2>By email</h2>
+        <p>
+          If you can't use the app, email
+          <a href="mailto:privacy@savorly.cooking?subject=Delete%20my%20account"
+            >privacy@savorly.cooking</a
+          >
+          from the email address of your account with the subject "Delete my account", and include
+          your username if you know it. We may ask you to confirm it's you. We delete the account
+          within 30 days and tell you by email when it's done.
+        </p>
+
+        <h2>What is deleted</h2>
+        <p>Immediately and permanently, from our database:</p>
+        <ul>
+          <li>
+            your account: email address, name, username, password hash, profile photo, bio, food
+            preferences and plan details;
+          </li>
+          <li>
+            your connections to Apple and Google sign-in (we also revoke Savorly's access with
+            Apple) and every signed-in session, on all your devices;
+          </li>
+          <li>
+            your recipes, published and drafts, with their read-aloud audio and the reviews, saves
+            and meal-plan entries other cooks made for them;
+          </li>
+          <li>
+            your reviews and ratings, reports, saved recipes and cookbooks, follows, meal plans,
+            grocery list and pantry;
+          </li>
+          <li>
+            your place in a household, with the items you added to its shared grocery list (if you
+            owned it, the member who has been in it longest takes it over);
+          </li>
+          <li>
+            your devices' notification tokens, your notification settings, and the record of how you
+            used the app;
+          </li>
+          <li>
+            your sous-chef conversations and transcripts, your AI requests and their results, and
+            the photos you showed the sous-chef (also removed from storage).
+          </li>
+        </ul>
+        <p>If you have a paid plan, we cancel the subscription first.</p>
+
+        <h2>What is kept, and for how long</h2>
+        <ul>
+          <li>
+            <strong>Backups.</strong> Our database provider keeps a point-in-time history for up to
+            30 days so we can recover from failures. Deleted information leaves it after that.
+          </li>
+          <li>
+            <strong>Uploaded photos and videos.</strong> They are stored as separate files at
+            addresses that are hard to guess. Deleting your account removes them from Savorly at
+            once, and the files themselves are deleted from storage about a day later. A photo that
+            another cook's adaptation of one of your recipes still shows stays until it no longer
+            does.
+          </li>
+          <li>
+            <strong>Spending records.</strong> The cost and date of read-aloud audio you generated
+            stay in our records of AI spending, no longer linked to you.
+          </li>
+          <li>
+            <strong>Moderation records.</strong> If our administrators acted on your account or
+            content (for example a suspension or a removed recipe), the record of that action, which
+            can include your name and email address, is kept to protect the community.
+          </li>
+          <li>
+            <strong>Payments.</strong> If you had a paid plan, Stripe keeps payment and invoice
+            records for as long as financial and tax law requires.
+          </li>
+          <li>
+            <strong>Logs.</strong> Our hosting provider's request logs expire within a few days.
+          </li>
+          <li>
+            <strong>Copies other cooks made.</strong> A recipe another cook adapted into their own
+            draft is theirs and stays with them.
+          </li>
+        </ul>
+        <p class="note">
+          More about what we collect and why is in our <a href="/privacy">privacy policy</a>.
+          Questions: <a href="mailto:privacy@savorly.cooking">privacy@savorly.cooking</a>.
+        </p>
+      </article>
+    </main>
+    <footer>
+      <a href="/">Savorly</a> · <a href="/privacy">Privacy</a> · <a href="/terms">Terms</a>
+    </footer>
+  </body>
+</html>

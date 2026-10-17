@@ -1,4 +1,7 @@
 import { expect, test } from '@playwright/test';
+import { afterPageTimers } from './waits';
+
+type Frames = { splashFrames: { frames: number; last: number } };
 
 for (const mobile of [false, true]) {
   test(`one splash survives loading and stops animating (${mobile ? 'mobile, reduced motion' : 'desktop'})`, async ({
@@ -19,11 +22,12 @@ for (const mobile of [false, true]) {
     let dataRequested = false;
     await page.addInitScript(() => {
       const original = window.requestAnimationFrame.bind(window);
-      const state = { frames: 0 };
+      const state = { frames: 0, last: 0 };
       Object.assign(window, { splashFrames: state });
       window.requestAnimationFrame = (callback) =>
         original((time) => {
           state.frames++;
+          state.last = performance.now();
           callback(time);
         });
     });
@@ -44,8 +48,9 @@ for (const mobile of [false, true]) {
       await expect(splash).toBeVisible();
       const initial = await splash.elementHandle();
       expect(initial).not.toBeNull();
-      // Cross the minimum splash duration while fonts are still held back.
-      await page.waitForTimeout(1200);
+      // Cross the splash's minimum time on screen (a second from when it appeared, Splash.tsx)
+      // on the page's own clock, while fonts are still held back.
+      await afterPageTimers(page, 1100);
       releaseFonts();
       await expect.poll(() => dataRequested).toBe(true);
       // Replacing this node restarts animated transforms and flashes the mascot between stages.
@@ -58,15 +63,16 @@ for (const mobile of [false, true]) {
       releaseData();
       await expect(page.getByText('What would you like to cook today?')).toBeVisible();
       await expect(splash).toHaveCount(0);
-      // Finite page-entry animations settle; the removed splash must leave no animation loop.
-      await page.waitForTimeout(1800);
-      const frames = () =>
-        page.evaluate(
-          () => (window as unknown as { splashFrames: { frames: number } }).splashFrames.frames,
-        );
-      const before = await frames();
-      await page.waitForTimeout(1200);
-      expect(await frames()).toBe(before);
+      // Finite page-entry animations settle, and the removed splash must leave no animation loop:
+      // the page stops asking for frames, none for a whole second, well within ten seconds.
+      expect(
+        await page.evaluate(() => (window as unknown as Frames).splashFrames.frames),
+      ).toBeGreaterThan(0);
+      await page.waitForFunction(
+        () => performance.now() - (window as unknown as Frames).splashFrames.last > 1000,
+        undefined,
+        { polling: 100, timeout: 10_000 },
+      );
     } finally {
       releaseFonts();
       releaseData();

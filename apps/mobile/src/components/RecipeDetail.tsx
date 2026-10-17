@@ -27,18 +27,22 @@ import {
   Pencil,
   Play,
   Plus,
+  Printer,
   Repeat2,
   Share2,
   ShoppingBasket,
   Sparkles,
   Star,
   Timer,
+  Trash2,
   Users,
-} from 'lucide-react-native';
-import { AIRequest, CookCommand, Creator, Recipe, Review } from '../lib/types';
-import { api, WEB_URL } from '../lib/api';
+} from './icons';
+import { AIRequest, CookCommand, Creator, Ingredient, Recipe, Review } from '../lib/types';
+import { api } from '../lib/api';
+import { recipeUrl } from '../lib/routes';
+import { track } from '../lib/telemetry';
 import { useApp } from '../lib/store';
-import { color, font, radius, s } from '../lib/theme';
+import { color, font, maxFontScale, radius, s } from '../lib/theme';
 import {
   Avatar,
   Button,
@@ -62,21 +66,35 @@ import {
 } from './ui';
 import { CookMode } from './CookMode';
 import { AppToast } from './AppToast';
-import { VideoPlayer } from './VideoPlayer';
+import { StepVideo, VideoPlayer } from './VideoPlayer';
 import { localDate } from '../lib/utils';
 import { foodIcon } from '../lib/icons';
 import { CuisineIcon } from './CuisineIcon';
-const twists = [
-  ['Vegetarian', 'Make this recipe vegetarian.'],
-  ['Dairy-free', 'Make this recipe dairy-free.'],
-  ['Gluten-free', 'Make this recipe gluten-free.'],
-  ['More protein', 'Adapt this recipe to be higher in protein.'],
-  ['Quicker', 'Make a faster weeknight version of this recipe.'],
+import { knownUnit, showAmount } from '../lib/units';
+import { siteName, wasEdited } from '../lib/social';
+import { ReviewReply } from './ReviewReply';
+import { canPrint, printRecipe } from '../lib/printRecipe';
+import { amountText, UnitsSwitch, useUnits } from './Units';
+import { Comments } from './Comments';
+import { CookedIt } from './CookedIt';
+import { Lineage } from './Variations';
+import { DangerButton } from '../screens/Kitchen';
+import { RevealFocus, useKeyboardLift, useKeyboardScroll } from '../lib/keyboard';
+// Each twist asks in the cook's language: the request is their own message, and the model's cue.
+const twists = (tr: (key: string) => string) => [
+  ['Vegetarian', tr('Make this recipe vegetarian.')],
+  ['Dairy-free', tr('Make this recipe dairy-free.')],
+  ['Gluten-free', tr('Make this recipe gluten-free.')],
+  ['More protein', tr('Adapt this recipe to be higher in protein.')],
+  ['Quicker', tr('Make a faster weeknight version of this recipe.')],
 ];
+// The page's account actions; each one spins only its own button while it runs.
+type Action = 'groceries' | 'review' | 'unreview' | 'plan' | 'cookbook' | 'report' | 'follow';
 export function RecipeDetail({
   recipe,
   onClose,
   onCreator,
+  onOpen,
   onEdit,
   onAI,
   onAsk,
@@ -86,6 +104,8 @@ export function RecipeDetail({
   recipe: Recipe;
   onClose: () => void;
   onCreator: (c: Creator) => void;
+  /** Opens another recipe in place of this one, such as the one it adapts or a variation. */
+  onOpen?: (r: Recipe) => void;
   onEdit: (r: Recipe) => void;
   onAI: (request: AIRequest) => void;
   /** Opens the sous-chef, which already knows this recipe is open. */
@@ -107,6 +127,7 @@ export function RecipeDetail({
   }, [webPage, shown]);
   const [tab, setTab] = useState<'ingredients' | 'method' | 'reviews'>('ingredients');
   const [servings, setServings] = useState(recipe.servings);
+  const [units, setUnits] = useUnits();
   const [checked, setChecked] = useState<string[]>([]);
   const [cook, setCook] = useState(false);
   // A sous-chef command opens cooking mode until the cook closes it.
@@ -114,16 +135,19 @@ export function RecipeDetail({
   const cooking = cook || (!!cookCommand && cookCommand.n !== closedCommand);
   const [watch, setWatch] = useState(false);
   const [reviews, setReviews] = useState<Review[]>([]);
+  // Cooking mode's "I cooked this" opens the sheet on the page it returns to.
+  const [cookedRequest, setCookedRequest] = useState(0);
   const [reviewError, setReviewError] = useState('');
   const [rating, setRating] = useState(5);
   const [body, setBody] = useState('');
+  const [unreview, setUnreview] = useState(false);
   const [plan, setPlan] = useState(false);
   const [day, setDay] = useState(localDate(new Date()));
   const [meal, setMeal] = useState('Dinner');
   const [report, setReport] = useState(false);
   const [reason, setReason] = useState('');
   const [collections, setCollections] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<Partial<Record<Action, boolean>>>({});
   const [titleBottom, setTitleBottom] = useState(0);
   const saved = app.library.savedIds.includes(recipe.id);
   const following = app.library.followingIds.includes(recipe.author.id);
@@ -136,6 +160,9 @@ export function RecipeDetail({
   const barEnd = heroHeight - radius.xl - insets.top - 44;
   const barStart = barEnd - 110;
   const scrollY = useState(() => new Animated.Value(0))[0];
+  const lift = useKeyboardLift();
+  const scroller = useRef<ScrollView>(null);
+  const keyboard = useKeyboardScroll(scroller, lift);
   const settle = useState(() => new Animated.Value(0))[0];
   useEffect(() => {
     animate(settle, 1, 1400).start();
@@ -210,35 +237,81 @@ export function RecipeDetail({
   useEffect(() => {
     void loadReviews();
   }, [loadReviews]);
-  const perform = async (fn: () => Promise<unknown>, message: string) => {
-    if (busy || !app.requireUser()) return;
-    setBusy(true);
+  const perform = async (action: Action, fn: () => Promise<unknown>, message: string) => {
+    if (busy[action] || !app.requireUser()) return;
+    setBusy((b) => ({ ...b, [action]: true }));
     await app.act(fn, message);
-    setBusy(false);
+    setBusy((b) => ({ ...b, [action]: false }));
   };
-  const link = `${WEB_URL}/?recipe=${recipe.id}`;
-  // Desktop browsers mostly have no share sheet, so there the link goes to the clipboard.
+  const link = recipeUrl(recipe.id);
+  // Desktop browsers mostly have no share sheet, so there the link goes to the clipboard. Closing
+  // the share sheet isn't a failure: iOS reports it as Share.dismissedAction, and browsers reject
+  // with an AbortError, which act() lets pass without a toast.
   const share = () =>
     void app.act(async () => {
+      track('share', { recipeId: recipe.id });
       if (Platform.OS === 'web' && !navigator.share) {
         await navigator.clipboard.writeText(link);
         app.notify('Link copied to your clipboard.');
-      } else await Share.share({ message: `${recipe.title} — ${recipe.minutes} minutes. ${link}` });
+      } else
+        await Share.share({
+          message: tr('shareMessage', { title: recipe.title, count: recipe.minutes, link }),
+        });
     });
+  // An ingredient's amount for the servings on screen, in the units the cook picked.
+  const amountOf = (i: Ingredient) =>
+    amountText(tr, showAmount(i, { servings, base: recipe.servings, units, locale }));
+  // The web prints a page of its own: the recipe in the units and servings on screen.
+  const print = () => {
+    const site = siteName(recipe.sourceUrl);
+    printRecipe({
+      lang: locale,
+      title: recipe.title,
+      byline: tr('by {{v0}}', { v0: recipe.author.name }),
+      facts: [
+        tr('minuteCount', { count: recipe.minutes }),
+        tr('servingCount', { count: servings }),
+      ],
+      description: recipe.description,
+      image: recipe.image,
+      ingredientsTitle: tr('Ingredients'),
+      ingredients: recipe.ingredients.map((i) => ({ name: i.name, amount: amountOf(i) })),
+      methodTitle: tr('Method'),
+      steps: recipe.steps.map((st) => ({ title: st.title, text: st.text })),
+      credits: [
+        recipe.derivedFrom
+          ? tr('Adapted from {{title}} by {{name}}', {
+              title: recipe.derivedFrom.title,
+              name: recipe.derivedFrom.author.name,
+            })
+          : '',
+        site ? `${tr('From {{site}}', { site })} · ${recipe.sourceUrl}` : '',
+      ].filter(Boolean),
+      link,
+    });
+  };
   const context = JSON.stringify({
     title: recipe.title,
     servings,
     ingredients: recipe.ingredients.map((i) => `${i.amount} ${i.unit} ${i.name}`.trim()),
     steps: recipe.steps.map((st) => `${st.title}: ${st.text}`),
   });
-  const ask = (request: AIRequest) => onAI({ ...request, context });
+  // A new version of the recipe (a twist, a swap) credits this one when it is saved.
+  const ask = (request: AIRequest) =>
+    onAI({
+      ...request,
+      context,
+      ...((request.kind === 'adapt' || request.kind === 'substitute') && {
+        derivedFrom: recipe.id,
+      }),
+    });
   const days = Array.from({ length: 7 }, (_, i) => {
     const d = new Date();
     d.setDate(d.getDate() + i);
     return d;
   });
   const stats = [
-    { icon: Clock3, value: tr('{{v0}} min', { v0: recipe.minutes }), label: tr('Time') },
+    { icon: Clock3, value: tr('minuteCount', { count: recipe.minutes }), label: tr('Time') },
     { icon: Users, value: number(recipe.servings), label: tr('Servings') },
     recipe.calories
       ? { icon: Flame, value: number(recipe.calories), label: tr('kcal') }
@@ -250,13 +323,14 @@ export function RecipeDetail({
             ask({
               kind: 'nutrition',
               title: tr('Nutrition estimate'),
-              prompt:
+              prompt: tr(
                 'Estimate nutrition per serving: calories, protein, carbohydrates, fat and fiber.',
+              ),
             }),
         },
     { icon: Gauge, value: recipe.difficulty, label: tr('Level') },
   ];
-  const twistChips = twists.map(([title, prompt]) => (
+  const twistChips = twists(tr).map(([title, prompt]) => (
     <Chip
       key={title}
       title={tr(title)}
@@ -274,7 +348,9 @@ export function RecipeDetail({
     <View style={{ gap: 14 }}>
       <View style={[s.between, { gap: 12 }]}>
         <View style={{ flex: 1, gap: 2 }}>
-          <Text style={s.h2}>{tr('Ingredients')}</Text>
+          <Text role="heading" aria-level={2} style={s.h2}>
+            {tr('Ingredients')}
+          </Text>
           <Text style={s.muted}>{tr('servingHint', { count: servings })}</Text>
         </View>
         <View
@@ -300,6 +376,10 @@ export function RecipeDetail({
           />
         </View>
       </View>
+      {/* Only amounts with a size to convert need the choice; eggs and cloves don't. */}
+      {recipe.ingredients.some((i) => knownUnit(i.unit)) && (
+        <UnitsSwitch value={units} onChange={setUnits} />
+      )}
       {/* The web page frames the whole column in one card, so the list sits straight in it. */}
       <View
         style={webPage ? { marginRight: -8 } : [s.card, { paddingVertical: 4, paddingRight: 8 }]}
@@ -325,8 +405,13 @@ export function RecipeDetail({
               >
                 <View style={[s.between, { gap: 10 }]}>
                   <Text style={[s.body, { flex: 1 }]}>{i.name}</Text>
-                  <Text style={[s.muted, { color: color.ink, fontFamily: font.semibold }]}>
-                    {number((i.amount * servings) / recipe.servings)} {i.unit}
+                  <Text
+                    style={[
+                      s.muted,
+                      { color: color.ink, fontFamily: font.semibold, textAlign: 'right' },
+                    ]}
+                  >
+                    {amountOf(i)}
                   </Text>
                 </View>
               </CheckRow>
@@ -340,7 +425,7 @@ export function RecipeDetail({
                 ask({
                   kind: 'substitute',
                   title: tr('Swap {{v0}}', { v0: i.name }),
-                  prompt: `What can I use instead of ${i.name}, and how much?`,
+                  prompt: tr('What can I use instead of {{v0}}, and how much?', { v0: i.name }),
                 })
               }
             />
@@ -351,12 +436,16 @@ export function RecipeDetail({
         title={tr('Add to grocery list')}
         icon={ShoppingBasket}
         variant="secondary"
-        busy={busy}
+        busy={busy.groceries}
         onPress={() =>
-          void perform(async () => {
-            await api(`/recipes/${recipe.id}/groceries`, { method: 'POST', body: { servings } });
-            await app.refreshKitchen();
-          }, 'Ingredients added to your grocery list.')
+          void perform(
+            'groceries',
+            async () => {
+              await api(`/recipes/${recipe.id}/groceries`, { method: 'POST', body: { servings } });
+              await app.refreshKitchen();
+            },
+            'Ingredients added to your grocery list.',
+          )
         }
       />
       {/* Twists change the ingredients, so they sit with them rather than above the tabs. */}
@@ -387,7 +476,11 @@ export function RecipeDetail({
   // for reading at a distance from the stove.
   const method = (
     <View style={{ gap: webPage ? 16 : 12 }}>
-      <Text style={[s.h2, { marginBottom: 2 }, webPage && styles.webHeading]}>
+      <Text
+        role="heading"
+        aria-level={2}
+        style={[s.h2, { marginBottom: 2 }, webPage && styles.webHeading]}
+      >
         {tr('Let’s make it')}
       </Text>
       <View style={webPage ? [s.card, { paddingVertical: 6, paddingHorizontal: 28 }] : { gap: 12 }}>
@@ -420,17 +513,44 @@ export function RecipeDetail({
               </Text>
             </View>
             <View style={{ flex: 1, gap: webPage ? 8 : 6 }}>
-              <Text style={[s.h3, webPage && { fontSize: 18, lineHeight: 24 }]}>{st.title}</Text>
+              <Text
+                role="heading"
+                aria-level={3}
+                style={[s.h3, webPage && { fontSize: 18, lineHeight: 24 }]}
+              >
+                {st.title}
+              </Text>
               <Text
                 style={[s.body, { color: '#3A3A3A' }, webPage && { fontSize: 16, lineHeight: 26 }]}
               >
                 {st.text}
               </Text>
+              {!!st.image && (
+                <FoodImage
+                  uri={st.image}
+                  label={tr('Photo of step {{v0}}', { v0: i + 1 })}
+                  width={Math.min(width - gutter * 2, 480)}
+                  style={{
+                    width: '100%',
+                    maxWidth: 480,
+                    aspectRatio: 3 / 2,
+                    borderRadius: radius.md,
+                    marginTop: 4,
+                  }}
+                />
+              )}
+              {!!st.video && (
+                <StepVideo
+                  uri={st.video}
+                  step={i + 1}
+                  style={{ maxWidth: 480, aspectRatio: 16 / 9, marginTop: 4 }}
+                />
+              )}
               {st.seconds > 0 && (
                 <View style={[s.row, { gap: 6, marginTop: 2 }]}>
                   <Timer size={14} color={color.muted} />
                   <Text style={s.small}>
-                    {tr('{{v0}} min timer in cooking mode', { v0: Math.round(st.seconds / 60) })}
+                    {tr('timerHint', { count: Math.round(st.seconds / 60) })}
                   </Text>
                 </View>
               )}
@@ -443,7 +563,9 @@ export function RecipeDetail({
   const table = (
     <View style={{ gap: 14 }}>
       <View style={{ gap: 2 }}>
-        <Text style={[s.h2, webPage && styles.webHeading]}>{tr('Around the table')}</Text>
+        <Text role="heading" aria-level={2} style={[s.h2, webPage && styles.webHeading]}>
+          {tr('Around the table')}
+        </Text>
         <Text style={s.muted}>{tr('Made it? Share a note with the next cook.')}</Text>
       </View>
       {!!reviewError && <Text style={{ color: color.error }}>{tr(reviewError)}</Text>}
@@ -451,7 +573,12 @@ export function RecipeDetail({
         <View key={r.id} style={[s.card, { gap: 10 }, webPage && { padding: 24 }]}>
           <View style={[s.row, { gap: 10 }]}>
             <Avatar name={r.author.name} uri={r.author.avatar} size={32} />
-            <Text style={[s.h3, { flex: 1, fontSize: 14 }]}>{r.author.name}</Text>
+            <View style={{ flex: 1 }}>
+              <Text numberOfLines={1} style={[s.h3, { fontSize: 14 }]}>
+                {r.author.name}
+              </Text>
+              {wasEdited(r.createdAt, r.updatedAt) && <Text style={s.small}>{tr('Edited')}</Text>}
+            </View>
             <View style={[s.row, { gap: 2 }]}>
               {[1, 2, 3, 4, 5].map((n) => (
                 <Star
@@ -462,8 +589,26 @@ export function RecipeDetail({
                 />
               ))}
             </View>
+            {!!app.user && r.author.id === app.user.id && (
+              <IconButton
+                icon={Trash2}
+                plain
+                size={34}
+                label={tr('Delete your review')}
+                onPress={() => setUnreview(true)}
+              />
+            )}
           </View>
           <Text style={s.body}>{r.body}</Text>
+          <ReviewReply
+            recipeId={recipe.id}
+            review={r}
+            author={recipe.author}
+            canReply={mine}
+            onChanged={(reply) =>
+              setReviews((list) => list.map((x) => (x.id === r.id ? { ...x, reply } : x)))
+            }
+          />
         </View>
       ))}
       {!mine && (
@@ -474,7 +619,7 @@ export function RecipeDetail({
               <Pressable
                 key={n}
                 accessibilityRole="button"
-                accessibilityLabel={tr('Rate {{v0}} stars', { v0: n })}
+                accessibilityLabel={tr('rateStars', { count: n })}
                 onPress={() => setRating(n)}
                 hitSlop={4}
                 style={{ padding: 4 }}
@@ -494,17 +639,21 @@ export function RecipeDetail({
           <Button
             title={tr('Share your review')}
             disabled={body.trim().length < 3}
-            busy={busy}
+            busy={busy.review}
             onPress={() =>
-              void perform(async () => {
-                await api(`/recipes/${recipe.id}/review`, {
-                  method: 'PUT',
-                  body: { rating, body },
-                });
-                setBody('');
-                await loadReviews();
-                await app.refreshRecipes();
-              }, 'Thanks for sharing a little kitchen wisdom.')
+              void perform(
+                'review',
+                async () => {
+                  await api(`/recipes/${recipe.id}/review`, {
+                    method: 'PUT',
+                    body: { rating, body },
+                  });
+                  setBody('');
+                  await loadReviews();
+                  await app.refreshRecipes();
+                },
+                'Thanks for sharing a little kitchen wisdom.',
+              )
             }
           />
         </View>
@@ -520,6 +669,7 @@ export function RecipeDetail({
           command={cookCommand}
           onStep={onCooking}
           onAsk={onAsk}
+          onCooked={() => setCookedRequest((n) => n + 1)}
           onClose={() => {
             setCook(false);
             setClosedCommand(cookCommand?.n);
@@ -563,7 +713,7 @@ export function RecipeDetail({
             <Text numberOfLines={1} style={s.h3}>
               {recipe.title}
             </Text>
-            <Text style={s.small}>{tr('{{v0}} servings', { v0: servings })}</Text>
+            <Text style={s.small}>{tr('servingCount', { count: servings })}</Text>
           </View>
         </View>
         {app.kitchen.plans.some((p) => p.day === day && p.meal === meal) && (
@@ -574,16 +724,20 @@ export function RecipeDetail({
         <Button
           title={tr('Add to my week')}
           icon={Check}
-          busy={busy}
+          busy={busy.plan}
           onPress={() =>
-            void perform(async () => {
-              await api('/planner', {
-                method: 'POST',
-                body: { recipeId: recipe.id, day, meal, servings },
-              });
-              await app.refreshKitchen();
-              setPlan(false);
-            }, 'A delicious plan. Added to your week.')
+            void perform(
+              'plan',
+              async () => {
+                await api('/planner', {
+                  method: 'POST',
+                  body: { recipeId: recipe.id, day, meal, servings },
+                });
+                await app.refreshKitchen();
+                setPlan(false);
+              },
+              'A delicious plan. Added to your week.',
+            )
           }
         />
       </Dialog>
@@ -598,12 +752,14 @@ export function RecipeDetail({
           </Text>
         )}
         <View style={[s.card, { paddingVertical: 4 }]}>
-          {[{ id: '', name: 'All saved' }, ...app.library.collections].map((c, n) => (
+          {[{ id: '', name: tr('All saved') }, ...app.library.collections].map((c, n) => (
             <Pressable
               key={c.id}
               accessibilityRole="button"
+              disabled={busy.cookbook}
               onPress={() =>
                 void perform(
+                  'cookbook',
                   async () => {
                     await api(`/recipes/${recipe.id}/save`, {
                       method: 'PUT',
@@ -638,12 +794,39 @@ export function RecipeDetail({
         <Button
           title={tr('Submit report')}
           disabled={reason.trim().length < 5}
-          busy={busy}
+          busy={busy.report}
           onPress={() =>
-            void perform(async () => {
-              await api(`/recipes/${recipe.id}/report`, { method: 'POST', body: { reason } });
-              setReport(false);
-            }, 'Your report has been recorded for review.')
+            void perform(
+              'report',
+              async () => {
+                await api(`/recipes/${recipe.id}/report`, { method: 'POST', body: { reason } });
+                setReport(false);
+              },
+              'Your report has been recorded for review.',
+            )
+          }
+        />
+      </Dialog>
+      <Dialog
+        visible={unreview}
+        onClose={() => setUnreview(false)}
+        title={tr('Delete your review?')}
+      >
+        <Text style={s.body}>{tr('Your rating and note are removed from this recipe.')}</Text>
+        <DangerButton
+          title={tr('Delete review')}
+          busy={busy.unreview}
+          onPress={() =>
+            void perform(
+              'unreview',
+              async () => {
+                await api(`/recipes/${recipe.id}/review`, { method: 'DELETE' });
+                setUnreview(false);
+                await loadReviews();
+                await app.refreshRecipes();
+              },
+              'Your review is deleted.',
+            )
           }
         />
       </Dialog>
@@ -709,7 +892,7 @@ export function RecipeDetail({
           </Text>
           <Text numberOfLines={1} style={s.small}>
             {recipe.author.followerCount
-              ? tr('{{v0}} followers', { v0: recipe.author.followerCount })
+              ? tr('followerCount', { count: recipe.author.followerCount })
               : `@${recipe.author.handle}`}
           </Text>
         </View>
@@ -729,18 +912,24 @@ export function RecipeDetail({
           icon={following ? Check : undefined}
           variant={following ? 'secondary' : 'primary'}
           small
+          busy={busy.follow}
           onPress={() =>
-            void perform(async () => {
-              await api(`/creators/${recipe.author.id}/follow`, {
-                method: following ? 'DELETE' : 'PUT',
-              });
-              await app.refreshLibrary();
-            }, 'Your community is updated.')
+            void perform(
+              'follow',
+              async () => {
+                await api(`/creators/${recipe.author.id}/follow`, {
+                  method: following ? 'DELETE' : 'PUT',
+                });
+                await app.refreshLibrary();
+              },
+              'Your community is updated.',
+            )
           }
         />
       )}
     </View>
   );
+  const lineage = <Lineage recipe={recipe} onOpen={onOpen} onCreator={onCreator} />;
   const facts = (
     <View
       style={[
@@ -813,7 +1002,7 @@ export function RecipeDetail({
         ]}
       >
         <Icon size={17} color={color.ink} strokeWidth={2} />
-        <Text numberOfLines={1} style={styles.actionText}>
+        <Text numberOfLines={1} maxFontSizeMultiplier={maxFontScale} style={styles.actionText}>
           {tr(a.title)}
         </Text>
       </Press>
@@ -843,6 +1032,16 @@ export function RecipeDetail({
                 style={{ marginLeft: -12 }}
               />
               <View style={[s.row, { gap: 8 }]}>
+                {canPrint && (
+                  <Button
+                    title={tr('Print')}
+                    label={tr('Print recipe')}
+                    icon={Printer}
+                    variant="secondary"
+                    small
+                    onPress={print}
+                  />
+                )}
                 <Button
                   title={tr('Share')}
                   label={tr('Share recipe')}
@@ -865,6 +1064,8 @@ export function RecipeDetail({
               <View style={split ? { flex: 1.1, gap: 12 } : { gap: 12 }}>
                 <FoodImage
                   uri={photos[photo] || ''}
+                  label={recipe.title}
+                  priority="high"
                   style={{
                     width: '100%',
                     aspectRatio: split ? 4 / 3 : 16 / 9,
@@ -899,7 +1100,11 @@ export function RecipeDetail({
               </View>
               <View style={split ? { flex: 1, gap: 20, paddingTop: 4 } : { gap: 20 }}>
                 {pills}
-                <Text style={[s.display, { fontSize: 44, lineHeight: 50, letterSpacing: -1.6 }]}>
+                <Text
+                  role="heading"
+                  aria-level={1}
+                  style={[s.display, { fontSize: 44, lineHeight: 50, letterSpacing: -1.6 }]}
+                >
                   {recipe.title}
                 </Text>
                 {!!recipe.description && (
@@ -908,6 +1113,7 @@ export function RecipeDetail({
                   </Text>
                 )}
                 {byline}
+                {lineage}
                 {facts}
                 <View style={{ gap: 10 }}>
                   <Button
@@ -918,6 +1124,7 @@ export function RecipeDetail({
                   />
                   <View style={[s.row, { gap: 8, flexWrap: 'wrap' }]}>{actionButtons}</View>
                 </View>
+                <CookedIt recipe={recipe} wide request={cookedRequest} />
               </View>
             </View>
             <View
@@ -934,6 +1141,7 @@ export function RecipeDetail({
               <View style={{ flex: split ? 1 : undefined, gap: 48, maxWidth: 760 }}>
                 {method}
                 {table}
+                <Comments recipe={recipe} wide />
                 <Button
                   title={tr('Report a problem with this recipe')}
                   variant="ghost"
@@ -953,8 +1161,12 @@ export function RecipeDetail({
   return (
     <Animated.View aria-modal style={page.style}>
       <ScrollStatusBar y={scrollY} past={barEnd - 40} />
-      <View style={{ flex: 1, backgroundColor: color.bg }}>
+      {/* The page ends above the keyboard, and a field being typed in (a comment, a review)
+          scrolls into view. */}
+      <View style={{ flex: 1, backgroundColor: color.bg, paddingBottom: lift }}>
         <Animated.ScrollView
+          ref={scroller}
+          onLayout={keyboard.onLayout}
           scrollEventThrottle={16}
           onScroll={onScroll}
           contentContainerStyle={{ paddingBottom: insets.bottom + 120 }}
@@ -984,6 +1196,8 @@ export function RecipeDetail({
               <FadeIn delay={60} style={{ gap: 12 }}>
                 {pills}
                 <Text
+                  role="heading"
+                  aria-level={1}
                   onLayout={(e) =>
                     setTitleBottom(e.nativeEvent.layout.y + e.nativeEvent.layout.height)
                   }
@@ -997,6 +1211,7 @@ export function RecipeDetail({
                     {recipe.description}
                   </Text>
                 )}
+                {lineage}
               </FadeIn>
               {/* The facts in one card and the things to do in one row, so the page goes
                   straight from the story to the cooking. */}
@@ -1004,13 +1219,14 @@ export function RecipeDetail({
               <FadeIn delay={200} style={[s.row, { gap: 8, flexWrap: 'wrap' }]}>
                 {actionButtons}
               </FadeIn>
+              <CookedIt recipe={recipe} wide={wide} request={cookedRequest} />
               {wide ? (
                 <View style={{ flexDirection: 'row', gap: 32, alignItems: 'flex-start' }}>
                   <View style={{ flex: 0.9 }}>{ingredients}</View>
                   <View style={{ flex: 1.2 }}>{method}</View>
                 </View>
               ) : (
-                <>
+                <RevealFocus.Provider value={keyboard.reveal}>
                   <Segmented
                     value={tab}
                     onChange={setTab}
@@ -1029,9 +1245,12 @@ export function RecipeDetail({
                   <FadeIn key={tab} offset={10}>
                     {tab === 'ingredients' ? ingredients : tab === 'method' ? method : table}
                   </FadeIn>
-                </>
+                </RevealFocus.Provider>
               )}
-              {wide && table}
+              <RevealFocus.Provider value={keyboard.reveal}>
+                {wide && table}
+                <Comments recipe={recipe} />
+              </RevealFocus.Provider>
               <Button
                 title={tr('Report a problem with this recipe')}
                 variant="ghost"
@@ -1085,6 +1304,9 @@ export function RecipeDetail({
             {recipe.title}
           </Animated.Text>
           <View style={[s.row, { gap: 10 }]}>
+            {canPrint && (
+              <IconButton icon={Printer} glass label={tr('Print recipe')} onPress={print} />
+            )}
             <IconButton icon={Share2} glass label={tr('Share recipe')} onPress={share} />
             <IconButton
               icon={Bookmark}
@@ -1261,12 +1483,12 @@ const styles = StyleSheet.create({
   action: {
     justifyContent: 'center',
     gap: 7,
-    height: 46,
+    minHeight: 46,
     paddingHorizontal: 12,
     borderRadius: radius.pill,
     backgroundColor: color.white,
     borderWidth: 1,
-    borderColor: color.border,
+    borderColor: color.outline,
   },
   actionText: { fontFamily: font.bold, fontSize: 13, color: color.ink, flexShrink: 1 },
   webHeading: { fontSize: 24, lineHeight: 30, letterSpacing: -0.6 },

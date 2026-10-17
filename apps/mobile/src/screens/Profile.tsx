@@ -2,7 +2,7 @@ import { LanguageSettings } from '../components/LanguageSettings';
 import { UpdateSettings } from '../components/AppUpdates';
 import { useI18n } from '../lib/i18n';
 import React, { useEffect, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import {
   Bookmark,
   CalendarDays,
@@ -16,8 +16,9 @@ import {
   Sparkles,
   Trash2,
   Users,
-} from 'lucide-react-native';
+} from '../components/icons';
 import { useApp } from '../lib/store';
+import { useShelf } from '../lib/shelf';
 import { BrandMark } from '../components/Brand';
 import { api, persistSession } from '../lib/api';
 import { Creator, Recipe, RecipeInput, Screen } from '../lib/types';
@@ -36,6 +37,7 @@ import {
   useChrome,
 } from '../components/ui';
 import { RecipeGrid, RecipeRow } from '../components/RecipeCard';
+import { CreatorCookbooks } from '../components/CreatorCookbooks';
 import { SousChefHistory } from '../components/SousChef';
 import { PlanSettings } from '../components/PlanSettings';
 import { SocialButtons } from '../components/SocialButtons';
@@ -44,7 +46,13 @@ import { PhotoButton, ProfilePhoto } from '../components/ProfilePhoto';
 import { dietOptions, useSaveProfile } from '../lib/profile';
 import { DangerButton } from './Kitchen';
 import { foodIcon } from '../lib/icons';
-import { AdminPending } from './admin';
+import { AdminPending } from './admin/AdminPending';
+import { AccountSecurity } from '../components/AccountSecurity';
+import { DataExport } from '../components/DataExport';
+import { LegalLinks } from '../components/Legal';
+import { NotificationSettings } from '../components/NotificationSettings';
+import { UnitSettings } from '../components/UnitSettings';
+import { VerifyEmail } from '../components/VerifyEmail';
 function MenuRow({
   icon: Icon,
   title,
@@ -128,10 +136,10 @@ export function Community({ onCreator }: { onCreator: (c: Creator) => void }) {
                 {c.bio}
               </Text>
               <Text style={[s.small, { color: color.ink }]}>
-                {tr('{{v0}} recipes · {{v1}} followers', {
-                  v0: c.recipeCount ?? 0,
-                  v1: c.followerCount ?? 0,
-                })}
+                {[
+                  tr('recipeCount', { count: c.recipeCount ?? 0, more: '' }),
+                  tr('followerCount', { count: c.followerCount ?? 0 }),
+                ].join(' · ')}
               </Text>
             </Press>
           );
@@ -144,10 +152,13 @@ export function CreatorDialog({
   creator,
   onClose,
   onOpen,
+  onCookbook,
 }: {
   creator: Creator;
   onClose: () => void;
   onOpen: (r: Recipe) => void;
+  /** Opens one of the cook's public cookbooks (by id); without it they aren't listed. */
+  onCookbook?: (id: string) => void;
 }) {
   const { t: tr } = useI18n();
   const app = useApp();
@@ -181,6 +192,7 @@ export function CreatorDialog({
           />
         )}
       </View>
+      {onCookbook && <CreatorCookbooks creatorId={creator.id} onOpen={onCookbook} />}
       <Text style={[s.h2, { marginTop: 8 }]}>{tr('Recipes')}</Text>
       {!!error && <Text style={{ color: color.error }}>{tr(error)}</Text>}
       <View style={{ gap: 10 }}>
@@ -217,7 +229,12 @@ export function Profile({
   const saveProfile = useSaveProfile();
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
-  const mine = app.library.recipes.filter((r) => r.author.id === app.user?.id);
+  // The cook's own recipes, drafts too, a page at a time; the count of published ones is whole.
+  const own = useShelf('mine');
+  const mine = own.recipes;
+  const shared = app.library.publishedCount ?? mine.filter((r) => r.published).length;
+  const saved = app.library.savedIds.length;
+  const following = app.library.followingIds.length;
   // An app can update before the API does, so missing account fields mean "none".
   const identities = app.user?.identities ?? [];
   // Deleting also cancels any subscription; a kitchen without a password confirms by signing in.
@@ -320,20 +337,21 @@ export function Profile({
         <Text style={[s.muted, { textAlign: 'center', maxWidth: 440 }]}>{app.user.bio}</Text>
       )}
       <View style={[s.row, { alignSelf: 'stretch', marginTop: 4 }]}>
+        {/* Each label agrees with its number, and with what it counts (recipes, or kitchens). */}
         {[
-          { n: mine.filter((r) => r.published).length, label: tr('Shared') },
-          { n: app.library.savedIds.length, label: tr('Saved') },
-          { n: app.library.followingIds.length, label: tr('Following') },
+          { key: 'shared', n: shared, label: tr('sharedStat', { count: shared }) },
+          { key: 'saved', n: saved, label: tr('savedStat', { count: saved }) },
+          { key: 'following', n: following, label: tr('followingStat', { count: following }) },
         ].map((x, i) => (
           <View
-            key={tr(x.label)}
+            key={x.key}
             style={[
               { flex: 1, alignItems: 'center', gap: 2 },
               i > 0 && { borderLeftWidth: StyleSheet.hairlineWidth, borderColor: color.line },
             ]}
           >
             <Text style={[s.h1, { fontSize: 24 }]}>{x.n}</Text>
-            <Text style={s.small}>{tr(x.label)}</Text>
+            <Text style={s.small}>{x.label}</Text>
           </View>
         ))}
       </View>
@@ -364,6 +382,7 @@ export function Profile({
   );
   const account = (
     <>
+      <VerifyEmail />
       <AdminPending />
       {app.user && app.capabilities?.plans && <PlanSettings />}
       {app.user && (
@@ -388,12 +407,20 @@ export function Profile({
           />
         </View>
       )}
+      {app.user && (
+        <View style={{ gap: 8 }}>
+          <AccountSecurity />
+          <DataExport />
+        </View>
+      )}
     </>
   );
   // A desktop's sidebar already leads to the planner, pantry, cookbooks and community.
   const settings = (
     <View style={{ gap: 8 }}>
       <LanguageSettings />
+      <UnitSettings />
+      <NotificationSettings />
       <UpdateSettings />
       {menu
         .filter((m) => !desktop || !m.inSidebar)
@@ -417,7 +444,22 @@ export function Profile({
         actionTitle={tr('New recipe')}
       />
       {mine.length ? (
-        <RecipeGrid recipes={mine} onOpen={onOpen} />
+        <>
+          <RecipeGrid recipes={mine} onOpen={onOpen} />
+          {own.hasMore && (
+            <Button
+              title={tr('Show more')}
+              variant="secondary"
+              busy={own.busy}
+              onPress={() => void own.showMore()}
+              style={{ alignSelf: 'center', minWidth: 220, marginTop: 16 }}
+            />
+          )}
+        </>
+      ) : !own.settled ? (
+        <View style={{ paddingVertical: 40, alignItems: 'center' }}>
+          <ActivityIndicator color={color.ink} accessibilityLabel={tr('Loading…')} />
+        </View>
       ) : (
         <Empty
           title={tr('Your first recipe is waiting')}
@@ -450,6 +492,7 @@ export function Profile({
             {account}
             {settings}
             {leave}
+            <LegalLinks />
           </View>
           <View style={{ flex: 1 }}>{recipes}</View>
         </View>
@@ -460,6 +503,7 @@ export function Profile({
           {settings}
           {recipes}
           {leave}
+          <LegalLinks />
         </View>
       )}
       <SousChefHistory visible={history} onClose={() => setHistory(false)} onRecipe={onRecipe} />
