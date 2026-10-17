@@ -1187,6 +1187,8 @@ function sheetDrag(y: Animated.Value, backdrop: Animated.Value) {
     measured: (height: number) => {
       size = height;
     },
+    /** The sheet's height when last laid out, or 0 before then. */
+    size: () => size,
     scrolled: (offset: number) => {
       scrollY = offset;
     },
@@ -1419,14 +1421,20 @@ export function SheetHost() {
         st.phase = 'closing';
         // A sheet dragged away has already left the screen.
         const gone = dragger.takeFlung();
+        // Otherwise it slides down by its own height (above any keyboard, plus its shadow), so the
+        // whole curve plays on screen, and eases out as a native sheet does. The scrim fades in step,
+        // as it does under a drag.
+        const leave = {
+          duration: motionReduced() || gone ? 0 : 300,
+          easing: Easing.bezier(0.2, 0, 0, 1),
+          useNativeDriver: native,
+        };
         Animated.parallel([
           Animated.timing(y, {
-            toValue: compact ? height : 16,
-            duration: motionReduced() || gone ? 0 : 240,
-            easing: Easing.in(Easing.cubic),
-            useNativeDriver: native,
+            toValue: compact ? (dragger.size() || height) + rise + 40 : 16,
+            ...leave,
           }),
-          animate(backdrop, 0, gone ? 0 : 220),
+          Animated.timing(backdrop, { toValue: 0, ...leave }),
         ]).start(({ finished }) => {
           if (!finished || st.phase !== 'closing') return;
           st.phase = 'closed';
