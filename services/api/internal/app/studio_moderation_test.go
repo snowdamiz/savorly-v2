@@ -27,6 +27,7 @@ func TestStudioPublishRespectsModerationHold(t *testing.T) {
 	if _, e := a.applyDraftAction(ctx, state, "publish", nil, false); e != nil {
 		t.Fatal(e)
 	}
+	asked(t, a, p, "Here's the draft. Shall I publish this version?")
 	if _, e := a.DB.Exec(ctx, `INSERT INTO voice_events(project_id,session_id,event_id,role,content) VALUES($1,$2,'confirmation','user','Yes, publish it.')`, p, "chat_"+p); e != nil {
 		t.Fatal(e)
 	}

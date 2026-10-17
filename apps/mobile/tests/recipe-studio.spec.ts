@@ -1,6 +1,6 @@
 import { test, expect, Page } from '@playwright/test';
 import type { AppAction, Recipe, StudioEvent, StudioProject } from '../src/lib/types';
-import { stopsMoving } from './waits';
+import { afterPageTimers, stopsMoving } from './waits';
 
 const user = {
   id: 'studio-cook',
@@ -127,12 +127,18 @@ async function mockStudio(
   voice = true,
   cards = false,
   // Returning null leaves the sous-chef working until the test calls `answer`.
-  respond?: (text: string) => { content: string; actions?: AppAction[] } | null,
+  respond?: (text: string) => {
+    content: string;
+    actions?: AppAction[];
+    changed?: boolean;
+    question?: StudioProject['question'];
+  } | null,
 ) {
   let project: StudioProject | null = null;
   let events: StudioEvent[] = [];
   let conversations = 0;
   const messages: string[] = [];
+  const bodies: Record<string, unknown>[] = [];
   const sessionCloses: string[] = [];
   let uploads = 0;
   let starts = 0;
@@ -201,12 +207,15 @@ async function mockStudio(
     if (path.endsWith('/messages') && respond) {
       const data = route.request().postDataJSON();
       messages.push(data.text);
+      bodies.push(data);
       if (!project!.title) project!.title = data.text;
       events.push({ seq: events.length + 1, role: 'user', content: data.text, imageCount: 0 });
       const reply = respond(data.text);
-      if (reply)
-        events.push({ seq: events.length + 1, role: 'assistant', imageCount: 0, ...reply });
-      else project!.busy = true;
+      if (reply) {
+        const { question, ...event } = reply;
+        events.push({ seq: events.length + 1, role: 'assistant', imageCount: 0, ...event });
+        project!.question = question ?? null;
+      } else project!.busy = true;
       return fulfill({ accepted: true }, 202);
     }
     if (path.endsWith('/messages')) {
@@ -256,6 +265,7 @@ async function mockStudio(
   });
   return {
     messages,
+    bodies,
     sessionCloses,
     uploads: () => uploads,
     starts: () => starts,
@@ -598,6 +608,57 @@ test('the home’s and the planner’s sous-chef cards open the same conversatio
     'A satisfying dinner I can make in 20 minutes.',
     'Plan my dinners for this week',
   ]);
+});
+
+test('the sous-chef’s question is answered with a tap, which says which question', async ({
+  page,
+}) => {
+  const state = await mockStudio(page, true, false, (text) =>
+    text === 'Delete my lemon toast.'
+      ? { content: 'Delete “Lemon toast” for good?', question: { kind: 'action', seq: 2 } }
+      : text === 'Read it back.'
+        ? { content: 'Here it is. Shall I publish it?', question: { kind: 'publish', seq: 6 } }
+        : { content: `Noted: ${text}` },
+  );
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Ask your sous-chef' }).click();
+  const composer = page.getByRole('textbox', { name: 'Message your sous-chef' });
+  await composer.fill('Delete my lemon toast.');
+  await page.getByRole('button', { name: 'Send message' }).click();
+  await expect(page.getByText('Delete “Lemon toast” for good?', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Yes', exact: true }).click();
+  await expect(page.getByText('Noted: Yes', { exact: true })).toBeVisible();
+  expect(state.bodies.at(-1)).toMatchObject({ text: 'Yes', answer: 'yes', question: 2 });
+  await expect(page.getByRole('button', { name: 'Yes', exact: true })).toHaveCount(0);
+  // After a read-back, the choice is to publish or not.
+  await composer.fill('Read it back.');
+  await page.getByRole('button', { name: 'Send message' }).click();
+  await page.getByRole('button', { name: 'Not now', exact: true }).click();
+  await expect(page.getByText('Noted: Not now', { exact: true })).toBeVisible();
+  expect(state.bodies.at(-1)).toMatchObject({ text: 'Not now', answer: 'no', question: 6 });
+  // A typed message is just a message.
+  expect(state.bodies[0]).not.toHaveProperty('answer');
+});
+
+test('only a reply that changed something refreshes the app', async ({ page }) => {
+  const state = await mockStudio(page, true, false, (text) => ({
+    content: `Noted: ${text}`,
+    changed: text === 'Add milk.',
+  }));
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Ask your sous-chef' }).click();
+  const composer = page.getByRole('textbox', { name: 'Message your sous-chef' });
+  await expect(composer).toBeEnabled();
+  const loads = state.kitchenLoads();
+  await composer.fill('What’s in season?');
+  await page.getByRole('button', { name: 'Send message' }).click();
+  await expect(page.getByText('Noted: What’s in season?', { exact: true })).toBeVisible();
+  await afterPageTimers(page, 2500);
+  expect(state.kitchenLoads()).toBe(loads);
+  await composer.fill('Add milk.');
+  await page.getByRole('button', { name: 'Send message' }).click();
+  await expect(page.getByText('Noted: Add milk.', { exact: true })).toBeVisible();
+  await expect.poll(() => state.kitchenLoads()).toBeGreaterThan(loads);
 });
 
 test('the sous-chef thinks in a bubble that becomes its reply', async ({ page }) => {

@@ -246,6 +246,7 @@ func TestConfirmationIsTheTurnsFirstAct(t *testing.T) {
 		t.Fatal(out)
 	}
 	// The next turn shows the model the server's own words for what a yes would do.
+	asked(t, a, p, "Delete “Lemon toast” for good?")
 	say(t, a, p, "Yes, and read me the reviews of the toast.")
 	state, _ := a.studioState(ctx, p, 0)
 	input, e := a.agentInput(ctx, state)
@@ -266,6 +267,7 @@ func TestConfirmationIsTheTurnsFirstAct(t *testing.T) {
 	}
 	// A plain yes acted on first still works.
 	tool(agentTurn(t, a, p), "delete_recipe", map[string]any{"recipe_id": "mine"})
+	asked(t, a, p, "Delete “Lemon toast” for good?")
 	say(t, a, p, "Yes, delete it.")
 	if out := tool(agentTurn(t, a, p), "confirm_action", nil); exists() {
 		t.Fatalf("confirmed deletion didn't run: %s", out)
@@ -277,6 +279,7 @@ func TestConfirmationIsTheTurnsFirstAct(t *testing.T) {
 		t.Fatal(e)
 	}
 	tool(agentTurn(t, a, p), "read_back_draft", nil)
+	asked(t, a, p, "Here's the draft. Shall I publish this version?")
 	say(t, a, p, "Yes, publish it.")
 	run = agentTurn(t, a, p)
 	tool(run, "show_recipes", map[string]any{"recipe_ids": []string{"toast"}})
@@ -312,6 +315,7 @@ func TestReportingARecipeNeedsTheUsersYes(t *testing.T) {
 	if !strings.Contains(out, "needsConfirmation") || !strings.Contains(out, "Report “Lemon toast”") || reports() != 0 {
 		t.Fatalf("report not held for confirmation: %s", out)
 	}
+	asked(t, a, p, "Report “Lemon toast” for moderation?")
 	say(t, a, p, "Yes, report it.")
 	tool(agentTurn(t, a, p), "confirm_action", nil)
 	var reason string
