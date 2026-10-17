@@ -20,6 +20,7 @@ import {
   ChefHat,
   Check,
   Clock3,
+  CookingPot,
   Flag,
   Flame,
   Gauge,
@@ -76,7 +77,7 @@ import { ReviewReply } from './ReviewReply';
 import { canPrint, printRecipe } from '../lib/printRecipe';
 import { amountText, UnitsSwitch, useUnits } from './Units';
 import { Comments } from './Comments';
-import { CookedIt } from './CookedIt';
+import { CookPhotos, CookSheets, useCooked } from './CookedIt';
 import { Lineage } from './Variations';
 import { DangerButton } from '../screens/Kitchen';
 import { RevealFocus, useKeyboardLift, useKeyboardScroll } from '../lib/keyboard';
@@ -137,6 +138,7 @@ export function RecipeDetail({
   const [reviews, setReviews] = useState<Review[]>([]);
   // Cooking mode's "I cooked this" opens the sheet on the page it returns to.
   const [cookedRequest, setCookedRequest] = useState(0);
+  const cooks = useCooked(recipe, cookedRequest);
   const [reviewError, setReviewError] = useState('');
   const [rating, setRating] = useState(5);
   const [body, setBody] = useState('');
@@ -568,6 +570,7 @@ export function RecipeDetail({
         </Text>
         <Text style={s.muted}>{tr('Made it? Share a note with the next cook.')}</Text>
       </View>
+      <CookPhotos cooked={cooks} wide={webPage || wide} />
       {!!reviewError && <Text style={{ color: color.error }}>{tr(reviewError)}</Text>}
       {reviews.map((r) => (
         <View key={r.id} style={[s.card, { gap: 10 }, webPage && { padding: 24 }]}>
@@ -663,6 +666,7 @@ export function RecipeDetail({
   // Cooking mode and the sheets, shared by both layouts.
   const overlays = (
     <>
+      <CookSheets cooked={cooks} />
       {cooking && (
         <CookMode
           recipe={recipe}
@@ -834,12 +838,14 @@ export function RecipeDetail({
   );
   const actions = [
     {
+      key: 'plan',
       icon: CalendarDays,
       title: tr('Plan'),
       label: tr('Plan this meal'),
       onPress: () => app.requireUser(() => setPlan(true)),
     },
     {
+      key: 'cookbook',
       icon: BookmarkPlus,
       title: tr('Cookbook'),
       label: tr('Add to cookbook'),
@@ -848,6 +854,7 @@ export function RecipeDetail({
     ...(recipe.video
       ? [
           {
+            key: 'video',
             icon: Play,
             title: tr('Video'),
             label: tr('Watch video'),
@@ -855,7 +862,25 @@ export function RecipeDetail({
           },
         ]
       : []),
-    { icon: Sparkles, title: tr('Ask'), label: tr('Ask the sous-chef'), onPress: onAsk },
+    ...(cooks.off
+      ? []
+      : [
+          {
+            key: 'cooked',
+            icon: cooks.cooked ? Check : CookingPot,
+            title: tr('Cooked'),
+            label: cooks.cooked ? tr('You cooked this') : tr('I cooked this'),
+            on: cooks.cooked,
+            onPress: cooks.start,
+          },
+        ]),
+    {
+      key: 'ask',
+      icon: Sparkles,
+      title: tr('Ask'),
+      label: tr('Ask the sous-chef'),
+      onPress: onAsk,
+    },
   ];
   const photos = [recipe.image, ...(recipe.photos || [])].filter(Boolean);
   const pills = (
@@ -984,30 +1009,33 @@ export function RecipeDetail({
       })}
     </View>
   );
-  const actionButtons = actions.map((a) => {
-    const Icon = a.icon;
-    return (
-      <Press
-        key={tr(a.title)}
-        accessibilityRole="button"
-        accessibilityLabel={tr(a.label)}
-        onPress={a.onPress}
-        scale={0.97}
-        style={[
-          s.row,
-          styles.action,
-          wide
-            ? { paddingHorizontal: 20 }
-            : { flexGrow: 1, flexBasis: actions.length > 3 ? '40%' : 'auto' },
-        ]}
-      >
-        <Icon size={17} color={color.ink} strokeWidth={2} />
-        <Text numberOfLines={1} maxFontSizeMultiplier={maxFontScale} style={styles.actionText}>
-          {tr(a.title)}
-        </Text>
-      </Press>
-    );
-  });
+  // The things to do with the recipe as one row of round buttons, each named underneath, spread
+  // across the column on every layout.
+  const actionRow = (
+    <View style={[s.row, { alignItems: 'flex-start' }, wide && !webPage && { maxWidth: 620 }]}>
+      {actions.map((a) => {
+        const Icon = a.icon;
+        const on = 'on' in a && a.on;
+        return (
+          <Press
+            key={a.key}
+            accessibilityRole="button"
+            accessibilityLabel={a.label}
+            onPress={a.onPress}
+            scale={0.94}
+            style={styles.action}
+          >
+            <View style={[styles.actionIcon, on && styles.actionOn]}>
+              <Icon size={20} color={on ? color.white : color.ink} strokeWidth={on ? 2.4 : 1.9} />
+            </View>
+            <Text numberOfLines={2} maxFontSizeMultiplier={maxFontScale} style={styles.actionText}>
+              {a.title}
+            </Text>
+          </Press>
+        );
+      })}
+    </View>
+  );
   // A desktop browser gets a page inside the app's sidebar and header: the photo beside the story
   // and the things to do, then the ingredients held in view beside the method as it scrolls.
   // Narrower windows (beside the 248px sidebar) stack them instead.
@@ -1115,16 +1143,15 @@ export function RecipeDetail({
                 {byline}
                 {lineage}
                 {facts}
-                <View style={{ gap: 10 }}>
+                <View style={{ gap: 20 }}>
                   <Button
                     title={tr('Start cooking')}
                     icon={ChefHat}
                     large
                     onPress={() => setCook(true)}
                   />
-                  <View style={[s.row, { gap: 8, flexWrap: 'wrap' }]}>{actionButtons}</View>
+                  {actionRow}
                 </View>
-                <CookedIt recipe={recipe} wide request={cookedRequest} />
               </View>
             </View>
             <View
@@ -1216,10 +1243,7 @@ export function RecipeDetail({
               {/* The facts in one card and the things to do in one row, so the page goes
                   straight from the story to the cooking. */}
               <FadeIn delay={130}>{facts}</FadeIn>
-              <FadeIn delay={200} style={[s.row, { gap: 8, flexWrap: 'wrap' }]}>
-                {actionButtons}
-              </FadeIn>
-              <CookedIt recipe={recipe} wide={wide} request={cookedRequest} />
+              <FadeIn delay={200}>{actionRow}</FadeIn>
               {wide ? (
                 <View style={{ flexDirection: 'row', gap: 32, alignItems: 'flex-start' }}>
                   <View style={{ flex: 0.9 }}>{ingredients}</View>
@@ -1480,16 +1504,24 @@ function Gallery({
   );
 }
 const styles = StyleSheet.create({
-  action: {
+  action: { flex: 1, minWidth: 0, alignItems: 'center', gap: 8, paddingHorizontal: 2 },
+  actionIcon: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    alignItems: 'center',
     justifyContent: 'center',
-    gap: 7,
-    minHeight: 46,
-    paddingHorizontal: 12,
-    borderRadius: radius.pill,
     backgroundColor: color.white,
     borderWidth: 1,
     borderColor: color.border,
   },
-  actionText: { fontFamily: font.bold, fontSize: 13, color: color.ink, flexShrink: 1 },
+  actionOn: { backgroundColor: color.ink, borderColor: color.ink },
+  actionText: {
+    fontFamily: font.semibold,
+    fontSize: 12,
+    lineHeight: 16,
+    color: color.ink,
+    textAlign: 'center',
+  },
   webHeading: { fontSize: 24, lineHeight: 30, letterSpacing: -0.6 },
 });

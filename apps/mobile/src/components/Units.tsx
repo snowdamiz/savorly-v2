@@ -40,7 +40,7 @@ export function useUnits() {
   return [units, choose] as const;
 }
 
-/** Original, metric or imperial amounts. */
+/** Original, metric or imperial amounts: a small switch beside the servings. */
 export function UnitsSwitch({
   value,
   onChange,
@@ -51,6 +51,7 @@ export function UnitsSwitch({
   const { t: tr } = useI18n();
   return (
     <Segmented
+      compact
       value={value || 'original'}
       onChange={(v) => onChange(v === 'original' ? '' : v)}
       options={[

@@ -126,7 +126,8 @@ async function mockStudio(
   page: Page,
   voice = true,
   cards = false,
-  respond?: (text: string) => { content: string; actions?: AppAction[] },
+  // Returning null leaves the sous-chef working until the test calls `answer`.
+  respond?: (text: string) => { content: string; actions?: AppAction[] } | null,
 ) {
   let project: StudioProject | null = null;
   const events: StudioEvent[] = [];
@@ -194,12 +195,10 @@ async function mockStudio(
       const data = route.request().postDataJSON();
       messages.push(data.text);
       events.push({ seq: events.length + 1, role: 'user', content: data.text, imageCount: 0 });
-      events.push({
-        seq: events.length + 1,
-        role: 'assistant',
-        imageCount: 0,
-        ...respond(data.text),
-      });
+      const reply = respond(data.text);
+      if (reply)
+        events.push({ seq: events.length + 1, role: 'assistant', imageCount: 0, ...reply });
+      else project!.busy = true;
       return fulfill({ accepted: true }, 202);
     }
     if (path.endsWith('/messages')) {
@@ -253,6 +252,10 @@ async function mockStudio(
     starts: () => starts,
     kitchenLoads: () => kitchenLoads,
     contexts,
+    answer: (content: string) => {
+      events.push({ seq: events.length + 1, role: 'assistant', content, imageCount: 0 });
+      project!.busy = false;
+    },
   };
 }
 
@@ -515,6 +518,46 @@ test('the sous-chef is one tap away, shows recipe cards, and refreshes the kitch
   await launcher.click();
   await expect(page.getByRole('textbox', { name: 'Message your sous-chef' })).toBeVisible();
   await expect(launcher).toHaveCount(1);
+});
+
+test('the home’s and the planner’s sous-chef cards open the same conversation', async ({
+  page,
+}) => {
+  const state = await mockStudio(page, true, false, (text) => ({
+    content: `Happy to help: ${text}`,
+  }));
+  await page.goto('/');
+  await page
+    .getByRole('button', { name: 'Ask the sous-chef: Dinner in 20 minutes', exact: true })
+    .click();
+  await expect(
+    page.getByText('Happy to help: A satisfying dinner I can make in 20 minutes.', { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole('textbox', { name: 'Message your sous-chef' })).toBeVisible();
+  await page.goto('/?page=planner');
+  await page.getByRole('button', { name: 'Plan my week for me', exact: true }).click();
+  await expect(
+    page.getByText('Happy to help: Plan my dinners for this week', { exact: true }),
+  ).toBeVisible();
+  expect(state.messages).toEqual([
+    'A satisfying dinner I can make in 20 minutes.',
+    'Plan my dinners for this week',
+  ]);
+});
+
+test('the sous-chef thinks in a bubble that becomes its reply', async ({ page }) => {
+  const state = await mockStudio(page, true, false, () => null);
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Ask your sous-chef' }).click();
+  await page
+    .getByRole('textbox', { name: 'Message your sous-chef' })
+    .fill('What goes with lemon toast?');
+  await page.getByRole('button', { name: 'Send message' }).click();
+  const thinking = page.getByRole('progressbar', { name: 'Your sous-chef is working…' });
+  await expect(thinking).toBeVisible();
+  state.answer('A crisp green salad.');
+  await expect(page.getByText('A crisp green salad.', { exact: true })).toBeVisible();
+  await expect(thinking).toHaveCount(0);
 });
 
 test('the sous-chef knows the open recipe and cooking step, and acts on screen', async ({

@@ -840,12 +840,15 @@ export function Segmented<T extends string>({
   value,
   onChange,
   floating,
+  compact,
 }: {
   options: { value: T; label: string }[];
   value: T;
   onChange: (v: T) => void;
   /** Rides over a photo: a raised white track as wide as its labels, not the space it's in. */
   floating?: boolean;
+  /** A small setting beside other controls: a short track as wide as its labels, at the start. */
+  compact?: boolean;
 }) {
   const [width, setWidth] = useState(0);
   // A floating track gives every segment the width of its longest label.
@@ -864,10 +867,12 @@ export function Segmented<T extends string>({
       useNativeDriver: native,
     }).start();
   }, [index, x]);
-  const inset = floating ? 3 : 4;
+  // Floating and compact tracks give every segment the width of the longest label.
+  const fitted = floating || compact;
+  const inset = fitted ? 3 : 4;
   const pad = floating ? 14 : 12;
   const widest =
-    floating && options.every((_, i) => labels[i])
+    fitted && options.every((_, i) => labels[i])
       ? Math.ceil(Math.max(...options.map((_, i) => labels[i]))) + pad * 2
       : 0;
   const segment = (width - inset * 2) / options.length;
@@ -881,11 +886,13 @@ export function Segmented<T extends string>({
         backgroundColor: floating ? color.white : color.subtle,
         borderRadius: radius.pill,
         padding: inset,
-        ...(floating && {
-          alignSelf: 'center',
-          boxShadow: '0px 1px 2px rgba(0,0,0,0.08), 0px 8px 22px rgba(0,0,0,0.18)',
+        ...(fitted && {
+          alignSelf: floating ? 'center' : 'flex-start',
           // Hidden for the frame it takes to measure the labels, so the segments never jump.
           opacity: widest ? 1 : 0,
+        }),
+        ...(floating && {
+          boxShadow: '0px 1px 2px rgba(0,0,0,0.08), 0px 8px 22px rgba(0,0,0,0.18)',
         }),
       }}
     >
@@ -916,8 +923,8 @@ export function Segmented<T extends string>({
               onChange(o.value);
             }}
             style={{
-              ...(floating ? { minWidth: widest } : { flex: 1 }),
-              minHeight: floating ? 34 : 40,
+              ...(fitted ? { minWidth: widest } : { flex: 1 }),
+              minHeight: floating ? 34 : compact ? 30 : 40,
               paddingHorizontal: pad,
               borderRadius: radius.pill,
               alignItems: 'center',
@@ -929,7 +936,7 @@ export function Segmented<T extends string>({
             <Text
               numberOfLines={1}
               onLayout={
-                floating
+                fitted
                   ? (e) => {
                       const w = e.nativeEvent.layout.width;
                       setLabels((l) => {
@@ -943,7 +950,7 @@ export function Segmented<T extends string>({
               }
               style={{
                 fontFamily: font.bold,
-                fontSize: floating ? 13 : 14,
+                fontSize: floating ? 13 : compact ? 12 : 14,
                 color: on ? (floating ? color.white : color.ink) : color.muted,
               }}
             >
@@ -1759,12 +1766,15 @@ export function CheckRow({
 }
 export function NumberField({
   label,
+  accessibilityLabel,
   value,
   onChange,
   placeholder,
   style,
 }: {
-  label: string;
+  /** Shown above the box; without one, `accessibilityLabel` names it. */
+  label?: string;
+  accessibilityLabel?: string;
   value: number;
   onChange: (value: number) => void;
   placeholder?: string;
@@ -1786,6 +1796,7 @@ export function NumberField({
   return (
     <Field
       label={label}
+      accessibilityLabel={accessibilityLabel ?? label}
       value={entry.text}
       keyboardType="decimal-pad"
       placeholder={placeholder}
