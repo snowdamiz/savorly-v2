@@ -1,7 +1,7 @@
 import { useI18n } from '../lib/i18n';
 import React, { useCallback, useEffect, useState } from 'react';
 import { AppState, Platform, Text, View } from 'react-native';
-import { Check, Sparkles } from 'lucide-react-native';
+import { Check, Sparkles } from './icons';
 import { api } from '../lib/api';
 import { canSellHere, openBilling } from '../lib/billing';
 import { useApp } from '../lib/store';

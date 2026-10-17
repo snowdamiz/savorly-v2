@@ -1,14 +1,16 @@
 import { useI18n } from '../lib/i18n';
 import React, { memo, useEffect, useRef, useState } from 'react';
-import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Animated, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Bookmark, Clock3, Play, Sparkles, Star } from 'lucide-react-native';
+import { Bookmark, Clock3, Play, Sparkles, Star } from './icons';
 import { Recipe } from '../lib/types';
 import { foodIcon } from '../lib/icons';
 import { haptic } from '../lib/haptics';
-import { useApp } from '../lib/store';
+import { useLibrary } from '../lib/library';
+import { linkTo, pressedInApp, recipePath } from '../lib/routes';
 import { color, font, radius, s, shadow } from '../lib/theme';
 import { FoodImage, IconButton, Pill, animate, native, usePress, useChrome } from './ui';
+const web = Platform.OS === 'web';
 export function Save({
   recipe,
   size = 38,
@@ -21,8 +23,10 @@ export function Save({
   plain?: boolean;
 }) {
   const { t: tr } = useI18n();
-  const { library, toggleSave, user } = useApp();
-  const saved = library.savedIds.includes(recipe.id);
+  // Only the saved ids, not the whole store: a bookmark re-renders when saves change, and not for
+  // a kitchen refresh or a new recipe list around it.
+  const { savedIds, toggleSave, userId } = useLibrary();
+  const saved = savedIds.includes(recipe.id);
   // The bookmark gives a little pop the moment it's kept.
   const pop = useState(() => new Animated.Value(1))[0];
   const was = useRef(saved);
@@ -48,7 +52,7 @@ export function Save({
             : tr('Save {{v0}}', { v0: recipe.title })
         }
         onPress={() => {
-          if (user) haptic.tap();
+          if (userId) haptic.tap();
           void toggleSave(recipe);
         }}
         selected={saved}
@@ -59,14 +63,24 @@ export function Save({
     </Animated.View>
   );
 }
-function Badge({ recipe }: { recipe: Recipe }) {
+// The average with how many reviews it comes from ("4.8 · 12"), so a single five-star review
+// doesn't read as better than a dozen 4.8s. Screen readers hear it as a sentence.
+function useRating(recipe: Recipe) {
   const { t: tr, number } = useI18n();
+  const rating = number(recipe.rating, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  const count = recipe.reviewCount ?? 0;
+  return {
+    text: count > 0 ? `${rating} · ${number(count)}` : rating,
+    label: count > 0 ? tr('ratingSummary', { rating, count }) : rating,
+  };
+}
+function Badge({ recipe }: { recipe: Recipe }) {
+  const { t: tr } = useI18n();
+  const rating = useRating(recipe);
   return recipe.rating > 0 ? (
-    <Pill
-      title={number(recipe.rating, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
-      icon={Star}
-      fill
-    />
+    <View accessible accessibilityRole={web ? 'image' : 'text'} accessibilityLabel={rating.label}>
+      <Pill title={rating.text} icon={Star} fill />
+    </View>
   ) : recipe.aiGenerated ? (
     <Pill title={tr('AI assisted')} icon={Sparkles} tone="glass" />
   ) : (
@@ -106,10 +120,13 @@ export const RecipeTile = memo(function RecipeTile({
         press.style,
       ]}
     >
+      {/* A link on the web (/recipes/<id>): crawlable, and a new tab on a middle or modified
+          click, while a plain click opens the recipe in the app. */}
       <Pressable
-        accessibilityRole="button"
+        {...linkTo(recipePath(recipe.id))}
+        accessibilityRole={web ? 'link' : 'button'}
         accessibilityLabel={tr('View {{v0}}', { v0: recipe.title })}
-        onPress={() => onOpen(recipe)}
+        onPress={(e) => pressedInApp(e) && onOpen(recipe)}
         onPressIn={press.onPressIn}
         onPressOut={press.onPressOut}
         onHoverIn={() => animate(hover, 1, 700).start()}
@@ -126,7 +143,7 @@ export const RecipeTile = memo(function RecipeTile({
             },
           ]}
         >
-          <FoodImage uri={recipe.image} style={StyleSheet.absoluteFill} />
+          <FoodImage uri={recipe.image} style={StyleSheet.absoluteFill} width={width ?? 300} />
         </Animated.View>
         <LinearGradient
           colors={[
@@ -160,6 +177,8 @@ export const RecipeTile = memo(function RecipeTile({
         )}
         <View style={{ position: 'absolute', left: 16, right: 16, bottom: 16, gap: 7 }}>
           <Text
+            role="heading"
+            aria-level={3}
             numberOfLines={2}
             style={{
               fontFamily: font.bold,
@@ -176,7 +195,7 @@ export const RecipeTile = memo(function RecipeTile({
             <Text
               style={{ fontFamily: font.semibold, fontSize: 12, color: 'rgba(255,255,255,0.8)' }}
             >
-              {tr('{{v0}} min · {{v1}}', { v0: recipe.minutes, v1: tr(recipe.difficulty) })}
+              {`${tr('minuteCount', { count: recipe.minutes })} · ${tr(recipe.difficulty)}`}
             </Text>
           </View>
         </View>
@@ -198,8 +217,9 @@ export const RecipeRow = memo(function RecipeRow({
   recipe: Recipe;
   onOpen: (r: Recipe) => void;
 }) {
-  const { t: tr, number } = useI18n();
+  const { t: tr } = useI18n();
   const press = usePress(0.98);
+  const rating = useRating(recipe);
   return (
     <Animated.View
       style={[
@@ -216,16 +236,17 @@ export const RecipeRow = memo(function RecipeRow({
       ]}
     >
       <Pressable
-        accessibilityRole="button"
+        {...linkTo(recipePath(recipe.id))}
+        accessibilityRole={web ? 'link' : 'button'}
         accessibilityLabel={tr('View {{v0}}', { v0: recipe.title })}
-        onPress={() => onOpen(recipe)}
+        onPress={(e) => pressedInApp(e) && onOpen(recipe)}
         onPressIn={press.onPressIn}
         onPressOut={press.onPressOut}
         style={[s.row, { flex: 1, gap: 14 }]}
       >
         <FoodImage uri={recipe.image} style={{ width: 76, height: 76, borderRadius: 20 }} />
         <View style={{ flex: 1, gap: 4 }}>
-          <Text numberOfLines={1} style={s.h3}>
+          <Text role="heading" aria-level={3} numberOfLines={1} style={s.h3}>
             {recipe.title}
           </Text>
           <Text numberOfLines={1} style={[s.small, { fontFamily: font.medium }]}>
@@ -234,14 +255,17 @@ export const RecipeRow = memo(function RecipeRow({
           <View style={[s.row, { gap: 6 }]}>
             <Clock3 size={12} color={color.muted} strokeWidth={2} />
             <Text style={s.small}>
-              {tr('{{v0}} min · {{v1}}', { v0: recipe.minutes, v1: tr(recipe.difficulty) })}
+              {`${tr('minuteCount', { count: recipe.minutes })} · ${tr(recipe.difficulty)}`}
             </Text>
             {recipe.rating > 0 && (
-              <View style={[s.row, { gap: 3, marginLeft: 4 }]}>
+              <View
+                accessible
+                accessibilityRole={web ? 'image' : 'text'}
+                accessibilityLabel={rating.label}
+                style={[s.row, { gap: 3, marginLeft: 4 }]}
+              >
                 <Star size={12} color={color.ink} fill={color.ink} />
-                <Text style={[s.small, { color: color.ink }]}>
-                  {number(recipe.rating, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
-                </Text>
+                <Text style={[s.small, { color: color.ink }]}>{rating.text}</Text>
               </View>
             )}
           </View>

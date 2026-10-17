@@ -29,14 +29,16 @@ Don't run `eas update` by hand for staging or production. It ignores a build pro
 
 CI only ships Android, matching the builds. iOS builds would need the same, with `platform` set in the script.
 
+The EAS CLI version is pinned: `eas-version` in [ci.yml](../.github/workflows/ci.yml) and `easCli` in the script (24.14.0, used by the commands on this page too). Bump them together.
+
 ## Rolling back
 
-- **Fastest:** `npx eas-cli@latest update:rollback` in `apps/mobile`, then pick the update. It republishes the update before it, or the build's own code if there was none. Phones pick it up on their next check.
+- **Fastest:** `npx eas-cli@24.14.0 update:rollback` in `apps/mobile`, then pick the update. It republishes the update before it, or the build's own code if there was none. Phones pick it up on their next check. `update:republish --group <id>` brings back a particular earlier update ([runbooks](RUNBOOKS.md#roll-back-a-release)).
 - **Through git:** revert the change on `main` and push it to `staging` (or `release`) again. CI publishes the reverted code as a new update.
 
 ## Try it on staging
 
-1. **Get a build with updates in it.** Builds made before EAS Update was set up never receive updates. Push `main` to `staging` (`git push origin main:staging`). The new fingerprint makes CI queue a staging build, or start one yourself with `npx eas-cli@latest build --platform android --profile staging` in `apps/mobile`.
+1. **Get a build with updates in it.** Builds made before EAS Update was set up never receive updates. Push `main` to `staging` (`git push origin main:staging`). The new fingerprint makes CI queue a staging build, or start one yourself with `npx eas-cli@24.14.0 build --platform android --profile staging` in `apps/mobile`.
 2. **Install it** from the build page on expo.dev, over the old Savorly Staging. **My kitchen → App updates** reads **Installed version** and the `staging` channel.
 3. **Change some JavaScript** (a string, a color), merge it to `main`, and push `main:staging` again. In the GitHub run, **Ship Android app** says it ships as an update; the update appears on expo.dev under **Updates**, on the `staging` branch.
 4. **Open the app** (or bring it back to the foreground). Within a few seconds the banner offers **Restart**. Afterwards **App updates** shows the update's date and ID.

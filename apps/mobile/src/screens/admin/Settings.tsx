@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Text, View } from 'react-native';
-import { Hand, RotateCcw, Save } from 'lucide-react-native';
+import { Hand, RotateCcw, Save } from '../../components/icons';
 import { api, ApiError } from '../../lib/api';
 import { useApp } from '../../lib/store';
 import { replayWelcome } from '../../lib/welcome';
@@ -10,6 +10,7 @@ import { Button, Field, Segmented } from '../../components/ui';
 import { AnnouncementCard } from '../../components/Announcement';
 import {
   Filters,
+  followUp,
   ListState,
   Loading,
   Notice,
@@ -36,7 +37,7 @@ const parseBudget = (text: string): number | null | undefined => {
 
 export function Settings() {
   const f = useFormat();
-  const { data, error } = useLoad<SettingsReply>('/admin/settings');
+  const { data, error, reload } = useLoad<SettingsReply>('/admin/settings');
   const action = useRun();
   const [form, setForm] = useState<AdminSettings | null>(null);
   const [daily, setDaily] = useState('');
@@ -57,6 +58,19 @@ export function Settings() {
     aiFreeDailyBudgetUSD: parseBudget(free) ?? null,
   };
   const invalid = parseBudget(daily) === undefined || parseBudget(free) === undefined;
+  // Only owners change the budgets, up to ten times the server's default; the API enforces both
+  // and lets an override from before the limit stay as it is.
+  const budgets = data.canChangeBudgets !== false;
+  const limits = data.budgetLimits;
+  const over = (value: number | null, saved: number | null, limit?: number) =>
+    limit !== undefined && value !== null && value !== saved && value > limit;
+  const tooHigh =
+    over(next.aiDailyBudgetUSD, data.settings.aiDailyBudgetUSD, limits?.aiDailyBudgetUSD) ||
+    over(
+      next.aiFreeDailyBudgetUSD,
+      data.settings.aiFreeDailyBudgetUSD,
+      limits?.aiFreeDailyBudgetUSD,
+    );
   const dirty = JSON.stringify(next) !== JSON.stringify(data.settings);
   return (
     <View style={{ gap: 16 }}>
@@ -76,6 +90,7 @@ export function Settings() {
               label="Daily AI budget for everyone (USD)"
               value={daily}
               onChangeText={setDaily}
+              editable={budgets}
               keyboardType="decimal-pad"
               placeholder={`Default: ${f.money(data.defaults.aiDailyBudgetUSD)}`}
             />
@@ -85,6 +100,7 @@ export function Settings() {
               label="Daily AI budget for free members (USD)"
               value={free}
               onChangeText={setFree}
+              editable={budgets}
               keyboardType="decimal-pad"
               placeholder={`Default: ${f.money(data.defaults.aiFreeDailyBudgetUSD)}`}
             />
@@ -94,9 +110,20 @@ export function Settings() {
           Leave a budget empty to use the server’s default (AI_DAILY_BUDGET_USD and
           AI_FREE_DAILY_BUDGET_USD). Paying members’ plans add headroom on top; 0 stops all AI
           spend.
+          {!budgets
+            ? ' Only owners change the budgets.'
+            : limits
+              ? ` Overrides go up to ten times the default: ${f.money(limits.aiDailyBudgetUSD)} and ${f.money(limits.aiFreeDailyBudgetUSD)}.`
+              : ''}
         </Text>
         {invalid && (
           <Notice tone="error" text="Budgets are amounts in dollars, such as 10 or 7.50." />
+        )}
+        {tooHigh && (
+          <Notice
+            tone="error"
+            text="That’s more than ten times the server’s default. Raise AI_DAILY_BUDGET_USD or AI_FREE_DAILY_BUDGET_USD to go higher."
+          />
         )}
       </Panel>
       <Panel title="Sign-ups">
@@ -149,12 +176,26 @@ export function Settings() {
         <Button
           title="Save settings"
           icon={Save}
-          disabled={!dirty || invalid}
+          disabled={!dirty || invalid || tooHigh}
           busy={!!action.busy}
           onPress={() =>
             void action.run(
               'save',
-              () => api('/admin/settings', { method: 'PUT', body: next }),
+              async () => {
+                try {
+                  await api('/admin/settings', {
+                    method: 'PUT',
+                    body: { ...next, expectedUpdatedAt: data.updatedAt },
+                  });
+                } catch (e) {
+                  if (!(e instanceof ApiError && e.status === 409)) throw e;
+                  // Someone saved after this form loaded: show their settings rather than undo them.
+                  reload();
+                  throw new Error(
+                    'Another admin saved these settings while you were editing. Their version is shown now; make your change again.',
+                  );
+                }
+              },
               'Settings saved. They apply from the next request.',
             )
           }
@@ -285,6 +326,7 @@ export function Audit() {
             title={e.summary || e.action}
             lines={[
               note(e) && `“${note(e)}”`,
+              followUp(e) && `Needs attention: ${followUp(e)}`,
               `${e.adminEmail} · ${f.dateTime(e.createdAt)} · ${e.action}`,
             ]}
             onPress={open(e)}

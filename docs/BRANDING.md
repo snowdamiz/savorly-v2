@@ -41,10 +41,24 @@ SVG exports and these PNGs:
 | `favicon.png`                 | 64 × 64     | Browser icon, with a larger chef to retain facial detail at 16–32 px  |
 | `android-icon-foreground.png` | 512 × 512   | Transparent adaptive foreground                                       |
 | `android-icon-monochrome.png` | 512 × 512   | Alpha-only themed icon with light-detail cutouts and opaque pupils    |
-| `splash-icon.png`             | 1024 × 1024 | Transparent splash artwork, available for future splash configuration |
+| `splash-icon.png`             | 1024 × 1024 | Native launch frame matching the animated splash's resting chef and shadow |
+
+It also renders the web app's files in `apps/mobile/public` (`npm run brand -- --web` renders only
+these, leaving the native assets, and so the app's fingerprint, unchanged):
+
+| Asset                                | Size       | Use                                                                   |
+| ------------------------------------ | ---------- | --------------------------------------------------------------------- |
+| `icons/icon-192.png`, `icon-512.png` | 192, 512   | Web app manifest icons (`manifest.json`), the app icon at those sizes |
+| `icons/maskable-192.png`, `-512.png` | 192, 512   | Maskable manifest icons: the chef within the central 80% safe circle  |
+| `icons/apple-touch-icon.png`         | 180 × 180  | iOS home-screen icon for the website                                  |
+| `og-image.png`                       | 1200 × 630 | Default link preview: the chef beside the wordmark on cream           |
 
 Android's adaptive background in `app.json` must match the cream brand color; the renderer checks
 this. The adaptive chef is smaller than the default icon to fit the guaranteed 66/108 safe circle.
 See [Android's adaptive icon guidelines](https://developer.android.com/develop/ui/compose/system/icon_design_adaptive).
 Launcher icon changes require a new native build; updating JavaScript alone does not replace the
 installed launcher icon. See [Expo's icon documentation](https://docs.expo.dev/develop/user-interface/splash-screen-and-app-icon/).
+
+The native splash uses the app's `#F4F4F4` background and a 160px image. It stays visible until
+the animated overlay is laid out; both frames share the same chef size, position and shadow.
+Changing this native splash configuration requires a new app build, not just an OTA update.

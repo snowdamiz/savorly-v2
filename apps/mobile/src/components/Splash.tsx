@@ -9,22 +9,27 @@ import {
   View,
 } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
+import * as NativeSplash from 'expo-splash-screen';
 import artwork from '../../assets/brand-artwork.json';
 import { color } from '../lib/theme';
+import { splashEyeOrigin, splashSize as size } from '../lib/splashGeometry';
 import { brandColors } from './Brand';
 
 const native = Platform.OS !== 'web';
+// Keep the launch screen until this overlay has a layout, including before fonts load.
+if (native) {
+  NativeSplash.setOptions({ fade: false, duration: 0 });
+  void NativeSplash.preventAutoHideAsync();
+}
 const HOP = 1100;
 const BLINK = 3300;
 // Long enough to see one hop rather than a flash.
 const SHORTEST = 1000;
-const size = 112;
-// Where the eyes sit in the artwork, so a blink closes them in place.
-const eyes = artwork.mascot.eyeOrigin;
 // The splash stays mounted across all startup stages, so each loop has one lifetime.
-function useLoop(period: number, easing: (t: number) => number) {
+function useLoop(period: number, easing: (t: number) => number, enabled: boolean) {
   const [v] = useState(() => new Animated.Value(0));
   useEffect(() => {
+    if (!enabled) return;
     let alive = true;
     const run = (from: number) => {
       v.setValue(from);
@@ -40,7 +45,7 @@ function useLoop(period: number, easing: (t: number) => number) {
       alive = false;
       v.stopAnimation();
     };
-  }, [v, period, easing]);
+  }, [v, period, easing, enabled]);
   return v;
 }
 const linear = Easing.linear;
@@ -64,12 +69,16 @@ function SplashContent({
   onHidden: (hidden: boolean) => void;
 }) {
   const [started] = useState(Date.now);
-  const [reduced, setReduced] = useState(false);
+  const [laidOut, setLaidOut] = useState(false);
+  const [reduced, setReduced] = useState<boolean | null>(null);
   useEffect(() => {
     void AccessibilityInfo.isReduceMotionEnabled().then(setReduced);
   }, []);
-  const hop = useLoop(HOP, linear);
-  const blink = useLoop(BLINK, linear);
+  // Start from the same resting pose as the native launch image. Resolve the
+  // motion preference before starting, so reduced motion never briefly hops.
+  const animate = laidOut && reduced === false;
+  const hop = useLoop(HOP, linear, animate);
+  const blink = useLoop(BLINK, linear, animate);
   const [fade] = useState(() => new Animated.Value(1));
   useEffect(() => {
     if (!done) {
@@ -101,11 +110,11 @@ function SplashContent({
   });
   const squash = hop.interpolate({
     inputRange: [0, 0.08, 0.2, 0.8, 0.92, 1],
-    outputRange: [0.9, 1, 1.04, 1.04, 1, 0.9],
+    outputRange: [1, 0.94, 1.04, 1.04, 0.94, 1],
   });
   const stretch = hop.interpolate({
     inputRange: [0, 0.08, 0.2, 0.8, 0.92, 1],
-    outputRange: [1.08, 1, 0.97, 0.97, 1, 1.08],
+    outputRange: [1, 1.06, 0.97, 0.97, 1.06, 1],
   });
   const shadow = hop.interpolate({ inputRange: [0, 0.5, 1], outputRange: [1, 0.62, 1] });
   // Open most of the time; a quick close and open near the end of each cycle.
@@ -113,11 +122,15 @@ function SplashContent({
     inputRange: [0, 0.9, 0.93, 0.96, 1],
     outputRange: [1, 1, 0.1, 1, 1],
   });
-  const breathe = hop.interpolate({ inputRange: [0, 0.5, 1], outputRange: [1, 0.86, 1] });
   return (
     <Animated.View
       accessibilityRole="progressbar"
       accessibilityLabel={label}
+      onLayout={() => {
+        if (laidOut) return;
+        if (native) NativeSplash.hide();
+        setLaidOut(true);
+      }}
       style={[
         StyleSheet.absoluteFill,
         styles.screen,
@@ -127,14 +140,12 @@ function SplashContent({
       <StatusBar barStyle="dark-content" />
       <View style={{ alignItems: 'center' }}>
         <Animated.View
+          testID="splash-mascot"
           style={{
             width: size,
             height: size,
-            opacity: reduced ? breathe : 1,
-            transform: reduced
-              ? []
-              : [{ translateY: lift }, { scaleY: squash }, { scaleX: stretch }],
-            transformOrigin: 'center bottom',
+            transform: [{ translateY: lift }, { scaleY: squash }, { scaleX: stretch }],
+            transformOrigin: [size / 2, size, 0],
           }}
         >
           <Svg width={size} height={size} viewBox={artwork.mascot.viewBox}>
@@ -142,9 +153,10 @@ function SplashContent({
             <Path d={artwork.mascot.accents} fill={brandColors.cream} />
           </Svg>
           <Animated.View
+            testID="splash-eyes"
             style={[
               StyleSheet.absoluteFill,
-              { transform: [{ scaleY: reduced ? 1 : lids }], transformOrigin: eyes },
+              { transform: [{ scaleY: lids }], transformOrigin: splashEyeOrigin },
             ]}
           >
             <Svg width={size} height={size} viewBox={artwork.mascot.viewBox}>
@@ -153,7 +165,7 @@ function SplashContent({
             </Svg>
           </Animated.View>
         </Animated.View>
-        <Animated.View style={[styles.shadow, { transform: [{ scaleX: reduced ? 1 : shadow }] }]} />
+        <Animated.View style={[styles.shadow, { transform: [{ scaleX: shadow }] }]} />
       </View>
     </Animated.View>
   );

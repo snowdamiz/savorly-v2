@@ -12,12 +12,11 @@ import (
 
 // Owners run Savorly. They're admins once their email is proven, since registration alone
 // proves nothing and anyone could otherwise register an owner's address first. Only owners
-// appoint other admins. ADMIN_EMAILS replaces this list (comma separated).
-const defaultOwners = "yurlovandrew@gmail.com"
-
+// appoint other admins. They are listed in ADMIN_EMAILS (comma separated) and nowhere else, so
+// a fork or another deployment never inherits someone else's owner.
 func ownerEmails() []string {
 	out := []string{}
-	for _, e := range strings.Split(Env("ADMIN_EMAILS", defaultOwners), ",") {
+	for _, e := range strings.Split(Env("ADMIN_EMAILS", ""), ",") {
 		if e = strings.ToLower(strings.TrimSpace(e)); e != "" {
 			out = append(out, e)
 		}

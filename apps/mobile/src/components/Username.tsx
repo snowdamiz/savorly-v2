@@ -1,7 +1,7 @@
 import { useI18n } from '../lib/i18n';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Text, TextInput, View } from 'react-native';
-import { AtSign, Check, X } from 'lucide-react-native';
+import { AtSign, Check, X } from './icons';
 import { api } from '../lib/api';
 import { useRevealFocus } from '../lib/keyboard';
 import { color, font, s } from '../lib/theme';
@@ -102,7 +102,8 @@ export function HandleField({ handle }: { handle: ReturnType<typeof useHandle> }
           autoComplete="username"
           spellCheck={false}
           maxLength={24}
-          placeholder="yourname"
+          // An example handle; each language's is valid as one (lowercase Latin letters and dots).
+          placeholder={tr('yourname')}
           placeholderTextColor={color.soft}
           style={{
             flex: 1,

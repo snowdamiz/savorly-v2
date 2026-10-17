@@ -224,8 +224,12 @@ func (a *App) syncSubscription(ctx context.Context, id string) error {
 		plan = "free"
 	}
 	live := s.Status == "active" || s.Status == "trialing" || s.Status == "past_due"
-	// A live subscription replaces whatever was recorded; a late event for an older one doesn't.
-	_, e := a.DB.Exec(ctx, `UPDATE users SET plan=$3,plan_status=$4,plan_interval=$5,plan_renews_at=to_timestamp(NULLIF($6,0)),plan_cancels=$7,stripe_subscription_id=$2 WHERE stripe_customer_id=$1 AND (stripe_subscription_id IN ('',$2) OR $8)`, s.Customer, s.ID, plan, s.Status, interval, end, s.CancelAtPeriodEnd, live)
+	// A live subscription replaces whatever was recorded, a complimentary plan included. Any
+	// other event applies only to the subscription on record, never to a member with none (a
+	// comp forgets the ended subscription it replaces) or to a comp: a late or redelivered event
+	// about an older subscription changes nothing.
+	_, e := a.DB.Exec(ctx, `UPDATE users SET plan=$3,plan_status=$4,plan_interval=$5,plan_renews_at=to_timestamp(NULLIF($6,0)),plan_cancels=$7,stripe_subscription_id=$2
+ WHERE stripe_customer_id=$1 AND ($8 OR (stripe_subscription_id=$2 AND NOT (plan<>'free' AND plan_status='active' AND plan_interval='')))`, s.Customer, s.ID, plan, s.Status, interval, end, s.CancelAtPeriodEnd, live)
 	return e
 }
 
@@ -236,13 +240,65 @@ func (a *App) cancelSubscription(ctx context.Context, owner string) error {
 	if e := a.DB.QueryRow(ctx, `SELECT stripe_subscription_id,plan_status FROM users WHERE id=$1`, owner).Scan(&sub, &status); e != nil {
 		return e
 	}
-	if sub == "" || status == "canceled" || status == "incomplete_expired" {
+	if changeSubscription("cancel", sub, status) == nil {
 		return nil
 	}
 	if os.Getenv("STRIPE_SECRET_KEY") == "" {
 		return fiber.NewError(503, "Your subscription couldn't be cancelled right now, so your account wasn't deleted. Please try again later.")
 	}
 	return stripeCall(ctx, "DELETE", "/subscriptions/"+url.PathEscape(sub), "", nil, nil)
+}
+
+// subscriptionChange is what an admin's change to a member leaves to do in Stripe: cancel a
+// deleted account's subscription, or pause collecting payment while the member is suspended
+// and resume it after. Stripe can't share the database transaction, so the change runs once
+// the admin's change has committed, best effort, and its audit entry records the outcome (see
+// followUp in admin_members.go).
+type subscriptionChange struct{ op, sub string }
+
+// changeSubscription returns what op ("cancel", "pause" or "resume") changes in a member's
+// subscription, or nil when Stripe has nothing to change: there's no subscription, or it no
+// longer bills.
+func changeSubscription(op, sub, status string) *subscriptionChange {
+	billing := status == "active" || status == "trialing" || status == "past_due"
+	ended := status == "canceled" || status == "incomplete_expired"
+	if sub == "" || (op == "cancel" && ended) || (op != "cancel" && !billing) {
+		return nil
+	}
+	return &subscriptionChange{op, sub}
+}
+
+var subscriptionDone = map[string]string{"cancel": "cancelled", "pause": "paused", "resume": "resumed"}
+var subscriptionTodo = map[string]string{"cancel": "Cancel", "pause": "Pause collection for", "resume": "Resume collection for"}
+
+// pending is the audit detail until Stripe answers, saying what to check if it never does.
+func (s *subscriptionChange) pending() fiber.Map {
+	return fiber.Map{"subscription": s.sub, "billing": "pending", "followUp": "Check in the Stripe dashboard that subscription " + s.sub + " was " + subscriptionDone[s.op] + "."}
+}
+
+// apply asks Stripe for the change and returns the outcome for the audit entry, with what to
+// finish in the Stripe dashboard if it didn't happen.
+func (s *subscriptionChange) apply(ctx context.Context) fiber.Map {
+	todo := subscriptionTodo[s.op] + " subscription " + s.sub + " in the Stripe dashboard"
+	if os.Getenv("STRIPE_SECRET_KEY") == "" {
+		return fiber.Map{"billing": "skipped", "followUp": todo + ": Stripe isn't configured on this server."}
+	}
+	var e error
+	if s.op == "cancel" {
+		e = stripeCall(ctx, "DELETE", "/subscriptions/"+url.PathEscape(s.sub), "", nil, nil)
+	} else {
+		// Invoices that fall due while collection is paused are voided; the plan is untouched.
+		form := url.Values{"pause_collection": {""}}
+		if s.op == "pause" {
+			form = url.Values{"pause_collection[behavior]": {"void"}}
+		}
+		e = stripeCall(ctx, "POST", "/subscriptions/"+url.PathEscape(s.sub), "", form, nil)
+	}
+	if e != nil {
+		slog.Warn("admin change in Stripe", "change", s.op, "subscription", s.sub, "error", e)
+		return fiber.Map{"billing": "failed", "followUp": todo + ": Stripe didn't confirm it."}
+	}
+	return fiber.Map{"billing": subscriptionDone[s.op]}
 }
 
 // validStripeSignature checks Stripe's v1 scheme: HMAC-SHA256 of "timestamp.payload",

@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"fmt"
 	"math"
 	"os"
 	"strconv"
@@ -60,8 +59,10 @@ const freeShare = 0.15
 
 // memberBudgets turns today's paying members into daily headroom: a share of their net
 // revenue for free use, and their plans' spend ceilings for the hard daily circuit breaker.
+// Complimentary plans (no billing interval) bring no revenue, so they add none; their use
+// comes out of the base budgets.
 func memberBudgets(ctx context.Context, tx pgx.Tx) (free, paid float64, e error) {
-	rows, e := tx.Query(ctx, `SELECT plan,plan_interval,count(*) FROM users u WHERE `+effectivePlanSQL+`<>'free' GROUP BY 1,2`)
+	rows, e := tx.Query(ctx, `SELECT plan,plan_interval,count(*) FROM users u WHERE `+effectivePlanSQL+`<>'free' AND u.plan_interval<>'' GROUP BY 1,2`)
 	if e != nil {
 		return 0, 0, e
 	}
@@ -145,24 +146,35 @@ func allowance(ctx context.Context, q querier, owner, kind string) error {
 	if e != nil {
 		return e
 	}
-	used, limit, what := 0, 0, ""
+	used, limit := 0, 0
 	switch kind {
 	case "image":
-		used, limit, what = u.Images, p.Images, "AI photo"
+		used, limit = u.Images, p.Images
 	case "video":
-		used, limit, what = u.Videos, p.Videos, "AI video"
+		used, limit = u.Videos, p.Videos
 	case "narration":
-		used, limit, what = u.Narration, p.Narration, "natural-voice read-aloud"
+		used, limit = u.Narration, p.Narration
 	default:
-		used, limit, what = u.Assistant, p.Assistant, "sous-chef"
+		kind = "assistant"
+		used, limit = u.Assistant, p.Assistant
 	}
 	if used >= limit {
+		refusal := allowanceRefusals[kind]
 		if limit == 0 {
-			return fiber.NewError(429, fmt.Sprintf("Your plan doesn't include %s generation.", what))
+			return fiber.NewError(429, refusal.excluded)
 		}
-		return fiber.NewError(429, fmt.Sprintf("You've used this month's %s allowance on your plan.", what))
+		return fiber.NewError(429, refusal.usedUp)
 	}
 	return nil
+}
+
+// Whole sentences, so the app can translate each one.
+// l10n: shown to members
+var allowanceRefusals = map[string]struct{ excluded, usedUp string }{
+	"image":     {"Your plan doesn't include AI photo generation.", "You've used your plan's AI photos for the last 30 days."},
+	"video":     {"Your plan doesn't include AI video generation.", "You've used your plan's AI videos for the last 30 days."},
+	"narration": {"Your plan doesn't include natural-voice read-alouds.", "You've used your plan's natural-voice read-alouds for the last 30 days."},
+	"assistant": {"Your plan doesn't include the sous-chef.", "You've used your plan's sous-chef messages for the last 30 days."},
 }
 
 func envFloat(key string, fallback float64) float64 {

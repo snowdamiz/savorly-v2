@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Text, View } from 'react-native';
-import { Check, ChevronRight, Languages } from 'lucide-react-native';
+import { Check, ChevronRight, Languages } from './icons';
 import { languages, useI18n } from '../lib/i18n';
 import { color, s } from '../lib/theme';
 import { Dialog, Press } from './ui';

@@ -1,18 +1,20 @@
 import { test, expect, Page } from '@playwright/test';
 
-const user = {
+// Each test gets its own account, so what one test changes (a name, a photo) can't leak into the
+// next.
+const newUser = () => ({
   id: 'cook',
   name: 'Alex',
   handle: 'alex',
   bio: '',
   avatar: '',
   email: 'alex@example.test',
-  preferences: { diets: [], allergies: [] },
+  preferences: { diets: [] as string[], allergies: [] as string[] },
   hasPassword: false,
   identities: ['google'],
   plan: 'free',
   onboarded: true,
-};
+});
 const plans = [
   {
     id: 'free',
@@ -56,11 +58,7 @@ async function mockAccounts(page: Page, signedIn: boolean, catalogLive = true, c
   let nonces = 0;
   let session = signedIn;
   // A kitchen made by this sign-in has its setup ahead of it.
-  Object.assign(user, {
-    onboarded: !created,
-    avatar: '',
-    preferences: { diets: [], allergies: [] },
-  });
+  const user = { ...newUser(), onboarded: !created };
   let job = 0;
   // Google's sign-in page, which sends the browser straight back with an ID token for its nonce.
   await page.route('https://accounts.google.com/o/oauth2/v2/auth?**', (r) => {
@@ -153,7 +151,7 @@ async function mockAccounts(page: Page, signedIn: boolean, catalogLive = true, c
     if (path === '/billing/checkout') return fulfill({ url: 'https://checkout.stripe.test/s' });
     return fulfill([]);
   });
-  return posts;
+  return { posts, user };
 }
 
 test('profile edits reset on reopening and desktop/mobile chrome stays warning-free', async ({
@@ -165,7 +163,7 @@ test('profile edits reset on reopening and desktop/mobile chrome stays warning-f
       diagnostics.push(message.text());
   });
   page.on('pageerror', (error) => diagnostics.push(error.message));
-  await mockAccounts(page, true);
+  const { user } = await mockAccounts(page, true);
   const originalName = user.name;
   await page.goto('/');
   await page.getByRole('button', { name: 'Open my kitchen', exact: true }).click();
@@ -188,7 +186,7 @@ test('profile edits reset on reopening and desktop/mobile chrome stays warning-f
 test('the web offers Apple and Google sign-in, each bound to a fresh server nonce', async ({
   page,
 }) => {
-  const posts = await mockAccounts(page, false);
+  const { posts } = await mockAccounts(page, false);
   await page.goto('/?page=profile');
   await page.getByRole('button', { name: 'Sign in or join' }).click();
   await page.getByRole('button', { name: 'Continue with Apple' }).click();
@@ -212,7 +210,7 @@ test('the web offers Apple and Google sign-in, each bound to a fresh server nonc
 });
 
 test('Google sign-in goes to Google’s page and comes back with its ID token', async ({ page }) => {
-  const posts = await mockAccounts(page, false);
+  const { posts } = await mockAccounts(page, false);
   await page.goto('/?page=profile');
   await page.getByRole('button', { name: 'Sign in or join' }).click();
   const google = page.waitForRequest((r) => r.url().startsWith('https://accounts.google.com/'));
@@ -237,7 +235,7 @@ test('Google sign-in goes to Google’s page and comes back with its ID token', 
 });
 
 test('a Google answer this tab didn’t ask for is ignored and wiped', async ({ page }) => {
-  const posts = await mockAccounts(page, false);
+  const { posts } = await mockAccounts(page, false);
   await page.goto('/?page=profile#state=forged&id_token=google-id-token:someone-else');
   await expect(page.getByRole('button', { name: 'Sign in or join' })).toBeVisible();
   expect(new URL(page.url()).hash).toBe('');
@@ -245,7 +243,7 @@ test('a Google answer this tab didn’t ask for is ignored and wiped', async ({ 
 });
 
 test('a new Google kitchen sets itself up before anything else', async ({ page }) => {
-  const posts = await mockAccounts(page, false, true, true);
+  const { posts, user } = await mockAccounts(page, false, true, true);
   await page.goto('/?page=profile');
   await page.getByRole('button', { name: 'Sign in or join' }).click();
   await page.getByRole('button', { name: 'Continue with Google' }).click();
@@ -283,7 +281,7 @@ test('a new Google kitchen sets itself up before anything else', async ({ page }
 });
 
 test('the profile photo changes from My kitchen, with an AI touch-up', async ({ page }) => {
-  const posts = await mockAccounts(page, true);
+  const { posts, user } = await mockAccounts(page, true);
   await page.goto('/?page=profile');
   await page.getByRole('button', { name: 'Add a photo' }).first().click();
   await expect(page.getByText('Profile photo', { exact: true })).toBeVisible();
@@ -319,7 +317,7 @@ test('the profile photo changes from My kitchen, with an AI touch-up', async ({ 
 test('an uploaded recipe photo can be touched up and compared before it is used', async ({
   page,
 }) => {
-  const posts = await mockAccounts(page, true);
+  const { posts } = await mockAccounts(page, true);
   await page.goto('/');
   await page.getByRole('button', { name: 'Create recipe', exact: true }).click();
   await page.getByRole('button', { name: 'Write a recipe yourself', exact: true }).click();
@@ -351,7 +349,7 @@ test('an uploaded recipe photo can be touched up and compared before it is used'
 });
 
 test('plans show usage and sell through Stripe checkout on the web', async ({ page }) => {
-  const posts = await mockAccounts(page, true);
+  const { posts } = await mockAccounts(page, true);
   await page.goto('/?page=profile');
   await expect(page.getByText('Your plan', { exact: true })).toBeVisible();
   await expect(page.getByText('4 of 10')).toBeVisible();

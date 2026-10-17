@@ -1,5 +1,5 @@
 """Run against a local API + disposable local Postgres. Creates and removes isolated test accounts."""
-import json, os, time, urllib.request, urllib.error, uuid
+import datetime, json, os, time, urllib.request, urllib.error, uuid
 BASE = os.environ.get('TEST_API_URL', 'http://localhost:8080') + '/v1'
 passed = 0
 
@@ -17,6 +17,8 @@ def request(path, method='GET', data=None, token=None, expected=200, origin=None
  return json.loads(body) if body else None
 
 suffix=uuid.uuid4().hex[:12]
+# Dates relative to today, so the checks never age into the past.
+soon=lambda days:(datetime.date.today()+datetime.timedelta(days=days)).isoformat()
 password='a-long-local-test-password'
 accounts=[]
 try:
@@ -29,6 +31,17 @@ try:
  request('/admin/overview',token=a,expected=403)
  request('/admin/users/'+me['id']+'/suspend','POST',{'reason':'Not an admin'},a,403)
  request('/auth/login','POST',{'email':f'test-{suffix}@example.test','password':'wrong'},expected=401)
+ # A second device signs in and out; its token stops working, the first device's doesn't.
+ second=request('/auth/login','POST',{'email':f'test-{suffix}@example.test','password':password})['token']
+ request('/auth/logout','POST',token=second,expected=204)
+ request('/me',token=second,expected=401)
+ request('/me',token=a)
+ caps=request('/capabilities');assert isinstance(caps['videoModel'],str) and caps['videoModel']
+ # Plans stay private until PAID_PLANS; nobody has a subscription to manage yet.
+ if caps.get('plans'):assert request('/billing',token=a)['plan']=='free'
+ else:request('/billing',token=a,expected=404)
+ request('/billing/portal','POST',{},a,404)
+ if not caps.get('billing'):request('/billing/checkout','POST',{'plan':'plus','interval':'monthly'},a,503)
  request('/me','PATCH',{'name':'Updated Cook','bio':'Testing my kitchen','avatar':'','preferences':{'diets':['Vegetarian'],'allergies':['Peanuts']}},a)
  request('/collections','POST',{'name':'Blocked'},a,expected=403,origin='https://evil.example')
  source=request('/recipes')[0]
@@ -52,14 +65,21 @@ try:
  request('/recipes/'+rid+'/review','PUT',{'rating':5,'body':'My own recipe'},a,400)
  assert request('/recipes/'+rid)['rating']==5
  request('/recipes/'+rid+'/groceries','POST',{'servings':4},b)
- request('/planner','POST',{'recipeId':rid,'day':'2026-10-05','meal':'Dinner','servings':4},b)
- request('/pantry','POST',{'name':'LEMON','quantity':'2','expiresOn':'2026-10-10'},b,201)
+ request('/planner','POST',{'recipeId':rid,'day':soon(1),'meal':'Dinner','servings':4},b)
+ request('/planner','POST',{'recipeId':rid,'day':soon(2),'meal':'Lunch','servings':2},b)
+ request('/pantry','POST',{'name':'LEMON','quantity':'2','expiresOn':soon(5)},b,201)
  request('/pantry','POST',{'name':'lemon','quantity':'3','expiresOn':None},b,201)
- k=request('/kitchen',token=b);assert len(k['pantry'])==1 and len(k['plans'])==1 and len(k['groceries'])==len(recipe['ingredients'])
+ k=request('/kitchen',token=b);assert len(k['pantry'])==1 and len(k['plans'])==2 and 1<=len(k['groceries'])<=len(recipe['ingredients'])
  g=k['groceries'][0]
  request('/groceries/'+g['id'],'PATCH',{'checked':True},a,404)
  request('/groceries/'+g['id'],'PATCH',{'checked':True},b,204)
  request('/planner/'+k['plans'][0]['id'],'DELETE',token=a,expected=404)
+ request('/planner/'+k['plans'][0]['id'],'DELETE',token=b,expected=204)
+ request('/groceries/'+g['id'],'DELETE',token=a,expected=404)
+ request('/groceries/'+g['id'],'DELETE',token=b,expected=204)
+ request('/pantry/'+k['pantry'][0]['id'],'DELETE',token=a,expected=404)
+ request('/pantry/'+k['pantry'][0]['id'],'DELETE',token=b,expected=204)
+ k=request('/kitchen',token=b);assert len(k['plans'])==1 and len(k['pantry'])==0 and g['id'] not in [x['id'] for x in k['groceries']]
  request('/creators/'+me['id']+'/follow','PUT',{},b)
  assert me['id'] in request('/library',token=b)['followingIds']
  request('/recipes/'+rid+'/report','POST',{'reason':'Integration test report for review'},b)
@@ -69,10 +89,9 @@ try:
  request('/recipes/'+rid,'DELETE',token=a,expected=204)
  assert len(request('/kitchen',token=b)['plans'])==0
  request('/recipes/'+rid,expected=404)
- request('/me','DELETE',{'password':'bad'},b,401)
- caps=request('/capabilities');assert caps['videoModel']=='doubao-seedance-2.5-eco'
+ request('/me','DELETE',{'password':'bad'},b,403)  # still signed in: a 401 would mean signed out
  if not caps['textAI']:request('/ai/jobs','POST',{'kind':'recipe','prompt':'Make a nice pasta recipe'},a,503)
- print(f'PASS: {passed} API checks, including authentication, admin access, ownership, drafts, search, collections, reviews, planning, groceries, pantry, follows, and cascading deletes.')
+ print(f'PASS: {passed} API checks, including authentication, sign-out, billing guards, admin access, ownership, drafts, search, collections, reviews, planning, groceries, pantry, follows, and cascading deletes.')
 finally:
  for token in accounts:
   request('/me','DELETE',{'password':password},token,204)

@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "typecheck": "tsc --noEmit",
+    "test": "node --test site.test.mjs",
     "build": "wrangler deploy --dry-run --env \"\""
   },
   "dependencies": {
@@ -11,7 +12,7 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20261015.1",
-    "typescript": "~6.0.3",
+    "typescript": "~7.0.2",
     "wrangler": "4.151.0"
   }
 }

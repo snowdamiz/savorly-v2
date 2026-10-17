@@ -13,8 +13,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"io"
+	"log/slog"
 	"savorly/api/internal/ai"
 	"savorly/api/internal/live"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -29,16 +31,23 @@ const projectJSON = `jsonb_build_object('id',p.id,'recipeId',p.recipe_id,
  'assets',COALESCE((SELECT jsonb_agg(jsonb_build_object('kind',v.kind,'status',j.status,'error',j.error,'url',j.result->>'url')) FROM voice_assets v JOIN ai_jobs j ON j.id=v.job_id WHERE v.project_id=p.id AND v.revision=p.revision),'[]'::jsonb))`
 
 func (a *App) studioList(c fiber.Ctx) error {
-	return a.queryMany(c, `SELECT `+projectJSON+` FROM voice_projects p WHERE p.user_id=$1 ORDER BY p.updated_at DESC LIMIT 20`, userID(c))
+	return a.queryMany(c, `SELECT `+projectJSON+` FROM voice_projects p WHERE p.user_id=$1 AND p.deleted_at IS NULL ORDER BY p.updated_at DESC LIMIT 20`, userID(c))
 }
 func (a *App) studioGet(c fiber.Ctx) error {
-	return a.queryOne(c, `SELECT `+projectJSON+` FROM voice_projects p WHERE p.id=$1 AND p.user_id=$2`, c.Params("id"), userID(c))
+	return a.queryOne(c, `SELECT `+projectJSON+` FROM voice_projects p WHERE p.id=$1 AND p.user_id=$2 AND p.deleted_at IS NULL`, c.Params("id"), userID(c))
 }
 func (a *App) studioEvents(c fiber.Ctx) error {
 	after, _ := strconv.Atoi(c.Query("after", "0"))
 	return a.queryMany(c, `SELECT jsonb_build_object('seq',e.seq,'role',e.role,'content',e.content,'imageCount',jsonb_array_length(e.images),'actions',e.actions,
- 'recipes',(SELECT COALESCE(jsonb_agg(jsonb_build_object('id',r.id,'title',r.title,'image',r.image,'minutes',r.minutes,'cuisine',r.cuisine) ORDER BY x.n),'[]') FROM jsonb_array_elements_text(e.recipes) WITH ORDINALITY x(id,n) JOIN recipes r ON r.id=x.id AND (r.published OR r.author_id=p.user_id))) FROM voice_events e JOIN voice_projects p ON p.id=e.project_id WHERE p.id=$1 AND p.user_id=$2 AND e.seq>$3 ORDER BY e.seq LIMIT 1000`, c.Params("id"), userID(c), after)
+ 'recipes',(SELECT COALESCE(jsonb_agg(jsonb_build_object('id',r.id,'title',r.title,'image',r.image,'minutes',r.minutes,'cuisine',r.cuisine) ORDER BY x.n),'[]') FROM jsonb_array_elements_text(e.recipes) WITH ORDINALITY x(id,n) JOIN recipes r ON r.id=x.id AND (r.published OR r.author_id=p.user_id) JOIN users u ON u.id=r.author_id AND u.suspended_at IS NULL)) FROM voice_events e JOIN voice_projects p ON p.id=e.project_id WHERE p.id=$1 AND p.user_id=$2 AND p.deleted_at IS NULL AND e.seq>$3 ORDER BY e.seq LIMIT 1000`, c.Params("id"), userID(c), after)
 }
+
+// maxConversations bounds each member's conversations. Past it, a new one erases the oldest
+// that have been idle for 30 days, as deleting them would: the app lists only the 20 most
+// recent, and their recipes and usage records stay. Only a member with this many active
+// conversations is refused. Private source photos have a per-member cap as well.
+const maxConversations, maxSourcePhotos = 200, 200
+
 func (a *App) studioCreate(c fiber.Ctx) error {
 	if !a.AI.TextEnabled() {
 		return fiber.NewError(503, "Your sous-chef is not connected yet. The server needs an OpenRouter key.")
@@ -47,22 +56,112 @@ func (a *App) studioCreate(c fiber.Ctx) error {
 	if _, e := uuid.Parse(key); e != nil {
 		return fiber.NewError(400, "A UUID Idempotency-Key is required.")
 	}
-	_, e := a.DB.Exec(c.Context(), `INSERT INTO voice_projects(id,user_id) VALUES($1,$2) ON CONFLICT(id) DO NOTHING`, key, userID(c))
+	ctx, owner := c.Context(), userID(c)
+	tx, e := a.DB.Begin(ctx)
 	if e != nil {
 		return e
 	}
-	return a.queryOne(c, `SELECT `+projectJSON+` FROM voice_projects p WHERE p.id=$1 AND p.user_id=$2`, key, userID(c))
+	defer tx.Rollback(ctx)
+	if _, e = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, owner); e != nil {
+		return e
+	}
+	var replay bool
+	var count int
+	if e = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM voice_projects WHERE id=$1),(SELECT count(*) FROM voice_projects WHERE user_id=$2 AND deleted_at IS NULL)`, key, owner).Scan(&replay, &count); e != nil {
+		return e
+	}
+	if !replay && count >= maxConversations {
+		var idle []string
+		e = tx.QueryRow(ctx, `SELECT COALESCE(array_agg(id),'{}') FROM (SELECT p.id FROM voice_projects p WHERE p.user_id=$1 AND p.deleted_at IS NULL AND p.updated_at<now()-interval '30 days'
+ AND NOT EXISTS(SELECT 1 FROM voice_sessions s WHERE s.project_id=p.id AND s.status IN ('connecting','active','closing'))
+ AND NOT EXISTS(SELECT 1 FROM voice_actions x WHERE x.project_id=p.id AND x.status IN ('queued','running'))
+ ORDER BY p.updated_at LIMIT $2) x`, owner, count-maxConversations+1).Scan(&idle)
+		if e == nil {
+			e = eraseConversations(ctx, tx, idle)
+		}
+		if e != nil {
+			return e
+		}
+		if count -= len(idle); count >= maxConversations {
+			return fiber.NewError(409, "You've reached the limit of 200 sous-chef conversations. Delete older ones from the sous-chef history to start a new one.")
+		}
+	}
+	if _, e = tx.Exec(ctx, `INSERT INTO voice_projects(id,user_id) VALUES($1,$2) ON CONFLICT(id) DO NOTHING`, key, owner); e != nil {
+		return e
+	}
+	if e = tx.Commit(ctx); e != nil {
+		return e
+	}
+	return a.queryOne(c, `SELECT `+projectJSON+` FROM voice_projects p WHERE p.id=$1 AND p.user_id=$2 AND p.deleted_at IS NULL`, key, owner)
 }
+
+// studioDelete erases a conversation at once. Its shell (turns and voice sessions, which carry
+// spend and allowance use) stays until purgeDeletedConversations, so deleting history doesn't
+// give allowances back; recipes made in it stay.
 func (a *App) studioDelete(c fiber.Ctx) error {
-	var active bool
-	e := a.DB.QueryRow(c.Context(), `SELECT EXISTS(SELECT 1 FROM voice_sessions WHERE project_id=$1 AND user_id=$2 AND status IN ('active','connecting'))`, c.Params("id"), userID(c)).Scan(&active)
+	ctx, owner := c.Context(), userID(c)
+	tx, e := a.DB.Begin(ctx)
 	if e != nil {
 		return e
 	}
-	if active {
+	defer tx.Rollback(ctx)
+	if _, e = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, owner); e != nil {
+		return e
+	}
+	var found string
+	if e = tx.QueryRow(ctx, `SELECT id FROM voice_projects WHERE id=$1 AND user_id=$2 AND deleted_at IS NULL FOR UPDATE`, c.Params("id"), owner).Scan(&found); errors.Is(e, pgx.ErrNoRows) {
+		return fiber.NewError(404, "Item not found.")
+	} else if e != nil {
+		return e
+	}
+	// A live session still records transcripts, until it has closed.
+	var open bool
+	if e = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM voice_sessions WHERE project_id=$1 AND status IN ('active','connecting','closing'))`, found).Scan(&open); e != nil {
+		return e
+	}
+	if open {
 		return fiber.NewError(409, "End the voice conversation before deleting its history.")
 	}
-	return a.deleteOwned(c, "voice_projects", "user_id")
+	if e = eraseConversations(ctx, tx, []string{found}); e != nil {
+		return e
+	}
+	if e = tx.Commit(ctx); e != nil {
+		return e
+	}
+	return c.SendStatus(204)
+}
+
+// eraseConversations deletes conversations' content at once: transcripts, private photos,
+// media links, the assistant's replies, pending actions and what the app reported having
+// open. What is left, a deleted shell with turns and voice sessions that carry spend and
+// allowance use, stays until purgeDeletedConversations.
+func eraseConversations(ctx context.Context, tx pgx.Tx, ids []string) error {
+	for _, step := range []string{
+		`DELETE FROM voice_events WHERE project_id=ANY($1)`,
+		// A trigger queues each photo's object for deletion from the private bucket.
+		`DELETE FROM voice_sources WHERE project_id=ANY($1)`,
+		`DELETE FROM voice_assets WHERE project_id=ANY($1)`,
+		// Queued turns never reached the provider. A running one keeps its reservation and,
+		// failed here, doesn't write its answer back.
+		`UPDATE voice_actions SET status=CASE WHEN status IN ('queued','running') THEN 'failed' ELSE status END,estimated_cost=CASE WHEN status='queued' THEN 0 ELSE estimated_cost END,reply='',updated_at=now() WHERE project_id=ANY($1)`,
+		`UPDATE voice_projects SET deleted_at=now(),recipe_id=NULL,reply='',error='',context='{}',pending=NULL,confirmed_revision=-1,updated_at=now() WHERE id=ANY($1)`,
+	} {
+		if _, e := tx.Exec(ctx, step, ids); e != nil {
+			return e
+		}
+	}
+	return nil
+}
+
+// purgeDeletedConversations removes deleted shells once their turns and voice sessions have
+// left every 30-day accounting window.
+func (a *App) purgeDeletedConversations(ctx context.Context) error {
+	for {
+		r, e := a.DB.Exec(ctx, `DELETE FROM voice_projects WHERE id IN (SELECT id FROM voice_projects WHERE deleted_at<now()-interval '35 days' LIMIT 500)`)
+		if e != nil || r.RowsAffected() < 500 {
+			return e
+		}
+	}
 }
 func (a *App) studioMessage(c fiber.Ctx) error {
 	var in struct {
@@ -91,7 +190,7 @@ func (a *App) studioMessage(c fiber.Ctx) error {
 		return e
 	}
 	var found string
-	if e = tx.QueryRow(ctx, `SELECT id FROM voice_projects WHERE id=$1 AND user_id=$2 FOR UPDATE`, project, owner).Scan(&found); errors.Is(e, pgx.ErrNoRows) {
+	if e = tx.QueryRow(ctx, `SELECT id FROM voice_projects WHERE id=$1 AND user_id=$2 AND deleted_at IS NULL FOR UPDATE`, project, owner).Scan(&found); errors.Is(e, pgx.ErrNoRows) {
 		return fiber.NewError(404, "Conversation not found.")
 	} else if e != nil {
 		return e
@@ -142,6 +241,7 @@ func (a *App) studioMessage(c fiber.Ctx) error {
 	if e = tx.Commit(ctx); e != nil {
 		return e
 	}
+	a.wake("studio")
 	return c.Status(202).JSON(fiber.Map{"accepted": true})
 }
 func normalizedJSON(images []string) []byte {
@@ -161,23 +261,35 @@ func (a *App) enqueueVoiceAction(ctx context.Context, tx pgx.Tx, owner, project,
 	if e := allowance(ctx, tx, owner, "assistant"); e != nil {
 		return e
 	}
-	var textBytes, imageCount int64
-	if e := tx.QueryRow(ctx, `SELECT COALESCE(sum(octet_length(content)),0),COALESCE(sum(jsonb_array_length(images)),0) FROM voice_events WHERE project_id=$1`, project).Scan(&textBytes, &imageCount); e != nil {
+	// The turn will see the same events (through seq), so it sends exactly this window.
+	w, e := conversationWindow(ctx, tx, project, seq)
+	if e != nil {
 		return e
 	}
-	// Reserve using a deliberately high token bound for long multilingual dictation
-	// and up to 32K vision tokens per source photo, plus tool/schema/output overhead,
-	// resent on every tool round. The worker settles it to the provider's reported cost.
-	estimate := max(.05, float64(textBytes+30000+imageCount*32768)*.00000075*ai.AgentSteps+.03)
+	estimate := turnEstimate(w)
 	if e := reserveGeneration(ctx, tx, owner, estimate); e != nil {
 		return e
 	}
-	_, e := tx.Exec(ctx, `INSERT INTO voice_actions(id,project_id,session_id,delegation_id,through_seq,estimated_cost) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(session_id,delegation_id) DO NOTHING`, uuid.NewString(), project, session, delegation, seq, estimate)
-	return e
+	if _, e = tx.Exec(ctx, `INSERT INTO voice_actions(id,project_id,session_id,delegation_id,through_seq,estimated_cost) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(session_id,delegation_id) DO NOTHING`, uuid.NewString(), project, session, delegation, seq, estimate); e != nil {
+		return e
+	}
+	return announce(ctx, tx, "studio")
+}
+
+// photoTokens bounds one photo's vision tokens. Photos reach the model at most photoSide
+// pixels on their longest side, which current vision models read in a few thousand tokens.
+const photoTokens = 8192
+
+// turnEstimate reserves for what a turn sends, treating each byte as a token for long
+// multilingual dictation: the windowed conversation and its photos, plus instructions, tool
+// schemas and output, resent on every tool round. The worker settles it to the provider's
+// reported cost.
+func turnEstimate(w turnWindow) float64 {
+	return max(.05, float64(w.Bytes+30000+len(w.Images)*photoTokens)*.00000075*ai.AgentSteps+.03)
 }
 func (a *App) studioImage(c fiber.Ctx) error {
 	var exists bool
-	if e := a.DB.QueryRow(c.Context(), `SELECT EXISTS(SELECT 1 FROM voice_projects WHERE id=$1 AND user_id=$2)`, c.Params("id"), userID(c)).Scan(&exists); e != nil {
+	if e := a.DB.QueryRow(c.Context(), `SELECT EXISTS(SELECT 1 FROM voice_projects WHERE id=$1 AND user_id=$2 AND deleted_at IS NULL)`, c.Params("id"), userID(c)).Scan(&exists); e != nil {
 		return e
 	}
 	if !exists {
@@ -186,12 +298,16 @@ func (a *App) studioImage(c fiber.Ctx) error {
 	if a.Media.S3 == nil || a.Media.SourceBucket == "" {
 		return fiber.NewError(503, "Private recipe photo storage is not connected yet.")
 	}
-	var count int
-	if e := a.DB.QueryRow(c.Context(), `SELECT count(*) FROM voice_sources WHERE project_id=$1`, c.Params("id")).Scan(&count); e != nil {
+	var count, total int
+	if e := a.DB.QueryRow(c.Context(), `SELECT (SELECT count(*) FROM voice_sources WHERE project_id=$1),(SELECT count(*) FROM voice_sources s JOIN voice_projects p ON p.id=s.project_id WHERE p.user_id=$2)`, c.Params("id"), userID(c)).Scan(&count, &total); e != nil {
 		return e
 	}
 	if count >= 20 {
 		return fiber.NewError(400, "This conversation already has 20 recipe photos. Start another conversation for more.")
+	}
+	// Private photos stay until their conversation is deleted, so they're bounded per member too.
+	if total >= maxSourcePhotos {
+		return fiber.NewError(400, "You've reached the limit of 200 recipe photos kept in sous-chef conversations. Delete older conversations to add more.")
 	}
 	file, e := c.FormFile("file")
 	if e != nil {
@@ -212,6 +328,9 @@ func (a *App) studioImage(c fiber.Ctx) error {
 	mime, ext := mediaType(b)
 	if !strings.HasPrefix(mime, "image/") || len(b) > 10*1024*1024 {
 		return fiber.NewError(400, "Use a JPEG, PNG, or WebP recipe photo smaller than 10 MB.")
+	}
+	if small, resized := fitPhoto(b); resized {
+		b, mime, ext = small, "image/jpeg", ".jpg"
 	}
 	if e = a.Media.ensureSourceBucket(c.Context(), a.Config.Production); e != nil {
 		return e
@@ -236,15 +355,32 @@ type studioState struct {
 	ID, Owner, RecipeID, Status string
 	Revision, Confirmed         int
 	Recipe                      *RecipeInput
-	Conversation                []live.Message
-	Images                      []string
-	Through                     int64
+	// What a turn sees of the history (conversationWindow), and the last event it covers.
+	Conversation []live.Message
+	Images       []string
+	Omitted      int
+	Through      int64
 }
 
+// studioState is a conversation as a turn through the given event sees it (0: all of it).
 func (a *App) studioState(ctx context.Context, project string, through int64) (studioState, error) {
+	state, e := a.studioProject(ctx, project)
+	if e != nil {
+		return state, e
+	}
+	w, e := conversationWindow(ctx, a.DB, project, through)
+	if e != nil {
+		return state, e
+	}
+	state.Conversation, state.Images, state.Omitted, state.Through = w.Messages, w.Images, w.Omitted, w.Through
+	return state, nil
+}
+
+// studioProject loads a conversation's owner, draft and media, without its history.
+func (a *App) studioProject(ctx context.Context, project string) (studioState, error) {
 	state := studioState{ID: project, Conversation: []live.Message{}, Images: []string{}}
 	var raw []byte
-	e := a.DB.QueryRow(ctx, `SELECT user_id,COALESCE(recipe_id,''),revision,confirmed_revision,status,(SELECT `+recipeJSON+recipeFrom+` WHERE r.id=p.recipe_id) FROM voice_projects p WHERE id=$1`, project).Scan(&state.Owner, &state.RecipeID, &state.Revision, &state.Confirmed, &state.Status, &raw)
+	e := a.DB.QueryRow(ctx, `SELECT user_id,COALESCE(recipe_id,''),revision,confirmed_revision,status,(SELECT `+recipeJSON+recipeFrom+` WHERE r.id=p.recipe_id) FROM voice_projects p WHERE id=$1 AND deleted_at IS NULL`, project).Scan(&state.Owner, &state.RecipeID, &state.Revision, &state.Confirmed, &state.Status, &raw)
 	if e != nil {
 		return state, e
 	}
@@ -255,39 +391,107 @@ func (a *App) studioState(ctx context.Context, project string, through int64) (s
 		}
 		state.Recipe = &recipe
 	}
-	if e = a.DB.QueryRow(ctx, `SELECT COALESCE(jsonb_agg(jsonb_build_object('kind',v.kind,'status',j.status,'error',j.error)),'[]'::jsonb) FROM voice_assets v JOIN ai_jobs j ON j.id=v.job_id WHERE v.project_id=$1 AND v.revision=$2`, project, state.Revision).Scan(&state.Assets); e != nil {
-		return state, e
-	}
-	rows, e := a.DB.Query(ctx, `SELECT seq,role,content,images FROM voice_events WHERE project_id=$1 AND ($2::bigint=0 OR seq<=$2) ORDER BY seq`, project, through)
+	e = a.DB.QueryRow(ctx, `SELECT COALESCE(jsonb_agg(jsonb_build_object('kind',v.kind,'status',j.status,'error',j.error)),'[]'::jsonb) FROM voice_assets v JOIN ai_jobs j ON j.id=v.job_id WHERE v.project_id=$1 AND v.revision=$2`, project, state.Revision).Scan(&state.Assets)
+	return state, e
+}
+
+// A turn sends the opening request and the newest messages that fit, with photos from the
+// user's last two messages: re-sending all of a long conversation and every photo on every
+// tool round costs more than it helps, and the draft keeps what was settled.
+const windowMessages, windowBytes, windowPhotos = 40, 24000, 4
+
+type turnWindow struct {
+	Messages []live.Message
+	Images   []string
+	// Omitted counts the messages left out; Bytes is the text sent.
+	Omitted, Bytes int
+	Through        int64
+}
+
+type rowsQuerier interface {
+	Query(context.Context, string, ...any) (pgx.Rows, error)
+}
+
+func conversationWindow(ctx context.Context, q rowsQuerier, project string, through int64) (turnWindow, error) {
+	w := turnWindow{Messages: []live.Message{}, Images: []string{}}
+	// Consecutive events from one side (live transcripts arrive in fragments) are one message.
+	rows, e := q.Query(ctx, `WITH e AS (
+ SELECT seq,role,content,images,count(*) FILTER (WHERE role IS DISTINCT FROM prev) OVER (ORDER BY seq) n
+ FROM (SELECT seq,role,content,images,lag(role) OVER (ORDER BY seq) prev FROM voice_events WHERE project_id=$1 AND ($2::bigint=0 OR seq<=$2)) x
+), m AS (
+ SELECT *,max(n) OVER () total,min(n) FILTER (WHERE role='user') OVER () opening FROM e
+)
+SELECT min(role),string_agg(content,'' ORDER BY seq),jsonb_agg(images ORDER BY seq),max(seq),min(total) FROM m WHERE n>total-$3 OR n=opening GROUP BY n ORDER BY n`, project, through, windowMessages)
 	if e != nil {
-		return state, e
+		return w, e
 	}
-	defer rows.Close()
+	type message struct {
+		role, content string
+		images        []string
+	}
+	list := []message{}
+	total := 0
 	for rows.Next() {
-		var seq int64
-		var role, content string
+		var m message
 		var images []byte
-		if e = rows.Scan(&seq, &role, &content, &images); e != nil {
-			return state, e
+		if e = rows.Scan(&m.role, &m.content, &images, &w.Through, &total); e != nil {
+			rows.Close()
+			return w, e
 		}
-		state.Through = seq
-		n := len(state.Conversation)
-		if n > 0 && state.Conversation[n-1].Role == role {
-			state.Conversation[n-1].Content += content
-		} else {
-			state.Conversation = append(state.Conversation, live.Message{Role: role, Content: content})
+		var groups [][]string
+		if e = json.Unmarshal(images, &groups); e != nil {
+			rows.Close()
+			return w, e
 		}
-		var ids []string
-		if e = json.Unmarshal(images, &ids); e != nil {
-			return state, e
-		}
-		state.Images = append(state.Images, ids...)
+		m.images = slices.Concat(groups...)
+		list = append(list, m)
 	}
-	return state, rows.Err()
+	rows.Close()
+	if e = rows.Err(); e != nil {
+		return w, e
+	}
+	// The newest message always goes, then older ones while they fit; the opening request
+	// goes as well, outside the budget.
+	opening := slices.IndexFunc(list, func(m message) bool { return m.role == "user" })
+	keep := make([]bool, len(list))
+	sent := 0
+	for i := len(list) - 1; i >= 0; i-- {
+		if i == opening {
+			continue
+		}
+		if i < len(list)-1 && w.Bytes+len(list[i].content) > windowBytes {
+			break
+		}
+		keep[i] = true
+		sent++
+		w.Bytes += len(list[i].content)
+	}
+	if opening >= 0 {
+		keep[opening] = true
+		sent++
+		w.Bytes += len(list[opening].content)
+	}
+	// Photos stay with the user's last two messages even when a long message crowds their text out.
+	users := 0
+	for i := len(list) - 1; i >= 0 && users < 2; i-- {
+		if list[i].role == "user" {
+			users++
+			if len(list[i].images) > 0 {
+				w.Images = slices.Concat(list[i].images, w.Images)
+			}
+		}
+	}
+	w.Images = w.Images[max(0, len(w.Images)-windowPhotos):]
+	for i, m := range list {
+		if keep[i] {
+			w.Messages = append(w.Messages, live.Message{Role: m.role, Content: m.content})
+		}
+	}
+	w.Omitted = total - sent
+	return w, nil
 }
 func (a *App) sourceData(ctx context.Context, project string, ids []string) ([]string, error) {
 	data := []string{}
-	// Previous images remain available for corrections, with a documented 20-photo project bound.
 	for _, id := range ids {
 		var key, mime string
 		if e := a.DB.QueryRow(ctx, `SELECT object_key,mime FROM voice_sources WHERE id=$1 AND project_id=$2`, id, project).Scan(&key, &mime); e != nil {
@@ -308,6 +512,10 @@ func (a *App) sourceData(ctx context.Context, project string, ids []string) ([]s
 		if len(b) > 10*1024*1024 {
 			return nil, errors.New("source image too large")
 		}
+		// Photos stored before uploads were downscaled are shrunk on the way to the model.
+		if small, resized := fitPhoto(b); resized {
+			b, mime = small, "image/jpeg"
+		}
 		data = append(data, "data:"+mime+";base64,"+base64.StdEncoding.EncodeToString(b))
 	}
 	return data, nil
@@ -319,85 +527,106 @@ func publicError(e error) string {
 	}
 	return "Your sous-chef couldn't finish that step. Your conversation is saved. Please try again."
 }
+
+// A failed turn that already changed data says so, so the next turn checks before repeating.
+const turnFailedAfterChanges = "Your sous-chef couldn't finish that step, but some changes were already saved. Check them before asking again."
+
 func (a *App) processVoiceAction(ctx context.Context, id, project string, through int64) {
-	ctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
+	turn, cancel := context.WithTimeout(ctx, 3*time.Minute)
 	defer cancel()
-	state, e := a.studioState(ctx, project, through)
-	run := &agentRun{state: state, through: through}
+	state, e := a.studioState(turn, project, through)
+	run := &agentRun{state: state}
 	var data []string
 	var input any
 	if e == nil {
-		data, e = a.sourceData(ctx, project, state.Images)
+		data, e = a.sourceData(turn, project, state.Images)
 	}
 	if e == nil {
-		input, e = a.agentInput(ctx, state)
+		input, e = a.agentInput(turn, state)
 	}
 	reply, cost := "", 0.0
 	if e == nil {
-		reply, cost, e = a.AI.Agent(ctx, input, data, agentTools, func(name string, args json.RawMessage) string { return a.agentTool(ctx, run, name, args) })
+		reply, cost, e = a.AI.Agent(turn, input, data, agentTools, func(name string, args json.RawMessage) string { return a.agentTool(turn, run, name, args) })
 	}
 	if e == nil && reply == "" {
 		e = errors.New("empty assistant reply")
 	}
-	if e == nil && !run.reviewed {
-		// An answer to an intervening question is not approval of an older review.
-		_, e = a.DB.Exec(ctx, `UPDATE voice_projects SET confirmed_revision=-1 WHERE id=$1 AND revision=$2 AND confirmation_seq<=$3`, project, run.state.Revision, run.state.Through)
-	}
-	if e == nil && !run.proposed {
-		// Likewise, a proposed action only stays open for the user's very next reply.
-		_, e = a.DB.Exec(ctx, `UPDATE voice_projects SET pending=NULL WHERE id=$1`, project)
-	}
 	if e != nil {
+		slog.Warn("assistant turn failed", "action", id, "error", e)
 		reply = publicError(e)
 		if run.changed {
-			reply += " Some changes were already saved, so check before asking again."
+			reply = turnFailedAfterChanges
 		}
 	}
-	reply = truncate(reply, 12000)
-	// Keep the reply durable and usable in text even if the microphone was closed.
-	tx, err := a.DB.Begin(ctx)
-	if err != nil {
-		return
+	// The turn's own deadline (or the worker stopping) must not keep it from settling, or it
+	// would stay running, refusing new messages, until the stalled-turn sweep.
+	settle, done := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
+	defer done()
+	if err := a.settleTurn(settle, id, project, run, truncate(reply, 12000), cost, e != nil); err != nil {
+		slog.Error("settle assistant turn", "action", id, "error", err)
+	}
+}
+
+// settleTurn keeps the reply durable and usable in text even if the microphone was closed,
+// and settles the reservation to what the provider reported for the whole tool loop.
+func (a *App) settleTurn(ctx context.Context, id, project string, run *agentRun, reply string, cost float64, failed bool) error {
+	tx, e := a.DB.Begin(ctx)
+	if e != nil {
+		return e
 	}
 	defer tx.Rollback(ctx)
-	status := "completed"
-	message := ""
-	if e != nil {
-		status = "failed"
-		message = reply
+	// A conversation deleted meanwhile keeps no answer; its turn was failed when it was erased.
+	var kept bool
+	if e = tx.QueryRow(ctx, `SELECT deleted_at IS NULL FROM voice_projects WHERE id=$1 FOR UPDATE`, project).Scan(&kept); e != nil || !kept {
+		return e
+	}
+	status, message := "completed", ""
+	if failed {
+		status, message = "failed", reply
 		cost = 0 // A partial run keeps its conservative reservation.
 	}
-	// Settle the reservation to what the provider reported for the whole tool loop.
-	_, err = tx.Exec(ctx, `UPDATE voice_actions SET status=$2,reply=$3,estimated_cost=COALESCE(NULLIF($4::numeric,0),estimated_cost),updated_at=now() WHERE id=$1`, id, status, reply, cost)
-	if err != nil {
-		return
+	r, e := tx.Exec(ctx, `UPDATE voice_actions SET status=$2,reply=$3,estimated_cost=COALESCE(NULLIF($4::numeric,0),estimated_cost),updated_at=now() WHERE id=$1 AND status='running'`, id, status, reply, cost)
+	if e != nil || r.RowsAffected() == 0 {
+		return e // The stalled-turn sweep already answered for it.
+	}
+	// A failed turn's reply never showed what it read back or proposed, and the user's message
+	// didn't answer an older one either: neither may be confirmed later. After a completed
+	// turn, an answer to an intervening question is not approval of an older read-back, and a
+	// proposed action stays open only for the user's very next reply.
+	if failed || !run.reviewed {
+		if _, e = tx.Exec(ctx, `UPDATE voice_projects SET confirmed_revision=-1 WHERE id=$1 AND ($2 OR (revision=$3 AND confirmation_seq<=$4))`, project, failed, run.state.Revision, run.state.Through); e != nil {
+			return e
+		}
+	}
+	if failed || !run.proposed {
+		if _, e = tx.Exec(ctx, `UPDATE voice_projects SET pending=NULL WHERE id=$1`, project); e != nil {
+			return e
+		}
 	}
 	actions := jsonBytes(run.actions)
 	if run.actions == nil {
 		actions = []byte(`[]`)
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO voice_events(project_id,session_id,event_id,role,content,recipes,actions) SELECT project_id,session_id,'result_'||id,'assistant',$2,$3,$4 FROM voice_actions WHERE id=$1 ON CONFLICT DO NOTHING`, id, reply, normalizedJSON(run.recipes), actions)
-	if err != nil {
-		return
+	if _, e = tx.Exec(ctx, `INSERT INTO voice_events(project_id,session_id,event_id,role,content,recipes,actions) SELECT project_id,session_id,'result_'||id,'assistant',$2,$3,$4 FROM voice_actions WHERE id=$1 ON CONFLICT DO NOTHING`, id, reply, normalizedJSON(run.recipes), actions); e != nil {
+		return e
 	}
-	_, err = tx.Exec(ctx, `UPDATE voice_projects SET reply=$2,error=$3,updated_at=now() WHERE id=$1`, project, reply, message)
-	if err != nil {
-		return
+	if _, e = tx.Exec(ctx, `UPDATE voice_projects SET reply=$2,error=$3,updated_at=now() WHERE id=$1`, project, reply, message); e != nil {
+		return e
 	}
 	if run.finish {
-		_, err = tx.Exec(ctx, `UPDATE voice_sessions SET close_requested=true WHERE project_id=$1 AND status='active'`, project)
-		if err != nil {
-			return
+		if _, e = tx.Exec(ctx, `UPDATE voice_sessions SET close_requested=true WHERE project_id=$1 AND status='active'`, project); e != nil {
+			return e
 		}
 	}
-	_ = tx.Commit(ctx)
+	return tx.Commit(ctx)
 }
 
 // agentInput is everything the assistant knows at the start of a turn.
 func (a *App) agentInput(ctx context.Context, state studioState) (any, error) {
 	var user json.RawMessage
 	var view studioView
-	e := a.DB.QueryRow(ctx, `SELECT jsonb_build_object('name',u.name,'bio',u.bio,'diets',u.preferences->'diets','allergies',u.preferences->'allergies'),p.context FROM users u JOIN voice_projects p ON p.user_id=u.id WHERE p.id=$1`, state.ID).Scan(&user, &view)
+	var awaiting string
+	e := a.DB.QueryRow(ctx, `SELECT jsonb_build_object('name',u.name,'bio',u.bio,'diets',u.preferences->'diets','allergies',u.preferences->'allergies'),p.context,COALESCE(p.pending->>'description','') FROM users u JOIN voice_projects p ON p.user_id=u.id WHERE p.id=$1`, state.ID).Scan(&user, &view, &awaiting)
 	if e != nil {
 		return nil, e
 	}
@@ -424,7 +653,15 @@ func (a *App) agentInput(ctx context.Context, state studioState) (any, error) {
 	if state.Recipe != nil {
 		draft = fiber.Map{"recipeId": state.RecipeID, "recipe": state.Recipe, "revision": state.Revision, "status": state.Status, "media": state.Assets}
 	}
-	return fiber.Map{"now": time.Now().In(loc).Format("Monday 2006-01-02 15:04"), "timeZone": loc.String(), "user": user, "screen": screen, "conversation": state.Conversation, "draft": draft}, nil
+	input := fiber.Map{"now": time.Now().In(loc).Format("Monday 2006-01-02 15:04"), "timeZone": loc.String(), "user": user, "screen": screen, "conversation": state.Conversation, "draft": draft}
+	if state.Omitted > 0 {
+		input["earlierMessagesOmitted"] = state.Omitted
+	}
+	// The server's own words for what a yes would carry out, not the model's memory of them.
+	if awaiting != "" {
+		input["awaitingConfirmation"] = awaiting
+	}
+	return input, nil
 }
 
 // studioView is what the app reports the user has open. It is untrusted: the page is
@@ -434,6 +671,8 @@ type studioView struct {
 	RecipeID    string `json:"recipeId"`
 	CookingStep int    `json:"cookingStep"`
 	TimeZone    string `json:"timeZone"`
+	// The app's interface language, for the few replies the server writes itself.
+	Language string `json:"language,omitempty"`
 }
 
 var studioScreens = map[string]bool{"discover": true, "explore": true, "saved": true, "planner": true, "pantry": true, "profile": true, "create": true, "community": true}
@@ -455,7 +694,10 @@ func (a *App) studioContext(c fiber.Ctx) error {
 	if _, e := time.LoadLocation(v.TimeZone); e != nil || v.TimeZone == "Local" || len(v.TimeZone) > 64 {
 		v.TimeZone = ""
 	}
-	r, e := a.DB.Exec(c.Context(), `UPDATE voice_projects SET context=$3 WHERE id=$1 AND user_id=$2`, c.Params("id"), userID(c), jsonBytes(v))
+	if _, known := interruptedReplies[v.Language]; !known {
+		v.Language = ""
+	}
+	r, e := a.DB.Exec(c.Context(), `UPDATE voice_projects SET context=$3 WHERE id=$1 AND user_id=$2 AND deleted_at IS NULL`, c.Params("id"), userID(c), jsonBytes(v))
 	if e != nil {
 		return e
 	}
@@ -485,7 +727,7 @@ func (a *App) applyDraftAction(ctx context.Context, state studioState, action st
 	var confirmationSeq int64
 	var lastUser int64
 	var autoMedia bool
-	e = tx.QueryRow(ctx, `SELECT revision,confirmed_revision,confirmation_seq,auto_media FROM voice_projects WHERE id=$1 FOR UPDATE`, state.ID).Scan(&revision, &confirmed, &confirmationSeq, &autoMedia)
+	e = tx.QueryRow(ctx, `SELECT revision,confirmed_revision,confirmation_seq,auto_media FROM voice_projects WHERE id=$1 AND deleted_at IS NULL FOR UPDATE`, state.ID).Scan(&revision, &confirmed, &confirmationSeq, &autoMedia)
 	if e != nil {
 		return "", e
 	}
@@ -506,11 +748,23 @@ func (a *App) applyDraftAction(ctx context.Context, state studioState, action st
 		r.Image = ""
 		r.Video = ""
 		r.Photos = nil
-		if keep {
-			r.Image, r.Video = state.Recipe.Image, state.Recipe.Video
-		}
 		r.AIGenerated = true
 		r.Published = false
+		if state.RecipeID != "" && !fresh {
+			// A draft write would take a live recipe offline without asking; changing a
+			// published recipe goes through edit_recipe and the user's confirmation.
+			var published, generated bool
+			if e = tx.QueryRow(ctx, `SELECT published,ai_generated FROM recipes WHERE id=$1 AND author_id=$2`, state.RecipeID, state.Owner).Scan(&published, &generated); e != nil && !errors.Is(e, pgx.ErrNoRows) {
+				return "", e
+			}
+			if published {
+				return "", fiber.NewError(409, "This recipe is published, so a draft can't replace it. Change it with edit_recipe, which asks the user first, or start a separate draft with new_recipe.")
+			}
+			if keep {
+				// An adopted recipe keeps its own photos, video and authorship.
+				r.Image, r.Video, r.AIGenerated = state.Recipe.Image, state.Recipe.Video, generated
+			}
+		}
 		if e = r.Validate(); e != nil {
 			return "", e
 		}
@@ -544,6 +798,13 @@ func (a *App) applyDraftAction(ctx context.Context, state studioState, action st
 			return "There's no saved draft yet. Ask for the recipe and save it first.", nil
 		}
 		if action == "publish" && confirmed == revision && lastUser > confirmationSeq {
+			// An admin's unpublish holds the recipe private; say so instead of failing the turn.
+			var held *fiber.Error
+			if e = moderationHold(ctx, tx, state.RecipeID, state.Owner, true); errors.As(e, &held) && held.Code == 403 {
+				return "This recipe can't be published: an admin took it out of public view, so it stays private until an admin restores it. Tell the user, and that they can contact Savorly support if they think this is a mistake. Edits to the private draft still work.", nil
+			} else if e != nil {
+				return "", e
+			}
 			_, e = tx.Exec(ctx, `UPDATE recipes SET published=true,updated_at=now() WHERE id=$1 AND author_id=$2`, state.RecipeID, state.Owner)
 			if e == nil {
 				_, e = tx.Exec(ctx, `UPDATE voice_projects SET status='published',confirmed_revision=-1 WHERE id=$1`, state.ID)

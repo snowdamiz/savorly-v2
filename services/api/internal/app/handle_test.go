@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v3"
+	"github.com/jackc/pgx/v5"
 )
 
 func TestHandleRules(t *testing.T) {
@@ -126,5 +127,47 @@ func TestHandlesCanBeChosenOnceEach(t *testing.T) {
 	}
 	if h, e = freeHandle(ctx, db, "Fresh Basil"); e != nil || h != "freshbasil" {
 		t.Fatalf("suggested %q: %v", h, e)
+	}
+}
+
+// noHandlesTaken answers every "is this handle taken?" with no.
+type noHandlesTaken struct{}
+
+func (noHandlesTaken) QueryRow(context.Context, string, ...any) pgx.Row { return notTaken{} }
+
+type notTaken struct{}
+
+func (notTaken) Scan(dest ...any) error { *dest[0].(*bool) = false; return nil }
+
+func TestReservedHandlesCoverPagesAndPlaceholders(t *testing.T) {
+	names := []string{"www", "mail", "login", "signup", "signin", "about", "privacy", "terms", "null", "undefined",
+		"recipes", "recipe", "cook", "cooks", "creator", "creators", "settings", "account", "help", "support", "api",
+		"admin", "administrator", "me", "moderator", "official", "root", "savorly", "staff", "system", "team"}
+	for _, h := range names {
+		if !reservedHandles[h] {
+			t.Errorf("%q is not reserved", h)
+		}
+	}
+	// Reserved names answer before any lookup, so no database is needed here.
+	f := fiber.New()
+	f.Get("/handles/:handle", (&App{}).handleAvailability)
+	for _, h := range []string{"null", "undefined", "www", "cooks", "Recipes"} {
+		res, e := f.Test(httptest.NewRequest("GET", "/handles/"+h, nil))
+		if e != nil {
+			t.Fatal(e)
+		}
+		var out map[string]any
+		_ = json.NewDecoder(res.Body).Decode(&out)
+		res.Body.Close()
+		if out["valid"] != true || out["available"] != false {
+			t.Errorf("%s: %v", h, out)
+		}
+	}
+	// A name that folds to a reserved word is offered a numbered handle instead.
+	for _, name := range []string{"Cook", "Анна Петрова", "Null"} {
+		h, e := freeHandle(context.Background(), noHandlesTaken{}, name)
+		if e != nil || reservedHandles[h] || !validHandle(h) {
+			t.Errorf("suggested %q for %q: %v", h, name, e)
+		}
 	}
 }

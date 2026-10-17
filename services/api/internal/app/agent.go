@@ -69,16 +69,16 @@ var agentTools = []ai.Tool{
 	tool("remove", "Delete meal plan entries, grocery items, pantry items or cookbooks by id.", object([]string{"kind", "ids"}, props{"kind": choice("", "plan", "grocery", "pantry", "cookbook"), "ids": list(field("string", ""), 40)})),
 	tool("follow_cook", "Follow or unfollow a cook.", object([]string{"cook_id"}, props{"cook_id": field("string", ""), "unfollow": field("boolean", "")})),
 	tool("review_recipe", "Post or replace the user's review of another cook's published recipe, with their own rating and words. Needs confirmation.", object([]string{"recipe_id", "rating", "text"}, props{"recipe_id": recipeID(), "rating": field("integer", "1–5"), "text": field("string", "3–2000 characters")})),
-	tool("report_recipe", "Report a published recipe for moderation, with the user's reason.", object([]string{"recipe_id", "reason"}, props{"recipe_id": recipeID(), "reason": field("string", "5–1000 characters")})),
+	tool("report_recipe", "Report a published recipe for moderation, with the user's reason. Needs confirmation.", object([]string{"recipe_id", "reason"}, props{"recipe_id": recipeID(), "reason": field("string", "5–1000 characters")})),
 	tool("edit_recipe", "Change one of the user's own existing recipes, keeping its photos. Send only the fields that change; ingredients, steps and tags replace the whole list, so include every item. Publishing it, or changing a published recipe, needs confirmation.", object([]string{"recipe_id"}, props{"recipe_id": recipeID(), "changes": editableRecipe, "published": field("boolean", "true publishes, false makes it private")})),
 	tool("delete_recipe", "Permanently delete one of the user's own recipes. Needs confirmation.", object([]string{"recipe_id"}, props{"recipe_id": recipeID()})),
 	tool("generate_recipe_media", "Make a new AI cover photo and/or short video for one of the user's own recipes; it replaces the current one when ready. Each costs a generation.", object([]string{"recipe_id", "kinds"}, props{"recipe_id": recipeID(), "kinds": list(choice("", "image", "video"), 2)})),
 	tool("update_profile", "Change the user's display name, bio, diets or allergies. diets and allergies replace the whole list.", object(nil, props{"name": field("string", ""), "bio": field("string", ""), "diets": list(field("string", ""), 12), "allergies": list(field("string", ""), 20)})),
-	tool("confirm_action", "Carry out the action the user was asked to confirm, once their latest message clearly says yes.", none),
+	tool("confirm_action", "Carry out the action the user was asked to confirm, once their latest message clearly says yes. Only as the turn's first tool call.", none),
 	tool("app_action", "Do something on the user's screen when your reply arrives: open a recipe, start cooking mode (optionally at a step), go to a step or start that step's timer in cooking mode, open a page, or change the interface language.", object([]string{"action"}, props{"action": choice("", "open_recipe", "start_cooking", "cooking_step", "start_timer", "go_to", "set_language"), "recipe_id": field("string", "For open_recipe and start_cooking"), "step": field("integer", "1-based, for start_cooking or cooking_step"), "page": choice("For go_to", pages...), "language": choice("For set_language", languages...)})),
-	tool("save_recipe_draft", "Create a new recipe, or revise one created in this conversation, with the complete recipe; saves it privately and generates its AI cover photo and short video. Never include media URLs. Use edit_recipe for other existing recipes.", object([]string{"recipe"}, props{"recipe": draftRecipe, "new_recipe": field("boolean", "Start a different recipe instead of revising the current draft")})),
+	tool("save_recipe_draft", "Create a new recipe, or revise an unpublished one created in this conversation, with the complete recipe; saves it privately and generates its AI cover photo and short video. Never include media URLs. Use edit_recipe for published and other existing recipes.", object([]string{"recipe"}, props{"recipe": draftRecipe, "new_recipe": field("boolean", "Start a different recipe instead of revising the current draft")})),
 	tool("read_back_draft", "Read back the current saved draft so the user can approve publishing it.", none),
-	tool("publish_draft", "Publish the current draft after the user approved its read-back.", none),
+	tool("publish_draft", "Publish the current draft after the user approved its read-back. Only as the turn's first tool call.", none),
 	tool("retry_draft_media", "Retry the draft's failed cover photo or video.", none),
 	tool("end_voice_conversation", "End the live voice conversation.", none),
 }
@@ -86,7 +86,6 @@ var agentTools = []ai.Tool{
 // agentRun is one assistant turn: the state it started from and what it did.
 type agentRun struct {
 	state     studioState
-	through   int64
 	recipes   []string
 	actions   []fiber.Map
 	finish    bool
@@ -94,6 +93,10 @@ type agentRun struct {
 	changed   bool
 	proposed  bool
 	approving bool
+	// calls counts the model's tool calls this turn; lapsed is set once an earlier turn's
+	// proposal has been dropped.
+	calls  int
+	lapsed bool
 }
 
 // The assistant acts through the same handlers as the app, so validation and ownership
@@ -131,7 +134,7 @@ func (a *App) agentAPI() *fiber.App {
 	return a.agentRouter
 }
 
-// ponytail: in-memory HTTP round trip per call; fine for a handful of calls per turn.
+// TODO: in-memory HTTP round trip per call; fine for a handful of calls per turn.
 func (a *App) callAs(owner, method, path string, body any) (int, []byte) {
 	var r io.Reader
 	if body != nil {
@@ -177,6 +180,22 @@ func (a *App) agentTool(ctx context.Context, run *agentRun, name string, raw jso
 		Kinds                                                                                            []string        `json:"kinds"`
 		Items                                                                                            []struct{ Name, Quantity, Category string }
 		Recipe                                                                                           *RecipeInput
+	}
+	if !run.approving {
+		// A yes is acted on before the model reads anything else this turn (a recipe or review
+		// could hold text that looks like agreement). Any other tool first means the reply
+		// wasn't a plain yes, and the earlier proposal lapses.
+		run.calls++
+		if name == "confirm_action" || name == "publish_draft" {
+			if run.calls > 1 {
+				return toolError("Confirm only as the first thing in a turn, right after the user's yes. Ask the user again.")
+			}
+		} else if !run.lapsed {
+			run.lapsed = true
+			if _, e := a.DB.Exec(ctx, `UPDATE voice_projects SET pending=NULL WHERE id=$1 AND pending IS NOT NULL AND pending_seq<$2`, run.state.ID, run.state.Through); e != nil {
+				return toolError(publicError(e))
+			}
+		}
 	}
 	if e := json.Unmarshal(raw, &in); e != nil {
 		return toolError("Arguments must be a JSON object matching the tool schema.")
@@ -230,7 +249,7 @@ func (a *App) agentTool(ctx context.Context, run *agentRun, name string, raw jso
 		return string(jsonBytes(r))
 	case "show_recipes":
 		var visible []string
-		if e := a.DB.QueryRow(ctx, `SELECT COALESCE(array_agg(id),'{}') FROM recipes WHERE id=ANY($1) AND (published OR author_id=$2)`, in.RecipeIDs, owner).Scan(&visible); e != nil {
+		if e := a.DB.QueryRow(ctx, `SELECT COALESCE(array_agg(r.id),'{}')`+recipeFrom+`WHERE r.id=ANY($1) AND (r.published OR r.author_id=$2)`, in.RecipeIDs, owner).Scan(&visible); e != nil {
 			return toolError("Couldn't show those recipes.")
 		}
 		for _, rid := range in.RecipeIDs {
@@ -345,7 +364,7 @@ func (a *App) agentTool(ctx context.Context, run *agentRun, name string, raw jso
 	case "review_recipe":
 		var title, author string
 		if a.DB.QueryRow(ctx, `SELECT title,author_id FROM recipes WHERE id=$1 AND published`, in.RecipeID).Scan(&title, &author) != nil || author == owner {
-			return toolError("You can review another cook's published recipe.")
+			return toolError("You can only review other cooks' published recipes.")
 		}
 		if in.Rating < 1 || in.Rating > 5 || !validText(in.Text, 3, 2000) {
 			return toolError("Use a 1–5 rating and 3–2000 characters.")
@@ -355,6 +374,17 @@ func (a *App) agentTool(ctx context.Context, run *agentRun, name string, raw jso
 		}
 		return result(call("PUT", "/recipes/"+id(in.RecipeID)+"/review", fiber.Map{"rating": in.Rating, "body": in.Text}))
 	case "report_recipe":
+		// Reporting acts in the user's name against another cook, so it waits for their yes.
+		var title string
+		if a.DB.QueryRow(ctx, `SELECT r.title`+recipeFrom+`WHERE r.id=$1 AND r.published`, in.RecipeID).Scan(&title) != nil {
+			return toolError("Recipe not found.")
+		}
+		if !validText(in.Reason, 5, 1000) {
+			return toolError("Tell us what needs a closer look (5–1000 characters).")
+		}
+		if !run.approving {
+			return a.propose(ctx, run, name, raw, fmt.Sprintf("Report “%s” for moderation in your name, saying: “%s”", title, strings.TrimSpace(in.Reason)))
+		}
 		return result(call("POST", "/recipes/"+id(in.RecipeID)+"/report", fiber.Map{"reason": in.Reason}))
 	case "edit_recipe":
 		current, e := a.ownRecipe(ctx, owner, in.RecipeID)
@@ -422,13 +452,24 @@ func (a *App) agentTool(ctx context.Context, run *agentRun, name string, raw jso
 		if _, e := a.ownRecipe(ctx, owner, in.RecipeID); e != nil {
 			return toolError("Only your own recipes can get new media.")
 		}
-		if e := a.adoptRecipe(ctx, run, in.RecipeID); e != nil {
+		// Media already being made for this recipe isn't ordered, or paid for, twice. The rest
+		// is checked against the plan and budgets before the conversation adopts the recipe.
+		order, e := a.mediaToOrder(ctx, run.state, in.RecipeID, kinds)
+		if e == nil && len(order) > 0 {
+			e = a.mediaAllowed(ctx, owner, order)
+		}
+		if e != nil {
 			return toolError(publicError(e))
 		}
-		if e := a.queueStudioAssets(ctx, run.state, "all", kinds...); e != nil {
-			return toolError(publicError(e))
+		if len(order) > 0 {
+			if e = a.adoptRecipe(ctx, run, in.RecipeID); e == nil {
+				e = a.queueStudioAssets(ctx, run.state, "all", order...)
+			}
+			if e != nil {
+				return toolError(publicError(e))
+			}
+			run.changed = true
 		}
-		run.changed = true
 		a.refreshRun(ctx, run)
 		return string(jsonBytes(fiber.Map{"media": run.state.Assets, "note": "Queued media attaches to the recipe automatically when ready; a failed status carries the reason."}))
 	case "update_profile":
@@ -492,7 +533,7 @@ func (a *App) agentTool(ctx context.Context, run *agentRun, name string, raw jso
 		switch in.Action {
 		case "open_recipe", "start_cooking":
 			var steps int
-			if a.DB.QueryRow(ctx, `SELECT jsonb_array_length(steps) FROM recipes WHERE id=$1 AND (published OR author_id=$2)`, in.RecipeID, owner).Scan(&steps) != nil {
+			if a.DB.QueryRow(ctx, `SELECT jsonb_array_length(r.steps)`+recipeFrom+`WHERE r.id=$1 AND (r.published OR r.author_id=$2)`, in.RecipeID, owner).Scan(&steps) != nil {
 				return toolError("Recipe not found.")
 			}
 			act["recipeId"] = in.RecipeID
@@ -552,16 +593,18 @@ func (a *App) agentTool(ctx context.Context, run *agentRun, name string, raw jso
 // propose holds a consequential action until the user answers. The app keeps the exact
 // arguments, so a yes runs what was described, not a re-generated version of it.
 func (a *App) propose(ctx context.Context, run *agentRun, name string, args json.RawMessage, description string) string {
-	_, e := a.DB.Exec(ctx, `UPDATE voice_projects SET pending=$2,pending_seq=$3 WHERE id=$1`, run.state.ID, jsonBytes(fiber.Map{"tool": name, "args": args, "description": description}), run.state.Through)
+	_, e := a.DB.Exec(ctx, `UPDATE voice_projects SET pending=$2,pending_seq=$3 WHERE id=$1 AND deleted_at IS NULL`, run.state.ID, jsonBytes(fiber.Map{"tool": name, "args": args, "description": description}), run.state.Through)
 	if e != nil {
 		return toolError(publicError(e))
 	}
 	run.proposed = true
-	return string(jsonBytes(fiber.Map{"needsConfirmation": description, "next": "Tell the user exactly this and ask for a yes. Only if their next message clearly agrees, call confirm_action."}))
+	return string(jsonBytes(fiber.Map{"needsConfirmation": description, "next": "Tell the user exactly this and ask for a yes. Only if their next message clearly agrees, call confirm_action, before any other tool."}))
 }
 
+// refreshRun reloads the draft after a tool changed it; the turn's view of the history stays.
 func (a *App) refreshRun(ctx context.Context, run *agentRun) {
-	if state, e := a.studioState(ctx, run.state.ID, run.through); e == nil {
+	if state, e := a.studioProject(ctx, run.state.ID); e == nil {
+		state.Conversation, state.Images, state.Omitted, state.Through = run.state.Conversation, run.state.Images, run.state.Omitted, run.state.Through
 		run.state = state
 	}
 }
@@ -591,7 +634,7 @@ func (a *App) adoptRecipe(ctx context.Context, run *agentRun, recipe string) err
 		return e
 	}
 	var revision int
-	if e = tx.QueryRow(ctx, `SELECT revision FROM voice_projects WHERE id=$1 FOR UPDATE`, run.state.ID).Scan(&revision); e != nil {
+	if e = tx.QueryRow(ctx, `SELECT revision FROM voice_projects WHERE id=$1 AND deleted_at IS NULL FOR UPDATE`, run.state.ID).Scan(&revision); e != nil {
 		return e
 	}
 	if pending, e := draftMediaPending(ctx, tx, run.state.ID, revision); e != nil || pending {
@@ -665,9 +708,10 @@ func recipeChanges(old, next RecipeInput) string {
 	if len(old.Steps) != len(next.Steps) {
 		parts = append(parts, fmt.Sprintf("%d → %d steps", len(old.Steps), len(next.Steps)))
 	} else {
+		// Only what a step says counts: an edit that leaves out its photo and clip keeps them.
 		rewritten := 0
-		for i := range old.Steps {
-			if old.Steps[i] != next.Steps[i] {
+		for i, o := range old.Steps {
+			if n := next.Steps[i]; o.Title != n.Title || o.Text != n.Text || o.Seconds != n.Seconds {
 				rewritten++
 			}
 		}

@@ -68,11 +68,22 @@ export async function connectVoice(
           resolve();
         }
       });
-      if (sessionId)
-        void api(`/recipe-studio/voice/${sessionId}`, { method: 'DELETE' }).catch(() => {});
+      // A renewal starts the next session as soon as this resolves, and the server frees the
+      // user's one voice slot when it gets the close; wait for it, briefly.
+      const released = sessionId
+        ? api(`/recipe-studio/voice/${sessionId}`, { method: 'DELETE' }).catch(() => {})
+        : undefined;
       await drain;
       channel?.close();
       peer?.close();
+      if (released) {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        await Promise.race([
+          released,
+          new Promise((resolve) => (timer = setTimeout(resolve, 3000))),
+        ]);
+        clearTimeout(timer);
+      }
     })();
     return closePromise;
   };

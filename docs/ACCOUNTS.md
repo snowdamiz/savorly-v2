@@ -80,6 +80,8 @@ EMAIL_FROM=noreply@savorly.cooking
 
 `EMAIL_FROM` is a plain address on the onboarded domain. Restart the API, use Forgot password with an address you control, and confirm the 8-digit code arrives. Delivery failures are logged without recipient addresses; the app's response never reveals whether an account exists. [Cloudflare email setup](https://developers.cloudflare.com/email-service/get-started/send-emails/).
 
+The same setup sends the 6-digit codes that confirm a new kitchen's address and a change of email address (see [Account settings in the app](#account-settings-in-the-app)). Without it, the app hides both.
+
 Sending needs Workers Paid, which includes 3,000 emails a month, then $0.35 per 1,000 ([pricing](https://developers.cloudflare.com/email-service/platform/pricing/)). Sends to addresses verified in your Cloudflare account are free on any plan.
 
 ## 2. OpenRouter — text, images, and ElevenLabs narration
@@ -291,6 +293,48 @@ Use the full contents of the actual `.p8` key, not its filename. In a production
 6. Follow the testing requirements shown for your account. New personal accounts created after November 13, 2023 currently need a closed test with at least 12 testers opted in continuously for 14 days before applying for production access; internal testing alone does not satisfy that requirement. [Google's testing requirements](https://support.google.com/googleplay/android-developer/answer/14151465?hl=en).
 
 **Done when:** internal testers can install the Play build and sign in, and the account is eligible to request production release. The Play service-account JSON and Android keystore are build/submission credentials; do not add them to the backend `.env`.
+
+## 11. Cloudflare Turnstile — bot protection on sign-up
+
+Optional. While it is off (the default), nothing changes for anyone.
+
+1. In the Cloudflare dashboard, open **Turnstile → Add widget**. Add the hostnames the app runs on: `savorly.cooking`, `staging.savorly.cooking`, and `localhost` if you test locally. Choose the **Managed** mode (or **Invisible**).
+2. Set both keys on the **backend**:
+
+```dotenv
+TURNSTILE_SITE_KEY=YOUR_SITE_KEY
+TURNSTILE_SECRET_KEY=YOUR_SECRET_KEY
+```
+
+The secret turns the check on: `/v1/capabilities` then reports the site key, and sign-up and reset-code requests without a valid token are refused. The site key is public. Cloudflare's testing pair (site key `1x00000000000000000000AA`, secret `1x0000000000000000000000000000000AA`) always passes, for local checks.
+
+3. The web app shows the widget on the sign-up and **Forgot password** forms, only when Cloudflare needs the visitor to interact. The iOS and Android apps show it in a small web view whose page uses the build's `EXPO_PUBLIC_WEB_URL` (set per profile in `eas.json`) as its address, so that host must be one of the widget's hostnames.
+4. Turn it on only once the app builds people have installed send the token. A phone running an older build can't create an account or ask for a reset code while the check is on.
+
+**Check:** create an account on the web and in a development build; the widget's analytics in Cloudflare show the solved challenges.
+
+## 12. Push notifications — Expo, APNs and FCM
+
+The server sends push notifications through Expo's push service: new recipes from the cooks someone follows, reviews and comments on their recipes, and pantry items about to expire. Each phone registers its Expo push token with the API after the cook allows notifications (My kitchen → **Notifications**; the app never asks at launch), registers it again at each launch, and withdraws it when signing out. The web has the same switches but receives nothing itself.
+
+1. **Expo project:** `extra.eas.projectId` in `app.json` names the EAS project the tokens belong to (section 7). Keep it.
+2. **iOS:** with the paid Apple Developer account, answer yes when `eas build` offers to set up push notifications and create an APNs key, or add one with `npx eas-cli@24.14.0 credentials` (iOS → Push Notifications). The `expo-notifications` plugin in `app.json` adds the push entitlement.
+3. **Android (FCM V1):** create a Firebase project and add Android apps for `app.savorly.mobile` and, for staging builds, `app.savorly.mobile.staging`. Download `google-services.json` into `apps/mobile/` and commit it: it holds only public identifiers, and `app.config.js` sets `googleServicesFile` whenever the file is there. This is a native change, so the next push to `staging` or `release` builds. Then generate a service-account key (Firebase **Project settings → Service accounts → Generate new private key**) and upload it with `npx eas-cli@24.14.0 credentials` (Android → production → Google Service Account → FCM V1), or on expo.dev under **Project settings → Credentials**. Keep that JSON out of git.
+4. **Backend (optional):** if **Enhanced security for push notifications** is on for the Expo project, create an access token on expo.dev and set `EXPO_ACCESS_TOKEN` on the backend.
+
+Until steps 2 and 3 are done, a phone that turns notifications on reports that it couldn't be set up for them; everything else works.
+
+**Check:** in a development build, sign in, open My kitchen → Notifications, turn them on and allow them. Send a test from [expo.dev/notifications](https://expo.dev/notifications), or review one of the account's recipes from another account. Tapping a recipe notification opens the recipe; a pantry reminder opens the pantry.
+
+## Account settings in the app
+
+What members find in My kitchen once these services are set up:
+
+- **Account and security:** the email address, changed with a 6-digit code sent to the new address (the change happens when the code is entered, and the old address is told); the password, changed with the current one or, for a kitchen made with Apple or Google, set after signing in once more with that account (either way the other devices are signed out); and the signed-in devices, this one first, each of the others with **Sign out**, plus **Sign out everywhere else**. Email changes need the email setup in section 1.
+- **Confirm your email address:** while a new kitchen's address is unconfirmed (and email is set up), a banner asks for the code sign-up sent, and can send a new one.
+- **Download my data:** everything the account holds as one JSON file. The web saves it directly; the apps open a single-use link, valid for ten minutes, in the browser.
+- **Measurements** (as written, metric or imperial), **Notifications** (new recipes, pantry reminders, reviews, comments) and the **Language**, which notifications are written in, are saved with the account.
+- The **Privacy policy**, **Terms of use** and **Delete your account** pages (the static pages the Worker serves at `/privacy`, `/terms` and `/account-deletion`) are linked at the foot of My kitchen, and the sign-up form links the terms and the privacy policy.
 
 ## Final handoff and checks
 

@@ -21,11 +21,15 @@ import (
 // letter or digit, so @mentions and profile links read cleanly.
 var handlePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._]{1,22}[a-z0-9]$`)
 
-// Names that would read as Savorly speaking, or collide with app routes.
+// Names that would read as Savorly speaking, collide with app routes or pages, or confuse code
+// that prints a missing value.
 var reservedHandles = map[string]bool{
-	"admin": true, "administrator": true, "api": true, "help": true, "me": true, "moderator": true,
-	"official": true, "root": true, "savorly": true, "settings": true, "staff": true, "support": true,
-	"system": true, "team": true,
+	"about": true, "account": true, "admin": true, "administrator": true, "api": true, "cook": true,
+	"cooks": true, "creator": true, "creators": true, "help": true, "login": true, "mail": true,
+	"me": true, "moderator": true, "null": true, "official": true, "privacy": true, "recipe": true,
+	"recipes": true, "root": true, "savorly": true, "settings": true, "signin": true, "signup": true,
+	"staff": true, "support": true, "system": true, "team": true, "terms": true, "undefined": true,
+	"www": true,
 }
 
 const handleRules = "Usernames use 3–24 lowercase letters, numbers, dots or underscores."

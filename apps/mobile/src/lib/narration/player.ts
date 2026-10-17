@@ -2,12 +2,16 @@ import { createAudioPlayer, setAudioModeAsync } from 'expo-audio';
 import { API_URL, sessionHeaders } from '../api';
 import type { NarrationPlayer, PlayerEvent } from './controller';
 
+// `source` is an API path, streamed with the session's bearer token, or the address of the
+// device's copy of a recording (a file, cache.ts), which plays as it is.
 export function narrationPlayer(
-  path: string,
+  source: string,
   event: (event: PlayerEvent) => void,
 ): NarrationPlayer {
   const player = createAudioPlayer(
-    { uri: `${API_URL}/v1${path}`, headers: sessionHeaders() },
+    source.startsWith('/')
+      ? { uri: `${API_URL}/v1${source}`, headers: sessionHeaders() }
+      : { uri: source },
     {
       updateInterval: 100,
       preferredForwardBufferDuration: 1,

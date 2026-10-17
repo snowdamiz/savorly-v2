@@ -11,7 +11,7 @@ import {
   View,
 } from 'react-native';
 import { CameraView, CameraType, useCameraPermissions } from 'expo-camera';
-import { Camera, RotateCcw, SwitchCamera } from 'lucide-react-native';
+import { Camera, RotateCcw, SwitchCamera } from './icons';
 import { Button, FoodImage, IconButton } from './ui';
 import { color, radius, s } from '../lib/theme';
 
@@ -23,7 +23,7 @@ export function RecipeCamera({
   onCancel: () => void;
 }) {
   const { t: tr } = useI18n();
-  const [permission, requestPermission] = useCameraPermissions();
+  const [permission, requestPermission, getPermission] = useCameraPermissions();
   const camera = useRef<CameraView>(null);
   const [facing, setFacing] = useState<CameraType>('back');
   const [ready, setReady] = useState(false);
@@ -44,9 +44,17 @@ export function RecipeCamera({
     backgroundColor: color.ink,
   } as const;
   useEffect(() => {
-    const sub = AppState.addEventListener('change', (state) => setForeground(state === 'active'));
+    const sub = AppState.addEventListener('change', (state) => {
+      const active = state === 'active';
+      setForeground(active);
+      // The camera closes in the background and has to start again before the next shot.
+      if (!active) setReady(false);
+      // The permission is read when the camera opens, and Android doesn't restart the app when
+      // the camera is allowed in Settings, so read it again on the way back.
+      else void getPermission().catch(() => {});
+    });
     return () => sub.remove();
-  }, []);
+  }, [getPermission]);
   const capture = async () => {
     if (!ready || busy) return;
     setBusy(true);
@@ -110,7 +118,11 @@ export function RecipeCamera({
               style={StyleSheet.absoluteFill}
               facing={facing}
               mode="picture"
-              onCameraReady={() => setReady(true)}
+              onCameraReady={() => {
+                setReady(true);
+                // A camera that failed to start (before a lens switch, say) works now.
+                setError('');
+              }}
               onMountError={() =>
                 setError('No camera is available. Check permission or upload a photo instead.')
               }
