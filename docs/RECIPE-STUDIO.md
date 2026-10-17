@@ -6,7 +6,8 @@ A recipe's twists (vegetarian, dairy-free, quicker…), ingredient swaps and nut
 
 ## What it can do
 
-- Find recipes (text, ingredients, cuisine, tag, cook, time) and cooks, read reviews, and show tappable recipe cards in the reply.
+- Find recipes (text, ingredients, cuisine, tag, cook, time) and cooks, read reviews, and show tappable recipe cards in the reply. Searches leave out what the member's diets and allergies avoid unless they ask for a recipe regardless, and every recipe it reads carries its allergen and diet groups ([allergens and diets](API.md#allergens-diets-and-the-pantry)).
+- Suggest what the pantry goes furthest toward (`pantry_recipes`), using what expires soon first, and put a recipe's or a planned week's groceries on the list without what the pantry and every kitchen already have.
 - Read any published recipe or the user's own; answer cooking questions, swaps, and scaling.
 - Save and unsave recipes, create and delete cookbooks, follow and unfollow cooks, review and report recipes.
 - Plan meals, add groceries or a whole recipe's ingredients, check items off, keep the pantry, and remove plan/grocery/pantry entries.

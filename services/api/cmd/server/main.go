@@ -47,6 +47,7 @@ func main() {
 		app.RunWorker(ctx, db, config)
 	}()
 	go app.RunJanitor(ctx, db)
+	go app.RunFoodIndex(ctx, db)
 	go app.RunNotifications(ctx, db)
 	go func() {
 		<-ctx.Done()

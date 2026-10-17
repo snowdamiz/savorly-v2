@@ -10,6 +10,8 @@ export function useRecipeSearch(
     cuisine: string;
     quick: boolean;
     sort: string;
+    /** Only recipes without what the signed-in member avoids. */
+    fits?: boolean;
   },
   enabled = true,
 ) {
@@ -26,6 +28,7 @@ export function useRecipeSearch(
         maxMinutes: params.quick ? '20' : '0',
         sort: params.sort,
         limit: String(PAGE_SIZE),
+        ...(params.fits ? { fits: 'me' } : {}),
       }).toString()
     : null;
   const [previousParameters, setPreviousParameters] = useState(parameters);

@@ -1,5 +1,5 @@
 import { useI18n } from '../lib/i18n';
-import React, { memo, useEffect, useRef, useState } from 'react';
+import React, { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Bookmark, Clock3, Play, Sparkles, Star } from './icons';
@@ -10,6 +10,8 @@ import { useLibrary } from '../lib/library';
 import { linkTo, pressedInApp, recipePath } from '../lib/routes';
 import { color, font, radius, s, shadow } from '../lib/theme';
 import { FoodImage, IconButton, Pill, animate, native, usePress, useChrome } from './ui';
+import { foodConflicts, useFood } from '../lib/food';
+import { AvoidPill } from './FoodWarning';
 const web = Platform.OS === 'web';
 export function Save({
   recipe,
@@ -74,10 +76,19 @@ function useRating(recipe: Recipe) {
     label: count > 0 ? tr('ratingSummary', { rating, count }) : rating,
   };
 }
+// What the reader avoids that a recipe has, for its card.
+function useConflicts(recipe: Recipe) {
+  const { avoid } = useFood();
+  return useMemo(() => foodConflicts(recipe, avoid), [recipe, avoid]);
+}
 function Badge({ recipe }: { recipe: Recipe }) {
   const { t: tr } = useI18n();
   const rating = useRating(recipe);
-  return recipe.rating > 0 ? (
+  // Something the reader avoids comes before anything else the card could say.
+  const conflicts = useConflicts(recipe);
+  return conflicts.length ? (
+    <AvoidPill conflicts={conflicts} />
+  ) : recipe.rating > 0 ? (
     <View accessible accessibilityRole={web ? 'image' : 'text'} accessibilityLabel={rating.label}>
       <Pill title={rating.text} icon={Star} fill />
     </View>
@@ -220,6 +231,7 @@ export const RecipeRow = memo(function RecipeRow({
   const { t: tr } = useI18n();
   const press = usePress(0.98);
   const rating = useRating(recipe);
+  const conflicts = useConflicts(recipe);
   return (
     <Animated.View
       style={[
@@ -269,6 +281,7 @@ export const RecipeRow = memo(function RecipeRow({
               </View>
             )}
           </View>
+          <AvoidPill conflicts={conflicts} />
         </View>
       </Pressable>
       <Save recipe={recipe} size={40} plain />

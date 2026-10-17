@@ -251,6 +251,8 @@ func TestAVoiceTurnThatOnlyMovesTheScreenEndsInOneRound(t *testing.T) {
 			t.Errorf("%s: %d rounds, %q", name, n, reply)
 		}
 	}
+	// The cases ran in map order, so the channel is checked after a call of its own.
+	turn(true, writing("Step 1.", "app_action", cooking))
 	if channel != "voice" {
 		t.Fatal(channel)
 	}

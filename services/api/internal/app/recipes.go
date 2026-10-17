@@ -23,6 +23,7 @@ const recipeJSON = `jsonb_build_object(
  'minutes',r.minutes,'servings',r.servings,'difficulty',r.difficulty,'image',r.image,'photos',r.photos,'video',r.video,
  'ingredients',r.ingredients,'steps',r.steps,'tags',r.tags,'calories',r.calories,'aiGenerated',r.ai_generated,
  'published',r.published,'createdAt',r.created_at,'language',r.language,'sourceUrl',r.source_url,
+ 'allergens',r.allergens,'ingredientFood',r.ingredient_food,
  'derivedFrom',(SELECT jsonb_build_object('id',d.id,'title',d.title,'author',jsonb_build_object('id',du.id,'name',du.name,'handle',du.handle))
    FROM recipes d JOIN users du ON du.id=d.author_id AND du.suspended_at IS NULL WHERE d.id=r.derived_from AND d.published),
  'rating',COALESCE((SELECT round(avg(rating),1) FROM reviews WHERE recipe_id=r.id),0),
@@ -86,6 +87,16 @@ func (a *App) listRecipes(c fiber.Ctx) error {
 		}
 		if q.Follower == "" {
 			return fiber.NewError(401, "Sign in to your kitchen to continue.")
+		}
+	}
+	if c.Query("fits") == "me" {
+		// Only what fits the member's diets and allergies; a guest's list is everything.
+		me, e := a.viewer(c)
+		if e != nil {
+			return e
+		}
+		if q.AvoidGroups, q.AvoidTerms, e = avoidOf(c.Context(), a.DB, me); e != nil {
+			return e
 		}
 	}
 	sql, args, ok := q.build()
@@ -188,7 +199,11 @@ func persistRecipe(ctx context.Context, db recipeWriter, owner, id string, r Rec
 	if e == nil && result.RowsAffected() == 0 {
 		return fiber.NewError(404, "Recipe not found or you are not its author.")
 	}
-	return e
+	if e != nil {
+		return e
+	}
+	// In the same transaction, so the saved recipe is never shown without its allergens.
+	return indexRecipeFood(ctx, db, id)
 }
 
 func (a *App) deleteRecipe(c fiber.Ctx) error { return a.deleteOwned(c, "recipes", "author_id") }

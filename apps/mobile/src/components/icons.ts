@@ -40,6 +40,7 @@ export { default as ExternalLink } from 'lucide-react-native/icons/external-link
 export { default as Eye } from 'lucide-react-native/icons/eye';
 export { default as EyeOff } from 'lucide-react-native/icons/eye-off';
 export { default as Film } from 'lucide-react-native/icons/film';
+export { default as Fish } from 'lucide-react-native/icons/fish';
 export { default as Flag } from 'lucide-react-native/icons/flag';
 export { default as Flame } from 'lucide-react-native/icons/flame';
 export { default as Gauge } from 'lucide-react-native/icons/gauge';
@@ -71,6 +72,7 @@ export { default as MilkOff } from 'lucide-react-native/icons/milk-off';
 export { default as Minimize2 } from 'lucide-react-native/icons/minimize-2';
 export { default as Minus } from 'lucide-react-native/icons/minus';
 export { default as Moon } from 'lucide-react-native/icons/moon';
+export { default as NutOff } from 'lucide-react-native/icons/nut-off';
 export { default as Pause } from 'lucide-react-native/icons/pause';
 export { default as PenLine } from 'lucide-react-native/icons/pen-line';
 export { default as Pencil } from 'lucide-react-native/icons/pencil';

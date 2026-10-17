@@ -226,5 +226,6 @@ func NewWithContext(ctx context.Context, db *pgxpool.Pool, config Config) *fiber
 	a.socialRoutes(v)
 	a.engagementRoutes(v)
 	a.adminRoutes(v)
+	a.foodRoutes(v)
 	return f
 }

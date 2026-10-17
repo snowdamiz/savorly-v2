@@ -552,7 +552,7 @@ export function Profile({
         />
         <Text style={s.small}>
           {tr(
-            'The sous-chef uses these to personalize suggestions. Always check labels and cross-contact risks yourself.',
+            'Recipe pages warn you about these, and the sous-chef leaves them out of its suggestions. Always check labels and cross-contact risks yourself.',
           )}
         </Text>
         <Button

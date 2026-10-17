@@ -68,7 +68,22 @@ export type Recipe = Omit<RecipeInput, 'derivedFrom'> & {
   commentCount?: number;
   /** Cooks who marked it as cooked. Missing on older servers. */
   cookedCount?: number;
+  /** Its allergen and diet groups, read from the ingredient names. Missing on older servers. */
+  allergens?: string[];
+  /** What each ingredient is, in the same order as `ingredients`. Missing on older servers. */
+  ingredientFood?: IngredientFood[];
 };
+/**
+ * What the server's ingredient lexicon reads in one ingredient line: what it is (`key`, which the
+ * pantry's `pantryCover` names too), its allergen and diet groups (`milk`, `peanut`, `pork`…), and
+ * the words an avoid list's terms are matched against.
+ */
+export type IngredientFood = { key: string; allergens: string[]; terms: string[] };
+/**
+ * What a member avoids, read from their diets and allergies: groups (`peanut`) and their own words
+ * (`kiwi`, or an ingredient's key like `cilantro`), each with what they wrote that leads to it.
+ */
+export type Avoid = { groups: Record<string, string[]>; terms: Record<string, string[]> };
 /** How recipe amounts show: as their cooks wrote them (''), or converted. */
 export type Units = '' | 'metric' | 'imperial';
 /** The same choice, as the recipe page names it. */
@@ -106,6 +121,8 @@ export type User = Creator & {
   adminOwner?: boolean;
   /** An owner's address (ADMIN_EMAILS) that must be verified before the console opens. */
   adminPending?: boolean;
+  /** What recipe pages warn this member about. Missing on older servers. */
+  avoid?: Avoid;
 };
 export type PlanID = 'free' | 'plus' | 'pro';
 /** A subscription plan; `Plan` is a meal-plan entry. */
@@ -207,7 +224,15 @@ export type Grocery = {
   addedBy?: { id: string; name: string } | null;
 };
 export type PantryItem = { id: string; name: string; quantity: string; expiresOn: string | null };
-export type Kitchen = { plans: Plan[]; groceries: Grocery[]; pantry: PantryItem[] };
+export type Kitchen = {
+  plans: Plan[];
+  groceries: Grocery[];
+  pantry: PantryItem[];
+  /** The ingredient keys the pantry has (cheddar also covers cheese). Missing on older servers. */
+  pantryCover?: string[];
+};
+/** A recipe the pantry goes far toward (GET /kitchen/pantry-recipes), with ingredient names. */
+export type PantryMatch = { recipe: Recipe; have: string[]; missing: string[]; expiring: string[] };
 export type AIKind =
   'recipe' | 'adapt' | 'substitute' | 'nutrition' | 'plan' | 'assistant' | 'image' | 'video';
 export type AIJob = {
@@ -422,7 +447,12 @@ export type CookbookSummary = {
 /** One page of the library: GET /library/recipes. */
 export type LibraryPage = { recipes: Recipe[]; hasMore: boolean };
 /** What putting recipes on the grocery list did: new lines, and lines folded into matching ones. */
-export type GroceryMerge = { added: number; merged: number };
+export type GroceryMerge = {
+  added: number;
+  merged: number;
+  /** With skipPantry: the ingredients left off because the pantry (or any kitchen) has them. */
+  skipped?: string[];
+};
 export type HouseholdRole = 'owner' | 'member';
 export type HouseholdMember = {
   id: string;

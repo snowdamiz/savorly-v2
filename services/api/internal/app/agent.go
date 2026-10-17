@@ -60,7 +60,8 @@ type agentToolDef struct {
 
 // Account security (email, password, sign-in, deleting the account) is deliberately absent.
 var agentToolDefs = []agentToolDef{
-	{tool("search_recipes", "Search published Savorly recipes by words or ingredients, cuisine, tag, cook and time. Returns up to 8 summaries.", object(nil, props{"query": field("string", "Words or ingredients"), "cuisine": field("string", "Exact cuisine, e.g. Italian"), "tag": field("string", "Exact tag, e.g. vegetarian"), "author_id": field("string", "Only this cook's recipes"), "max_minutes": field("integer", ""), "sort": choice("", "Newest", "Quickest", "Top rated")})), "looking", (*toolTurn).searchRecipes},
+	{tool("search_recipes", "Search published Savorly recipes by words or ingredients, cuisine, tag, cook and time. Returns up to 8 summaries, each with its allergen and diet groups (allergens).", object(nil, props{"query": field("string", "Words or ingredients"), "cuisine": field("string", "Exact cuisine, e.g. Italian"), "tag": field("string", "Exact tag, e.g. vegetarian"), "author_id": field("string", "Only this cook's recipes"), "max_minutes": field("integer", ""), "sort": choice("", "Newest", "Quickest", "Top rated"), "include_avoided": field("boolean", "Also return recipes with what the user's diets and allergies leave out; only when they ask for one by name")})), "looking", (*toolTurn).searchRecipes},
+	{tool("pantry_recipes", "Recipes the user can make mostly from their pantry: fewest missing ingredients first, then those using what expires soon. Each says what they have, what's missing and what's expiring. Leaves out what they avoid.", object(nil, props{})), "looking", (*toolTurn).pantryRecipes},
 	{tool("get_recipe", "Full ingredients and steps of a published recipe or one of the user's own.", object([]string{"recipe_id"}, props{"recipe_id": recipeID()})), "looking", (*toolTurn).getRecipe},
 	{tool("show_recipes", "Show tappable recipe cards with your reply.", object([]string{"recipe_ids"}, props{"recipe_ids": list(field("string", ""), 6)})), "looking", (*toolTurn).showRecipes},
 	{tool("find_cooks", "Find Savorly cooks by name, handle or bio, with ids and recipe counts.", object(nil, props{"query": field("string", "")})), "looking", (*toolTurn).findCooks},
@@ -71,8 +72,8 @@ var agentToolDefs = []agentToolDef{
 	{tool("create_cookbook", "Create a named cookbook and return its id.", object([]string{"name"}, props{"name": field("string", "")})), "saving", (*toolTurn).createCookbook},
 	{tool("plan_meal", "Put a published recipe, or one of the user's own, on the meal plan, replacing whatever is planned for that day and meal.", object([]string{"recipe_id", "day", "meal", "servings"}, props{"recipe_id": recipeID(), "day": field("string", "YYYY-MM-DD"), "meal": choice("", "Breakfast", "Lunch", "Dinner"), "servings": field("integer", "")})), "kitchen", (*toolTurn).planMeal},
 	{tool("add_groceries", "Add items to the grocery list.", object([]string{"items"}, props{"items": list(object([]string{"name"}, props{"name": field("string", ""), "quantity": field("string", "e.g. 2 cups"), "category": field("string", "e.g. Produce")}), 40)})), "kitchen", (*toolTurn).addGroceries},
-	{tool("add_recipe_groceries", "Add every ingredient of a published recipe, or one of the user's own, to the grocery list, scaled to servings.", object([]string{"recipe_id", "servings"}, props{"recipe_id": recipeID(), "servings": field("integer", "")})), "kitchen", (*toolTurn).addRecipeGroceries},
-	{tool("add_plan_groceries", "Add the ingredients of every meal planned from one day to another (both included, up to 62 days) to the grocery list, scaled to each meal's servings and merged with what's already there.", object([]string{"from", "to"}, props{"from": field("string", "YYYY-MM-DD"), "to": field("string", "YYYY-MM-DD")})), "kitchen", (*toolTurn).addPlanGroceries},
+	{tool("add_recipe_groceries", "Add every ingredient of a published recipe, or one of the user's own, to the grocery list, scaled to servings. Leaves off what's in their pantry and kitchen basics (salt, pepper, oil, water) and says which, unless include_pantry.", object([]string{"recipe_id", "servings"}, props{"recipe_id": recipeID(), "servings": field("integer", ""), "include_pantry": field("boolean", "Add what the pantry has too")})), "kitchen", (*toolTurn).addRecipeGroceries},
+	{tool("add_plan_groceries", "Add the ingredients of every meal planned from one day to another (both included, up to 62 days) to the grocery list, scaled to each meal's servings and merged with what's already there. Leaves off what's in their pantry and kitchen basics and says which, unless include_pantry.", object([]string{"from", "to"}, props{"from": field("string", "YYYY-MM-DD"), "to": field("string", "YYYY-MM-DD"), "include_pantry": field("boolean", "Add what the pantry has too")})), "kitchen", (*toolTurn).addPlanGroceries},
 	{tool("check_grocery", "Check off or uncheck a grocery item.", object([]string{"grocery_id", "checked"}, props{"grocery_id": field("string", ""), "checked": field("boolean", "")})), "kitchen", (*toolTurn).checkGrocery},
 	{tool("set_pantry_item", "Add a pantry item, or update its quantity and expiry.", object([]string{"name"}, props{"name": field("string", ""), "quantity": field("string", ""), "expires_on": field("string", "YYYY-MM-DD, optional")})), "kitchen", (*toolTurn).setPantryItem},
 	{tool("remove", "Delete meal plan entries, grocery items, pantry items or cookbooks by id. Deleting a cookbook, or more than 3 items at once, needs confirmation.", object([]string{"kind", "ids"}, props{"kind": choice("", "plan", "grocery", "pantry", "cookbook"), "ids": list(field("string", ""), 40)})), "kitchen", (*toolTurn).remove},
@@ -192,6 +193,7 @@ func (a *App) agentAPI() *fiber.App {
 		f.Post("/recipes/:id/report", a.report)
 		f.Patch("/me", a.updateMe)
 		f.Get("/kitchen", a.kitchen)
+		f.Get("/kitchen/pantry-recipes", a.pantryRecipes)
 		f.Get("/library", a.library)
 		f.Put("/recipes/:id/save", a.save)
 		f.Delete("/recipes/:id/save", a.unsave)
@@ -291,6 +293,8 @@ type toolArgs struct {
 	DerivedFrom                                                                                      string   `json:"derived_from"`
 	Servings, Rating, Step                                                                           int
 	Unsave, Unfollow, Checked                                                                        bool
+	IncludeAvoided                                                                                   bool            `json:"include_avoided"`
+	IncludePantry                                                                                    bool            `json:"include_pantry"`
 	NewRecipe                                                                                        bool            `json:"new_recipe"`
 	Published                                                                                        *bool           `json:"published"`
 	Changes                                                                                          json.RawMessage `json:"changes"`
@@ -341,6 +345,11 @@ func (t *toolTurn) searchRecipes() string {
 	if t.in.MaxMinutes > 0 {
 		q.Set("maxMinutes", strconv.Itoa(t.in.MaxMinutes))
 	}
+	// Suggestions respect the member's allergies and diets unless they asked for a recipe
+	// regardless; what it then finds still carries its allergens for the model to warn about.
+	if !t.in.IncludeAvoided {
+		q.Set("fits", "me")
+	}
 	status, b := t.call("GET", "/recipes?"+q.Encode(), nil)
 	if status >= 300 {
 		return t.result(status, b)
@@ -353,6 +362,28 @@ func (t *toolTurn) searchRecipes() string {
 		slimRecipe(r, true)
 	}
 	return string(jsonBytes(fiber.Map{"recipes": found}))
+}
+
+func (t *toolTurn) pantryRecipes() string {
+	status, b := t.call("GET", "/kitchen/pantry-recipes?limit=6", nil)
+	if status >= 300 {
+		return t.result(status, b)
+	}
+	var out struct {
+		Matches []map[string]any `json:"matches"`
+	}
+	if json.Unmarshal(b, &out) != nil {
+		return toolError("Couldn't read the pantry.")
+	}
+	for _, m := range out.Matches {
+		if r, ok := m["recipe"].(map[string]any); ok {
+			slimRecipe(r, true)
+		}
+	}
+	if len(out.Matches) == 0 {
+		return string(jsonBytes(fiber.Map{"matches": []any{}, "note": "Nothing in the pantry goes far enough toward a recipe; suggest adding pantry items or search instead."}))
+	}
+	return string(jsonBytes(out))
 }
 
 func (t *toolTurn) getRecipe() string {
@@ -497,13 +528,13 @@ func (t *toolTurn) addGroceries() string {
 func (t *toolTurn) addRecipeGroceries() string {
 	before, _ := t.a.groceryList(t.ctx, t.owner)
 	defer t.a.noteGroceries(t.ctx, t.run, before)
-	return t.result(t.call("POST", "/recipes/"+pathID(t.in.RecipeID)+"/groceries", fiber.Map{"servings": t.in.Servings}))
+	return t.result(t.call("POST", "/recipes/"+pathID(t.in.RecipeID)+"/groceries", fiber.Map{"servings": t.in.Servings, "skipPantry": !t.in.IncludePantry}))
 }
 
 func (t *toolTurn) addPlanGroceries() string {
 	before, _ := t.a.groceryList(t.ctx, t.owner)
 	defer t.a.noteGroceries(t.ctx, t.run, before)
-	return t.result(t.call("POST", "/planner/groceries", fiber.Map{"from": t.in.From, "to": t.in.To}))
+	return t.result(t.call("POST", "/planner/groceries", fiber.Map{"from": t.in.From, "to": t.in.To, "skipPantry": !t.in.IncludePantry}))
 }
 
 func (t *toolTurn) markCooked() string {
@@ -1111,7 +1142,7 @@ func slimRecipe(r map[string]any, summary bool) {
 	if author, ok := r["author"].(map[string]any); ok {
 		r["author"] = map[string]any{"id": author["id"], "name": author["name"]}
 	}
-	for _, k := range []string{"image", "photos", "video", "createdAt", "saveCount"} {
+	for _, k := range []string{"image", "photos", "video", "createdAt", "saveCount", "ingredientFood"} {
 		delete(r, k)
 	}
 	if !summary {
