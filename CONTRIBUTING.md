@@ -63,7 +63,10 @@ npm --prefix infra/cloudflare run build  # Worker and API image dry run; needs D
 - **Platform twins.** `Name.web.tsx` and `name.web.ts` replace `Name.tsx` and `name.ts` on the
   web (sign-in buttons, narration player, voice transport). Change both.
 - **Expo packages.** Add them with `npx expo install <package>` so versions match the SDK, and
-  upgrade the SDK as a whole (Dependabot leaves SDK-bound majors alone).
+  upgrade the SDK as a whole.
+- **Dependency updates are by hand** (there's no Dependabot): `npx expo install --check` for what
+  the SDK manages, `npm outdated` in `apps/mobile` and `infra/cloudflare`, and `go list -u -m all`
+  in `services/api`. CI's `govulncheck` and `npm audit` steps report vulnerable dependencies.
 - **Secrets stay out of git.** Only the `.env*.example` files are committed. `EXPO_PUBLIC_*`
   values are built into the app, so they are public.
 - **Docs follow the code.** Update `docs/` in the same pull request as the behaviour it describes.
