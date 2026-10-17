@@ -1568,5 +1568,13 @@
   "They’ll stop seeing the shared kitchen. They can join again with a new code.": "Этот человек перестанет видеть общую кухню. Вернуться можно по новому коду.",
   "Share my diets and allergies": "Делиться моими диетами и аллергиями",
   "Recipes warn everyone in {{v0}} about them, and suggestions leave them out.": "Рецепты предупредят всех в «{{v0}}», а подсказки это учтут.",
-  "Turn sharing with your household on or off.": "Включите или выключите доступ для семьи."
+  "Turn sharing with your household on or off.": "Включите или выключите доступ для семьи.",
+  "Order with Instacart": "Заказать в Instacart",
+  "Share list": "Поделиться списком",
+  "List copied to your clipboard.": "Список скопирован в буфер обмена.",
+  "Get the ingredients delivered": "Заказать доставку ингредиентов",
+  "Ordering groceries isn't available right now. You can share the list instead.": "Заказ продуктов сейчас недоступен. Можно поделиться списком.",
+  "Your grocery list has nothing left to buy.": "В списке покупок ничего не осталось.",
+  "You already have everything this recipe needs.": "У вас уже есть всё для этого рецепта.",
+  "We couldn't reach Instacart. Try again in a moment, or share the list instead.": "Не удалось связаться с Instacart. Попробуйте чуть позже или поделитесь списком."
 }

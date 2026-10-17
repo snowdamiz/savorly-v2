@@ -305,6 +305,8 @@ export type Capabilities = {
   /** Recipes can be translated into the reader's language (GET /recipes/:id/translation). */
   recipeTranslation?: boolean;
   translationModel?: string;
+  /** Who orders the grocery list or a recipe's ingredients: "instacart", or none ('' or missing). */
+  groceryCheckout?: string;
   /** Plans and allowances are live (PAID_PLANS); until then everyone has unlimited use. */
   plans?: boolean;
   billing?: boolean;

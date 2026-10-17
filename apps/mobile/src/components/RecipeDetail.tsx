@@ -88,6 +88,7 @@ import { DangerButton } from '../screens/Kitchen';
 import { RevealFocus, useKeyboardLift, useKeyboardScroll } from '../lib/keyboard';
 import { foodConflicts, joinNames, pantryLines, useFood } from '../lib/food';
 import { AvoidPill, FoodWarning } from './FoodWarning';
+import { RecipeOrder } from './GroceryCheckout';
 // Each twist asks in the cook's language: the request is their own message, and the model's cue.
 const twists = (tr: (key: string) => string) => [
   ['Vegetarian', tr('Make this recipe vegetarian.')],
@@ -471,6 +472,7 @@ export function RecipeDetail({
           )
         }
       />
+      <RecipeOrder recipeId={recipe.id} servings={servings} />
       {/* Twists change the ingredients, so they sit with them rather than above the tabs. */}
       <View style={{ gap: 12, marginTop: 10 }}>
         <View style={[s.row, { gap: 8 }]}>

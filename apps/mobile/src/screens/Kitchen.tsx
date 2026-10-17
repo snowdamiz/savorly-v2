@@ -48,6 +48,7 @@ import {
 } from '../components/ui';
 import { RecipeGrid, RecipeRow } from '../components/RecipeCard';
 import { AskCard } from '../components/SousChef';
+import { GroceryCheckout } from '../components/GroceryCheckout';
 import { DatePicker } from '../components/DatePicker';
 import { CookbookSettings, useShareCookbook } from '../components/CookbookSettings';
 import { DangerButton } from '../components/DangerButton';
@@ -827,6 +828,7 @@ export function Planner({
               />
             </View>
           </View>
+          <GroceryCheckout />
           {!groceries.length ? (
             <Empty
               title={tr('Your basket is empty')}

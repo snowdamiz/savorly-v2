@@ -344,6 +344,16 @@ Until steps 2 and 3 are done, a phone that turns notifications on reports that i
 
 **Check:** in a development build, sign in, open My kitchen → Notifications, turn them on and allow them. Send a test from [expo.dev/notifications](https://expo.dev/notifications), or review one of the account's recipes from another account. Tapping a recipe notification opens the recipe; a pantry reminder opens the pantry.
 
+## 13. Instacart — ordering groceries (optional)
+
+The grocery list and recipe pages can hand their ingredients to Instacart, whose page matches each line to products at a store the cook picks; the order and payment happen at Instacart (`services/api/internal/app/grocery_checkout.go`). Instacart delivers in the United States and Canada, so the app offers it only where the device's locale says the cook is (en-US, fr-CA…); everyone can share the list as text.
+
+1. Apply to the [Instacart Developer Platform](https://www.instacart.com/company/business/developers). As of October 2026 its page says it isn't taking new applications; until it does, leave the key unset and the app only shares lists.
+2. Create a development key, set `INSTACART_API_KEY` and `INSTACART_API_URL=https://connect.dev.instacart.tools`, and check a list and a recipe open a page. Then request a production key, and set it with the default URL.
+3. For commissions, finish Instacart's affiliate onboarding (through Impact) for the partner account; the links the API returns then carry the affiliate parameters by themselves. Nothing else is needed in Savorly.
+
+**Check:** with a key set, `GET /v1/capabilities` answers `"groceryCheckout": "instacart"`; on a US English device, Planner → Groceries shows **Order with Instacart**, and a recipe shows **Get the ingredients delivered**.
+
 ## Account settings in the app
 
 What members find in My kitchen once these services are set up:

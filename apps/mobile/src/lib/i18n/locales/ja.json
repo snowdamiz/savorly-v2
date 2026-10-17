@@ -1568,5 +1568,13 @@
   "They’ll stop seeing the shared kitchen. They can join again with a new code.": "共有キッチンは表示されなくなります。新しいコードで再び参加できます。",
   "Share my diets and allergies": "自分の食事の好みとアレルギーを共有",
   "Recipes warn everyone in {{v0}} about them, and suggestions leave them out.": "{{v0}}の全員にレシピで注意が表示され、提案からも外されます。",
-  "Turn sharing with your household on or off.": "グループとの共有をオンまたはオフにしてください。"
+  "Turn sharing with your household on or off.": "グループとの共有をオンまたはオフにしてください。",
+  "Order with Instacart": "Instacartで注文",
+  "Share list": "リストを共有",
+  "List copied to your clipboard.": "リストをクリップボードにコピーしました。",
+  "Get the ingredients delivered": "材料を配達してもらう",
+  "Ordering groceries isn't available right now. You can share the list instead.": "現在、食料品の注文はご利用いただけません。代わりにリストを共有できます。",
+  "Your grocery list has nothing left to buy.": "買い物リストに買うものは残っていません。",
+  "You already have everything this recipe needs.": "このレシピに必要なものはすべてそろっています。",
+  "We couldn't reach Instacart. Try again in a moment, or share the list instead.": "Instacartに接続できませんでした。少し待ってからもう一度試すか、リストを共有してください。"
 }

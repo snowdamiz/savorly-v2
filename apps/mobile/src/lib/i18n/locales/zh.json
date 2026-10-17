@@ -1568,5 +1568,13 @@
   "They’ll stop seeing the shared kitchen. They can join again with a new code.": "对方将看不到共享厨房。可以使用新的邀请码重新加入。",
   "Share my diets and allergies": "共享我的饮食偏好和过敏原",
   "Recipes warn everyone in {{v0}} about them, and suggestions leave them out.": "食谱会提醒{{v0}}的所有人，推荐也会避开它们。",
-  "Turn sharing with your household on or off.": "开启或关闭与家庭成员的共享。"
+  "Turn sharing with your household on or off.": "开启或关闭与家庭成员的共享。",
+  "Order with Instacart": "用 Instacart 下单",
+  "Share list": "分享清单",
+  "List copied to your clipboard.": "清单已复制到剪贴板。",
+  "Get the ingredients delivered": "把食材送到家",
+  "Ordering groceries isn't available right now. You can share the list instead.": "目前无法下单购买食材，你可以改为分享清单。",
+  "Your grocery list has nothing left to buy.": "购物清单上已没有要买的东西。",
+  "You already have everything this recipe needs.": "这道菜需要的食材你都有了。",
+  "We couldn't reach Instacart. Try again in a moment, or share the list instead.": "无法连接 Instacart。请稍后再试，或改为分享清单。"
 }

@@ -1568,5 +1568,13 @@
   "They’ll stop seeing the shared kitchen. They can join again with a new code.": "Dejará de ver la cocina compartida. Puede volver a unirse con un código nuevo.",
   "Share my diets and allergies": "Compartir mis dietas y alergias",
   "Recipes warn everyone in {{v0}} about them, and suggestions leave them out.": "Las recetas avisan a todos en {{v0}} y las sugerencias los evitan.",
-  "Turn sharing with your household on or off.": "Activa o desactiva compartir con tu hogar."
+  "Turn sharing with your household on or off.": "Activa o desactiva compartir con tu hogar.",
+  "Order with Instacart": "Pedir con Instacart",
+  "Share list": "Compartir lista",
+  "List copied to your clipboard.": "Lista copiada al portapapeles.",
+  "Get the ingredients delivered": "Recibe los ingredientes en casa",
+  "Ordering groceries isn't available right now. You can share the list instead.": "Ahora mismo no se puede pedir la compra. Puedes compartir la lista.",
+  "Your grocery list has nothing left to buy.": "No queda nada por comprar en tu lista.",
+  "You already have everything this recipe needs.": "Ya tienes todo lo que necesita esta receta.",
+  "We couldn't reach Instacart. Try again in a moment, or share the list instead.": "No pudimos conectar con Instacart. Inténtalo de nuevo en un momento o comparte la lista."
 }

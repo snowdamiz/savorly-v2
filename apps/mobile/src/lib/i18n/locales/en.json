@@ -1568,5 +1568,13 @@
   "They’ll stop seeing the shared kitchen. They can join again with a new code.": "They’ll stop seeing the shared kitchen. They can join again with a new code.",
   "Share my diets and allergies": "Share my diets and allergies",
   "Recipes warn everyone in {{v0}} about them, and suggestions leave them out.": "Recipes warn everyone in {{v0}} about them, and suggestions leave them out.",
-  "Turn sharing with your household on or off.": "Turn sharing with your household on or off."
+  "Turn sharing with your household on or off.": "Turn sharing with your household on or off.",
+  "Order with Instacart": "Order with Instacart",
+  "Share list": "Share list",
+  "List copied to your clipboard.": "List copied to your clipboard.",
+  "Get the ingredients delivered": "Get the ingredients delivered",
+  "Ordering groceries isn't available right now. You can share the list instead.": "Ordering groceries isn't available right now. You can share the list instead.",
+  "Your grocery list has nothing left to buy.": "Your grocery list has nothing left to buy.",
+  "You already have everything this recipe needs.": "You already have everything this recipe needs.",
+  "We couldn't reach Instacart. Try again in a moment, or share the list instead.": "We couldn't reach Instacart. Try again in a moment, or share the list instead."
 }
