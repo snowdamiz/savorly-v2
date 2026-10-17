@@ -1373,5 +1373,9 @@
   "Add a clip to step {{v0}}": "Добавить ролик к шагу {{v0}}",
   "Replace the clip for step {{v0}}": "Заменить ролик к шагу {{v0}}",
   "Remove the clip for step {{v0}}": "Удалить ролик к шагу {{v0}}",
-  "Each step can have a photo and a short clip of up to 30 seconds.": "К каждому шагу можно добавить фото и короткий ролик до 30 секунд."
+  "Each step can have a photo and a short clip of up to 30 seconds.": "К каждому шагу можно добавить фото и короткий ролик до 30 секунд.",
+  "Speaking…": "Говорит…",
+  "Working on it…": "Работаю над этим…",
+  "{{v0}} left": "Осталось {{v0}}",
+  "Resume voice": "Продолжить голосовой режим"
 }

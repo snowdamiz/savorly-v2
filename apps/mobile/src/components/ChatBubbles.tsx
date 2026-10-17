@@ -242,7 +242,8 @@ export function Reply({
 }
 
 // What a slow reply is doing, keyed by the server's step names.
-const steps: Record<string, string> = {
+/** What a running turn is doing (`turn.step`), as the app says it. */
+export const stepLabels: Record<string, string> = {
   looking: 'Looking through recipes…',
   checking: 'Checking your kitchen…',
   kitchen: 'Updating your kitchen…',
@@ -270,7 +271,7 @@ export function ThinkingCaption({
     const tick = setInterval(() => setSeconds((n) => n + 1), 1000);
     return () => clearInterval(tick);
   }, []);
-  const label = steps[step ?? ''];
+  const label = stepLabels[step ?? ''];
   if (seconds < 3 && !label) return null;
   return (
     <View style={[s.row, { gap: 10, alignSelf: 'flex-start', paddingHorizontal: 6 }]}>

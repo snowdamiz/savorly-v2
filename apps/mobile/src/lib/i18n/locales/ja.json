@@ -1373,5 +1373,9 @@
   "Add a clip to step {{v0}}": "手順{{v0}}に動画を追加",
   "Replace the clip for step {{v0}}": "手順{{v0}}の動画を差し替え",
   "Remove the clip for step {{v0}}": "手順{{v0}}の動画を削除",
-  "Each step can have a photo and a short clip of up to 30 seconds.": "各手順に写真と、30秒までの短い動画を付けられます。"
+  "Each step can have a photo and a short clip of up to 30 seconds.": "各手順に写真と、30秒までの短い動画を付けられます。",
+  "Speaking…": "話しています…",
+  "Working on it…": "対応しています…",
+  "{{v0}} left": "残り{{v0}}",
+  "Resume voice": "音声を再開"
 }

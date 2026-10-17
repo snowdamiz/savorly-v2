@@ -72,12 +72,13 @@ func TestVoiceCreateReservesAndAttachesASession(t *testing.T) {
 
 // fakeLive is GPT-Live for tests. Handshakes answer createStatus (201 creates a session) and
 // first attaches attachStatus (0 opens the sideband); later attaches answer reattach and REST
-// hangups answer hangup (0 allows them). The sideband sends what the test queues (nil drops
-// the connection), records the API's commands, and answers session.close with session.closed
-// reporting closeUsage seconds, unless silent.
+// hangups answer hangup (0 allows them). Handshake requests are kept in created. The sideband
+// sends what the test queues (nil drops the connection), records the API's commands, and
+// answers session.close with session.closed reporting closeUsage seconds, unless silent.
 type fakeLive struct {
 	events            chan any
 	commands          chan map[string]any
+	created           chan map[string]any
 	reattach, hangup  atomic.Int32
 	attaches, hangups atomic.Int32
 	closeUsage        atomic.Int64
@@ -86,10 +87,17 @@ type fakeLive struct {
 
 func startFakeLive(t *testing.T, a *App, createStatus, attachStatus int) *fakeLive {
 	t.Helper()
-	f := &fakeLive{events: make(chan any, 16), commands: make(chan map[string]any, 64)}
+	f := &fakeLive{events: make(chan any, 16), commands: make(chan map[string]any, 64), created: make(chan map[string]any, 4)}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/live/sessions":
+			var body map[string]any
+			if json.NewDecoder(r.Body).Decode(&body) == nil {
+				select {
+				case f.created <- body:
+				default:
+				}
+			}
 			w.WriteHeader(createStatus)
 			if createStatus == 201 {
 				w.Write([]byte(`{"session":{"id":"live_test"},"transport":{"type":"webrtc","sdp":"answer"}}`))

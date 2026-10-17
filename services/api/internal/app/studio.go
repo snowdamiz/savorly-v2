@@ -557,8 +557,10 @@ func publicError(e error) string {
 	if errors.As(e, &f) {
 		return f.Message
 	}
-	return "Your sous-chef couldn't finish that step. Your conversation is saved. Please try again."
+	return turnFailed
 }
+
+const turnFailed = "Your sous-chef couldn't finish that step. Your conversation is saved. Please try again."
 
 // A failed turn that already changed data says so, so the next turn checks before repeating.
 const turnFailedAfterChanges = "Your sous-chef couldn't finish that step, but some changes were already saved. Check them before asking again."
@@ -574,10 +576,19 @@ func (a *App) processVoiceAction(ctx context.Context, id, project string, throug
 	var data []string
 	var input any
 	if e == nil {
+		// Text turns come from the conversation's own chat session; the rest from a live call.
+		var session string
+		e = a.DB.QueryRow(turn, `SELECT session_id FROM voice_actions WHERE id=$1`, id).Scan(&session)
+		run.voice = session != "chat_"+project
+	}
+	if e == nil {
 		data, e = a.sourceData(turn, project, state.Images)
 	}
 	if e == nil {
 		input, e = a.agentInput(turn, state)
+	}
+	if in, ok := input.(fiber.Map); ok {
+		in["channel"] = map[bool]string{true: "voice", false: "text"}[run.voice]
 	}
 	if e == nil {
 		e = a.applyAnswer(turn, id, run, input)
@@ -586,7 +597,7 @@ func (a *App) processVoiceAction(ctx context.Context, id, project string, throug
 	reply, cost, called := "", 0.0, false
 	if e == nil {
 		called = true
-		reply, cost, e = a.AI.Agent(turn, input, data, agentTools, func(name string, args json.RawMessage) string { return a.agentTool(turn, run, name, args) })
+		reply, cost, e = a.AI.Agent(turn, input, data, agentTools, func(name string, args json.RawMessage) string { return a.agentTool(turn, run, name, args) }, screenOnly(run))
 	}
 	if e == nil && reply == "" {
 		e = errors.New("empty assistant reply")
@@ -610,6 +621,17 @@ func (a *App) processVoiceAction(ctx context.Context, id, project string, throug
 	defer done()
 	if err := a.settleTurn(settle, id, project, run, truncate(reply, 12000), cost, e != nil, e != nil && !called); err != nil {
 		slog.Error("settle assistant turn", "action", id, "error", err)
+	}
+}
+
+// screenOnly ends a live call's turn after a round that only drove the screen, when the model
+// already wrote what to say alongside it: the voice model says it a model round sooner.
+func screenOnly(run *agentRun) func(string) (string, bool) {
+	calls, screen := run.calls, run.screen
+	return func(content string) (string, bool) {
+		only := run.calls > calls && run.calls-calls == run.screen-screen
+		calls, screen = run.calls, run.screen
+		return content, run.voice && only && content != ""
 	}
 }
 
@@ -732,7 +754,15 @@ func (a *App) settleTurn(ctx context.Context, id, project string, run *agentRun,
 			return e
 		}
 	}
-	return tx.Commit(ctx)
+	// A live call on another replica hears the reply as soon as this commits.
+	if _, e = tx.Exec(ctx, `SELECT pg_notify($1,$2) FROM voice_sessions WHERE project_id=$3 AND status IN ('active','closing') LIMIT 1`, workChannel, replyPrefix+project, project); e != nil {
+		return e
+	}
+	if e = tx.Commit(ctx); e != nil {
+		return e
+	}
+	repliesReady(project)
+	return nil
 }
 
 // agentInput is everything the assistant knows at the start of a turn.

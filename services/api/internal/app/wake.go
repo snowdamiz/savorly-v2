@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -47,6 +48,43 @@ func (a *App) wake(loop string) {
 		poke(w.studio)
 	} else {
 		poke(w.jobs)
+	}
+}
+
+// A turn that settles wakes the live calls of its conversation, so the voice model says the
+// reply at once rather than at its monitor's next tick: directly in this process, and through
+// NOTIFY (replyPrefix and the conversation) for a call on another replica.
+const replyPrefix = "reply:"
+
+var replyWaiters = struct {
+	sync.Mutex
+	calls map[string]map[chan struct{}]bool
+}{calls: map[string]map[chan struct{}]bool{}}
+
+// awaitReplies wakes c whenever a turn in project settles, until done is called.
+func awaitReplies(project string) (c chan struct{}, done func()) {
+	c = make(chan struct{}, 1)
+	replyWaiters.Lock()
+	defer replyWaiters.Unlock()
+	if replyWaiters.calls[project] == nil {
+		replyWaiters.calls[project] = map[chan struct{}]bool{}
+	}
+	replyWaiters.calls[project][c] = true
+	return c, func() {
+		replyWaiters.Lock()
+		defer replyWaiters.Unlock()
+		delete(replyWaiters.calls[project], c)
+		if len(replyWaiters.calls[project]) == 0 {
+			delete(replyWaiters.calls, project)
+		}
+	}
+}
+
+func repliesReady(project string) {
+	replyWaiters.Lock()
+	defer replyWaiters.Unlock()
+	for c := range replyWaiters.calls[project] {
+		poke(c)
 	}
 }
 
@@ -147,6 +185,10 @@ func (a *App) listen(ctx context.Context, w *wakeups) error {
 			poke(w.studio)
 		case "jobs":
 			poke(w.jobs)
+		default:
+			if project, ok := strings.CutPrefix(n.Payload, replyPrefix); ok {
+				repliesReady(project)
+			}
 		}
 	}
 }

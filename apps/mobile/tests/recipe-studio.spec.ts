@@ -146,6 +146,8 @@ async function mockStudio(
   const sessionCloses: string[] = [];
   let uploads = 0;
   let starts = 0;
+  // The plan's voice seconds left, when a test sets them.
+  let voiceLeft: number | undefined;
   let kitchenLoads = 0;
   const contexts: Record<string, unknown>[] = [];
   await page.route('**/v1/**', async (route) => {
@@ -284,7 +286,11 @@ async function mockStudio(
     }
     if (path.endsWith('/voice') && method === 'POST') {
       starts++;
-      return fulfill({ id: 'test-session-' + starts, sdp: 'test-answer', maxSeconds: 1800 }, 201);
+      const limits =
+        voiceLeft === undefined
+          ? { maxSeconds: 1800 }
+          : { maxSeconds: Math.min(1800, voiceLeft), remainingSeconds: voiceLeft };
+      return fulfill({ id: 'test-session-' + starts, sdp: 'test-answer', ...limits }, 201);
     }
     if (path.startsWith('/recipe-studio/voice/') && method === 'DELETE') {
       sessionCloses.push(path);
@@ -305,6 +311,14 @@ async function mockStudio(
       events.push({ seq: events.length + 1, role: 'assistant', content, imageCount: 0 });
       project!.busy = false;
       project!.turn = null;
+    },
+    // A turn the live call delegated, at work on step.
+    working: (step: string) => {
+      project!.busy = true;
+      project!.turn = { step, stopping: false };
+    },
+    limitVoice: (seconds: number) => {
+      voiceLeft = seconds;
     },
     undos,
     cancels: () => cancels,
@@ -531,6 +545,59 @@ test('voice starts on one tap, supports mute, releases microphone, and retains c
   expect(
     await page.evaluate(() => (window as unknown as { __voiceStopped: number }).__voiceStopped),
   ).toBeGreaterThan(0);
+});
+
+// What the provider says on the call's data channel.
+async function voiceSays(page: Page, event: Record<string, unknown>) {
+  await page.evaluate((data) => {
+    (window as unknown as { __voiceChannel: EventTarget }).__voiceChannel.dispatchEvent(
+      new MessageEvent('message', { data }),
+    );
+  }, JSON.stringify(event));
+}
+
+test('the voice bar says who has the floor and counts down the plan’s last minutes', async ({
+  page,
+}) => {
+  const state = await mockStudio(page);
+  state.limitVoice(90);
+  await fakeVoice(page);
+  await page.goto('/');
+  await startRecipe(page, 'Speak a recipe');
+  const status = (text: string) =>
+    page.locator('[aria-live="polite"]').filter({ hasText: new RegExp(`^${text}$`) });
+  await expect(status('I’m listening. Take your time.')).toBeVisible();
+  await expect(page.getByText(/^1:[23]\d left$/)).toBeVisible();
+  // While its words arrive the sous-chef is speaking; once they stop, it listens again.
+  await voiceSays(page, { type: 'session.output_transcript.delta', delta: 'How many servings?' });
+  await expect(status('Speaking…')).toBeVisible();
+  await expect(status('I’m listening. Take your time.')).toBeVisible();
+  // While a delegated turn works, the bar says on what.
+  state.working('looking');
+  await expect(status('Looking through recipes…')).toBeVisible();
+  state.answer('Here are three.');
+  await expect(status('I’m listening. Take your time.')).toBeVisible();
+  // The plan's last minutes end the call rather than renewing it.
+  await voiceSays(page, { type: 'session.closed', reason: 'expired' });
+  await expect(page.getByText(/You've used your plan's live voice time/)).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Start live conversation' })).toBeVisible();
+  expect(state.starts()).toBe(1);
+});
+
+test('a call that drops can be resumed with a tap', async ({ page }) => {
+  const state = await mockStudio(page);
+  await fakeVoice(page);
+  await page.goto('/');
+  await startRecipe(page, 'Speak a recipe');
+  await expect(page.getByText('I’m listening. Take your time.', { exact: true })).toBeVisible();
+  // A clock without a plan limit counts up.
+  await expect(page.getByText(/^0:0\d$/)).toBeVisible();
+  await voiceSays(page, { type: 'error' });
+  await expect(page.getByText(/The voice connection was interrupted/)).toBeVisible();
+  await page.getByRole('button', { name: 'Resume voice', exact: true }).click();
+  await expect.poll(() => state.starts()).toBe(2);
+  await expect(page.getByText('I’m listening. Take your time.', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Resume voice' })).toHaveCount(0);
 });
 
 test('unavailable voice falls back honestly to text without a session charge', async ({ page }) => {

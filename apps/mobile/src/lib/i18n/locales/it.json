@@ -1373,5 +1373,9 @@
   "Add a clip to step {{v0}}": "Aggiungi un video al passaggio {{v0}}",
   "Replace the clip for step {{v0}}": "Sostituisci il video del passaggio {{v0}}",
   "Remove the clip for step {{v0}}": "Rimuovi il video del passaggio {{v0}}",
-  "Each step can have a photo and a short clip of up to 30 seconds.": "Ogni passaggio può avere una foto e un breve video fino a 30 secondi."
+  "Each step can have a photo and a short clip of up to 30 seconds.": "Ogni passaggio può avere una foto e un breve video fino a 30 secondi.",
+  "Speaking…": "Sta parlando…",
+  "Working on it…": "Ci sto lavorando…",
+  "{{v0}} left": "Restano {{v0}}",
+  "Resume voice": "Riprendi la voce"
 }

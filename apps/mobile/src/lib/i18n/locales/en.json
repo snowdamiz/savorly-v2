@@ -1373,5 +1373,9 @@
   "Add a clip to step {{v0}}": "Add a clip to step {{v0}}",
   "Replace the clip for step {{v0}}": "Replace the clip for step {{v0}}",
   "Remove the clip for step {{v0}}": "Remove the clip for step {{v0}}",
-  "Each step can have a photo and a short clip of up to 30 seconds.": "Each step can have a photo and a short clip of up to 30 seconds."
+  "Each step can have a photo and a short clip of up to 30 seconds.": "Each step can have a photo and a short clip of up to 30 seconds.",
+  "Speaking…": "Speaking…",
+  "Working on it…": "Working on it…",
+  "{{v0}} left": "{{v0}} left",
+  "Resume voice": "Resume voice"
 }

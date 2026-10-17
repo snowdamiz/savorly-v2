@@ -1373,5 +1373,9 @@
   "Add a clip to step {{v0}}": "为步骤 {{v0}} 添加短片",
   "Replace the clip for step {{v0}}": "更换步骤 {{v0}} 的短片",
   "Remove the clip for step {{v0}}": "移除步骤 {{v0}} 的短片",
-  "Each step can have a photo and a short clip of up to 30 seconds.": "每个步骤可以添加一张照片和一段不超过 30 秒的短片。"
+  "Each step can have a photo and a short clip of up to 30 seconds.": "每个步骤可以添加一张照片和一段不超过 30 秒的短片。",
+  "Speaking…": "正在说话…",
+  "Working on it…": "正在处理…",
+  "{{v0}} left": "剩余 {{v0}}",
+  "Resume voice": "继续语音"
 }

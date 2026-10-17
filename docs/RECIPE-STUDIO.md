@@ -24,6 +24,8 @@ It cannot change email, password, or sign-in, or delete the account; those stay 
 
 **Live voice while browsing.** Opening a recipe or cooking mode from a live conversation minimizes the sheet to a pill above the tab bar, and the conversation keeps listening; the pill returns to the chat or ends the call. A typed chat closes instead.
 
+**In a live call.** The voice model starts with a brief of what the user has open, appended to its instructions as app data: the page, or the open recipe with its ingredients and steps and the cooking-mode step, plus the member's diets and allergies, their local time, the app language, and why the conversation was opened. It answers questions about that recipe and step itself ("how much flour?", "what does this step say?") without a backend turn; anything that changes the screen still goes to the backend. When the user opens another recipe or page, moves to another step, or the open recipe is edited, the server tells the call as session-wide context (`session.instructions.append` with no delegation), once the assistant has stopped speaking, since an instruction can cut its speech short. A reply reaches the call the moment its turn settles: in the same process directly, and on another replica through `NOTIFY` (`reply:<conversation>` on `savorly_work`), rather than at the monitor's two-second check. In a call, a turn that only drives the screen ends after one model round when the model writes its reply alongside the screen action (the agent sees `channel: "voice"`). What the server says itself in a call (pausing the microphone, media ready or unfinished, a failed or stopped turn) is in the app's language. The voice bar says whether the sous-chef is speaking, working on what was asked (and on what), or listening. When the call will use up the plan's voice time, its clock counts down what is left, and the call ends at the limit with the plan message rather than renewing into a refusal. A call that drops shows **Resume voice**.
+
 ## Recipe flow
 
 - **Talk:** the **Talk** button in the composer (or **Speak it**) requests microphone permission and starts a GPT-Live conversation. Dictate naturally, including pauses and corrections. Say “make it” or “that's everything” when finished. The assistant asks essential missing details aloud, one at a time. Say “read it back,” “publish,” “retry the media,” or “save and finish.” Publishing requires a review and explicit affirmation of the current revision.
@@ -106,6 +108,7 @@ Automated checks cover structured clarification/build, media attachment, stale r
 - malformed tool calls and provider errors mid-turn;
 - parallel turns, waking on new work, and a clean stop;
 - voice billing on handshake failures, a server stop, a dropped sideband (rejoined, hung up, or lost and swept), and a graceful close, with a fake GPT-Live;
+- what a call is told the user has open, the quiet updates as they move (never describing a recipe they may not see), replies said as soon as their turn settles, the server's own words in the app language, and one-round screen turns;
 - the renewal slot;
 - conversation and photo caps;
 - deletion keeping usage and spend while erasing content, and the 35-day purge.

@@ -52,7 +52,7 @@ import { color, radius, s, shadow } from '../lib/theme';
 import { Button, Dialog, FoodImage, IconButton, Pill, Press, animate, motionReduced } from './ui';
 import { RecipeCamera } from './RecipeCamera';
 import { VideoPlayer } from './VideoPlayer';
-import { Reply, SousChefMark, Thinking, ThinkingCaption, bubble } from './ChatBubbles';
+import { Reply, SousChefMark, Thinking, ThinkingCaption, bubble, stepLabels } from './ChatBubbles';
 import { Receipts, type Receipt } from './Receipts';
 import { useSousChefDock } from './sousChefDock';
 import { fileForm } from '../lib/photos';
@@ -107,6 +107,10 @@ function latest(text: string, max = 150) {
   const cut = t.slice(-max);
   const space = cut.indexOf(' ');
   return '…' + (space >= 0 && space < 24 ? cut.slice(space + 1) : cut);
+}
+// Minutes and seconds, as a call's clock shows them.
+function clock(seconds: number) {
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
 }
 // Bars that sway while the microphone is open, and rest while it connects or is muted.
 const barHeights = [0.5, 0.9, 0.6, 1, 0.45];
@@ -218,9 +222,13 @@ export function RecipeStudio({
   const [busy, setBusy] = useState(false);
   const [camera, setCamera] = useState(start.mode === 'photo');
   const [attachment, setAttachment] = useState<{ id: string; uri: string } | null>(null);
-  const [voiceState, setVoiceState] = useState<
-    'off' | 'connecting' | 'listening' | 'working' | 'paused'
-  >('off');
+  const [voiceState, setVoiceState] = useState<'off' | 'connecting' | 'listening' | 'speaking'>(
+    'off',
+  );
+  // A call that ended without the member ending it can be resumed with a tap.
+  const [voiceLost, setVoiceLost] = useState(false);
+  // The seconds this call has when the plan's voice time runs out with it, else null.
+  const [voiceLimit, setVoiceLimit] = useState<number | null>(null);
   const [muted, setMuted] = useState(false);
   const [audioBlocked, setAudioBlocked] = useState(false);
   // The newest words and who said them; the conversation above keeps the whole transcript.
@@ -239,6 +247,8 @@ export function RecipeStudio({
   );
   const voiceAsked = useRef(0);
   const renewal = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  // The sous-chef counts as speaking until its words have stopped arriving for a moment.
+  const quiet = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   // Screen actions run only for replies that arrive while open, never for old history.
   const loaded = useRef(false);
   const changedMeanwhile = useRef(false);
@@ -275,11 +285,13 @@ export function RecipeStudio({
   }, [runningVoice]);
   const stop = useCallback(async () => {
     clearTimeout(renewal.current);
+    clearTimeout(quiet.current);
     attempt.current?.abort();
     attempt.current = null;
     const current = connection.current;
     connection.current = null;
     setVoiceState('off');
+    setVoiceLimit(null);
     setMuted(false);
     await current?.close();
   }, []);
@@ -487,6 +499,7 @@ export function RecipeStudio({
     const session = project?.voiceSession;
     if (session?.id === connection.current?.id && session?.status === 'interrupted') {
       setError('The voice connection was interrupted. Resume to continue, or switch to text.');
+      setVoiceLost(true);
       void stop();
     }
   }, [project?.voiceSession, stop]);
@@ -499,6 +512,7 @@ export function RecipeStudio({
       return;
     }
     setError('');
+    setVoiceLost(false);
     setCaption(null);
     setSeconds(0);
     setVoiceState('connecting');
@@ -517,18 +531,34 @@ export function RecipeStudio({
           role,
           text: old?.role === role ? (old.text + (ev.delta || '')).slice(-600) : ev.delta || '',
         }));
-        setVoiceState(role === 'user' ? 'listening' : 'working');
+        clearTimeout(quiet.current);
+        if (role === 'user') setVoiceState('listening');
+        else {
+          setVoiceState('speaking');
+          quiet.current = setTimeout(
+            () => setVoiceState((now) => (now === 'speaking' ? 'listening' : now)),
+            1500,
+          );
+        }
       }
       if (ev.type === 'connection.failed' || ev.type === 'error') {
         setError(
           'The voice connection was interrupted. Your saved conversation is ready to resume.',
         );
+        setVoiceLost(true);
         void stop();
       }
-      if (
-        ev.type === 'connection.renew' ||
-        (ev.type === 'session.closed' && ev.reason === 'expired')
-      ) {
+      const renew =
+        ev.type === 'connection.renew' || (ev.type === 'session.closed' && ev.reason === 'expired');
+      if (ev.type === 'connection.limit' || (renew && connection.current?.planEnds)) {
+        // The plan's voice time is up: a new session would be refused.
+        void stop().then(() => {
+          if (live.current)
+            setError(
+              "You've used your plan's live voice time for the last 30 days. Your conversation is saved and you can continue by text.",
+            );
+        });
+      } else if (renew) {
         void stop().then(() => {
           if (!live.current) return;
           setCaption({ role: 'assistant', text: tr('Reconnecting. Hold that thought…') });
@@ -551,7 +581,12 @@ export function RecipeStudio({
         onAudioBlocked: () => setAudioBlocked(true),
       });
       if (controller.signal.aborted) await c.close();
-      else connection.current = c;
+      else {
+        connection.current = c;
+        // The call's clock starts with the session, and counts down when it's the plan's last.
+        setSeconds(0);
+        setVoiceLimit(c.planEnds ? c.maxSeconds : null);
+      }
     } catch (e) {
       if (!controller.signal.aborted) {
         setError(
@@ -787,7 +822,21 @@ export function RecipeStudio({
     }
   };
   // The pieces below are shared by the floating panel and the sheet, which arrange them differently.
-  // While voice is live its controls take the composer's place, under the conversation.
+  // While voice is live its controls take the composer's place, under the conversation. It says
+  // who has the floor: the sous-chef speaking, working on what was asked, or listening.
+  const working = project?.busy ? stepLabels[project.turn?.step ?? ''] : undefined;
+  const voiceStatus =
+    voiceState === 'connecting'
+      ? tr('Connecting your sous-chef…')
+      : muted
+        ? tr('Microphone paused')
+        : voiceState === 'speaking'
+          ? tr('Speaking…')
+          : working
+            ? tr(working)
+            : project?.busy
+              ? tr('Working on it…')
+              : tr('I’m listening. Take your time.');
   const voiceBar = runningVoice && (
     <View
       style={{
@@ -809,14 +858,12 @@ export function RecipeStudio({
           numberOfLines={1}
           style={{ ...s.h3, color: color.white, flex: 1 }}
         >
-          {voiceState === 'connecting'
-            ? tr('Connecting your sous-chef…')
-            : muted
-              ? tr('Microphone paused')
-              : tr('I’m listening. Take your time.')}
+          {voiceStatus}
         </Text>
         <Text style={{ ...s.small, color: color.onInk, fontVariant: ['tabular-nums'] }}>
-          {Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, '0')}
+          {voiceLimit === null
+            ? clock(seconds)
+            : tr('{{v0}} left', { v0: clock(Math.max(0, voiceLimit - seconds)) })}
         </Text>
       </View>
       {caption?.text.trim() ? (
@@ -1334,6 +1381,16 @@ export function RecipeStudio({
         <Text accessibilityRole="alert" style={{ ...s.muted, color: color.error }}>
           {tr(error)}
         </Text>
+      )}
+      {voiceLost && !!error && !runningVoice && (
+        <Button
+          title={tr('Resume voice')}
+          icon={AudioLines}
+          small
+          variant="ghost"
+          style={{ alignSelf: 'flex-start' }}
+          onPress={() => void startVoice()}
+        />
       )}
       {!!project?.error && project.error !== error && !lastFailed && (
         <Text accessibilityRole="alert" style={{ ...s.muted, color: color.error }}>
