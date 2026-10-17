@@ -25,6 +25,7 @@ func TestJanitorPurgesOnlyWhatNobodySees(t *testing.T) {
   ('recent-done','cook','recipe','p','completed','k4',now()-interval '20 days'),
   ('old-media','cook','image','p','completed','k5',now()-interval '40 days');
  INSERT INTO narration_usage(cache_key,user_id,estimated_cost,created_at) VALUES('a','cook',0.01,now()-interval '40 days'),('b','cook',0.01,now()-interval '20 days');
+ INSERT INTO ai_usage(user_id,kind,estimated_cost,created_at) VALUES('cook','translation',0.01,now()-interval '40 days'),(NULL,'translation',0.01,now()-interval '20 days');
  INSERT INTO voice_projects(id,user_id) VALUES('project','cook');
  INSERT INTO voice_assets(project_id,revision,kind,job_id) VALUES('project',0,'image','old-media');
  INSERT INTO voice_sessions(id,project_id,user_id,status,reserved_seconds,finalized,created_at,expires_at) VALUES
@@ -67,7 +68,7 @@ func TestJanitorPurgesOnlyWhatNobodySees(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]int64{"sessions": 1203, "auth_nonces": 1, "password_resets": 1, "ai_jobs": 2, "narration_usage": 1, "voice_sessions": 1, "recipe_narrations": 2}
+	want := map[string]int64{"sessions": 1203, "auth_nonces": 1, "password_resets": 1, "ai_jobs": 2, "narration_usage": 1, "ai_usage": 1, "voice_sessions": 1, "recipe_narrations": 2}
 	for task, n := range want {
 		if counts[task] != n {
 			t.Errorf("%s: purged %d, want %d", task, counts[task], n)
@@ -79,6 +80,7 @@ func TestJanitorPurgesOnlyWhatNobodySees(t *testing.T) {
 		`SELECT user_id FROM password_resets`:     {"resetting"},
 		`SELECT id FROM ai_jobs`:                  {"old-media", "old-running", "recent-done"},
 		`SELECT cache_key FROM narration_usage`:   {"b"},
+		`SELECT kind FROM ai_usage`:               {"translation"},
 		`SELECT id FROM voice_sessions`:           {"acted", "recent", "talked", "unsettled"},
 		`SELECT cache_key FROM recipe_narrations`: {"played"},
 		`SELECT object_key FROM source_deletions`: {"narration/stale.mp3"},
