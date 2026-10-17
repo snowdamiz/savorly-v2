@@ -180,3 +180,99 @@ After these changes, the complete Playwright suite passes **64/64 in one run** (
 including sign-in, localization, recipe editing, failed-save rollback and both splash cases.
 Both TypeScript projects, mobile ESLint and the production web export pass. The native export
 and backend results above belong to the initial pass; this follow-up changes only client code.
+
+## Web pages, operations and CI — 2026-10-16
+
+Covers the Worker's new pages and headers, the container image, CI and the scripts. Checked on a
+private Postgres container (not the development database), the local SeaweedFS, the API on 8094,
+and `wrangler dev` on 8095; nothing was deployed and no AI provider was called.
+
+- `npm --prefix infra/cloudflare test`: 18 Node tests of the pure helpers (escaping, JSON-LD,
+  sitemap, robots, app-link files, CSP and its reports, settings fingerprints) pass, as do both
+  TypeScript projects and mobile ESLint.
+- The real `worker.ts` under `wrangler dev`, with the container binding proxied to the local API:
+  recipe pages and `/?recipe=` links carry one title, the preview tags and valid JSON-LD; unknown
+  recipes and a 6-second API answer the plain app after 4 seconds and fill the cache for the next
+  request; the sitemap lists the home page and 12 recipes, is cached, and answers 503 when the API
+  fails; `robots.txt`, the app-link files and their staging and unset forms, `/csp-report`, the
+  analytics beacon, immutable caching of hashed assets, the www redirect and the cron warm-up behave
+  as documented. The smoke and splash specs pass through it, and a browser visiting every page
+  reported no CSP violations; a forced one reached `/csp-report` and the log.
+- With the real container under `wrangler dev` (Docker): the warm-up leaves a container alone when
+  its settings match, and restarts it gracefully (exit 0, healthy again) when they don't. Worker-only
+  vars stay out of the container's environment.
+- `npm run build` exports `public/` into `dist/` (index template, manifest, icons, legal pages)
+  and preloads exactly the five fonts `useFonts` loads; with long-lived caching the browser reuses
+  those preloads (5 font requests rather than 9). An export reuses Metro's cached transforms even
+  when `EXPO_PUBLIC_API_URL` changes, which is why `deploy.sh` exports with `--clear`.
+- The smoke and splash specs pass against the exported bundle served by `scripts/serve-dist.mjs`,
+  as CI now runs them.
+- `docker build services/api` produces the distroless image (nonroot, 28 MB); it starts against
+  Postgres and its `HEALTHCHECK` reports healthy. `server -healthcheck` exits 0, or 1 with no server.
+  `npm --prefix infra/cloudflare run build` and the staging dry run pass.
+- `make check` with `TEST_DATABASE_URL` pointing at the private database runs every Go suite: none
+  skip (35 do without the settings), and it stops with instructions when Postgres isn't answering.
+- `govulncheck@v1.9.0` finds nothing reachable with Go 1.26.9, the patch CI now installs (Go 1.26.4
+  reports 15 standard-library issues); golang.org/x/net v0.58.0 and x/crypto v0.57.0 have advisories
+  the code doesn't call. `staticcheck@v0.8.2` passes, with ST1005 off for `internal/live` only.
+  `actionlint@v1.7.12` passes the workflow, and both YAML files parse.
+- `scripts/loadtest.mjs`: 20 users, 5 at a time, against the API image limited to a quarter CPU and
+  1 GiB: sign-up p50 6.9 s (p95 8.6 s), sign-in 6.1 s, deletion 5.3 s, listing 114 ms, photo upload
+  210 ms, all accounts deleted afterwards. One user at a time: about 0.7 s per sign-up or sign-in.
+
+## Review implementation — 2026-10-16
+
+Covers the changes made for [the October 16 review](REVIEW-2026-10-16.md). Checked against the
+local Postgres (a `savorly_test` database for the Go suites and `savorly_review` for the running
+API, never the development database), the local SeaweedFS, the API on 8097 and Expo on 8099.
+Nothing was deployed, and no AI provider, Stripe, Turnstile or email service was called.
+
+| Check | Result |
+| --- | --- |
+| `gofmt`, `go vet`, `go test -race ./...` with the database and storage suites | Passed (ai, app, database, live, narration) |
+| `staticcheck@v0.8.2` | Passed |
+| `govulncheck@v1.9.0` | Nothing reachable with Go 1.26.9, the patch CI and the image build use. Go 1.26.4 reports standard-library issues only, and `golang.org/x/crypto/openpgp`, which the API doesn't import, has an advisory with no fix |
+| Migrations 015–023 | Applied in order to a database at 014 by the running API, and from scratch by every Go suite |
+| Jest unit tests (`npm --prefix apps/mobile run test:unit`) | 72 suites, 612 tests, each run as iOS, Android and web |
+| Both TypeScript projects, mobile ESLint | Passed, no warnings |
+| Worker tests (`npm --prefix infra/cloudflare test`) | 21 passed |
+| Playwright, Expo dev server | 207 of 207 (one run of 206, plus the one spec fixed after it), in Google Chrome. The smoke, splash, click-through and image specs also pass against the exported bundle served by `scripts/serve-dist.mjs` |
+| `scripts/integration.py` | 60 checks passed |
+| Web export (`npm run build`) | Main bundle 2.56 MB (665 KB gzipped), down from 4.95 MB (959 KB) before the icon and polyfill changes. The editor, recipe studio, onboarding, admin console and photo crop load as separate chunks, and the post-build step preloads the five fonts |
+| iOS and Android Hermes exports | Passed (4.2 MB each) |
+| `docker build services/api` | 32.1 MB distroless image running as nonroot, with its health check. It starts against the review database and answers `/health` and `/v1/recipes` |
+
+- **Fixed sleeps are gone from the specs the review named.** `splash`, `performance`, `offline`,
+  `telemetry`, `home` and `recipe-studio` now wait on conditions: the page's own timers
+  (`tests/waits.ts`), animation frames stopping, React commits settling
+  (`rendersSettle` in `tests/renderCounts.ts`), or what the page stored. Render counts are hard
+  assertions. `smoke.spec.ts` takes its recipes from the API and checks that storage serves each
+  upload rather than matching `localhost:8333`. `accounts.spec.ts` gives each test its own user.
+  Each changed spec passed two or three repeated runs.
+- **New specs cover the flows the review listed as untested:** password sign-in, the reset code,
+  sign-out, account deletion, editing and deleting a recipe, a new cookbook, planner weeks, pantry
+  dates, the review and report dialogs, admin member, recipe and operations actions, and offline
+  retry. Writing them found that a wrong password on `DELETE /me` was a `401`, which signed the
+  cook out; it is now a `403` like the other password checks.
+- **Native components have Jest tests** (`SocialButtons`, `PhotoCrop`, `RecipeCamera`,
+  `VideoPlayer`). They found that the camera kept asking for Settings after the permission was
+  granted there on Android, and that a failed start's error stayed under a working camera; both are
+  fixed. Jest also couldn't load the store on Android (expo-notifications' native modules); the
+  shared setup now stubs it.
+- **Later additions, each with tests:** the library comes paged (`GET /library?limit=24`, with
+  `ownIds` and `publishedCount`), and My kitchen pages through the cook's recipes; recipe pages
+  have a heading outline, and a desktop recipe page hides the screen under it from screen readers;
+  photos show a blurred preview from their host while loading; steps can carry a short clip
+  (migration 023); the last narrated recipes play from the device when the API can't be reached.
+- **Layers over the page let clicks through on the web.** React Native Web drops an inline
+  `pointerEvents: 'box-none'`, so the phone tab bar's strip and the desktop carousels' faded edges
+  blocked the page under them. `tests/pass-through.spec.ts` fails on the old code and passes now.
+- **Two phone bugs reported during the work.** A sheet's list (the language list, the sous-chef's
+  history) couldn't be scrolled back up after a scroll: on iOS the sheet's drag gesture claimed
+  the touch before the list could, so its content drag is now only enabled while the list is at its
+  top. And the status bar's shadow could stay on a new page: a page change now resets the scroll
+  value along with the scroll. Both are reasoned from the gesture library's iOS code and React
+  Native's scroll events; the phone-sized web suite passes, but neither was tried on a device.
+- **Not verified here:** push notifications on devices (FCM and APNs keys, a development build),
+  app links on devices (`APPLE_TEAM_ID`, `ANDROID_CERT_SHA256`), Turnstile with real keys, R2 CORS,
+  email delivery, Stripe, funded AI providers, and signed native builds.

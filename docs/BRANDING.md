@@ -43,6 +43,16 @@ SVG exports and these PNGs:
 | `android-icon-monochrome.png` | 512 × 512   | Alpha-only themed icon with light-detail cutouts and opaque pupils    |
 | `splash-icon.png`             | 1024 × 1024 | Transparent splash artwork, available for future splash configuration |
 
+It also renders the web app's files in `apps/mobile/public` (`npm run brand -- --web` renders only
+these, leaving the native assets, and so the app's fingerprint, unchanged):
+
+| Asset                                | Size       | Use                                                                   |
+| ------------------------------------ | ---------- | --------------------------------------------------------------------- |
+| `icons/icon-192.png`, `icon-512.png` | 192, 512   | Web app manifest icons (`manifest.json`), the app icon at those sizes |
+| `icons/maskable-192.png`, `-512.png` | 192, 512   | Maskable manifest icons: the chef within the central 80% safe circle  |
+| `icons/apple-touch-icon.png`         | 180 × 180  | iOS home-screen icon for the website                                  |
+| `og-image.png`                       | 1200 × 630 | Default link preview: the chef beside the wordmark on cream           |
+
 Android's adaptive background in `app.json` must match the cream brand color; the renderer checks
 this. The adaptive chef is smaller than the default icon to fit the guaranteed 66/108 safe circle.
 See [Android's adaptive icon guidelines](https://developer.android.com/develop/ui/compose/system/icon_design_adaptive).
