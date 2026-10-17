@@ -13,7 +13,7 @@ import {
 } from './icons';
 import { RecipeInput, StudioMode } from '../lib/types';
 import { useApp } from '../lib/store';
-import { importError, importRecipe, recipeLink } from '../lib/recipeImport';
+import { importError, importRecipe, postPlatform, recipeLink } from '../lib/recipeImport';
 import { track } from '../lib/telemetry';
 import { color, font, radius, s } from '../lib/theme';
 import { Button, Dialog, Field, IconButton, Press } from './ui';
@@ -42,7 +42,7 @@ const options = [
   {
     mode: 'link',
     title: 'Import from a link',
-    text: 'Paste a recipe’s web address. We’ll bring it in for you to edit.',
+    text: 'Paste a link to a recipe page or a cooking video. We’ll bring it in for you to edit.',
     label: 'Import a recipe from a link',
     icon: Link2,
   },
@@ -154,7 +154,7 @@ export function RecipeStart({
         <>
           <Text style={[s.muted, { marginTop: -8 }]}>
             {tr(
-              'Paste the address of a recipe page. We’ll bring the recipe into the editor for you to check.',
+              'Paste the address of a recipe page, or of a video on TikTok, Instagram, YouTube, Facebook or Pinterest. We’ll bring the recipe into the editor for you to check.',
             )}
           </Text>
           <View style={{ gap: 8 }}>
@@ -186,7 +186,11 @@ export function RecipeStart({
             >
               <ActivityIndicator color={color.ink} style={{ marginTop: 2 }} />
               <View style={{ flex: 1, gap: 4 }}>
-                <Text style={s.h3}>{tr('The sous-chef is reading the page…')}</Text>
+                <Text style={s.h3}>
+                  {postPlatform(recipeLink(link))
+                    ? tr('The sous-chef is reading the post…')
+                    : tr('The sous-chef is reading the page…')}
+                </Text>
                 <Text style={[s.small, { fontFamily: font.medium, lineHeight: 17 }]}>
                   {tr(
                     'This can take a minute. You can close this: the recipe will be in your sous-chef history when it’s ready.',

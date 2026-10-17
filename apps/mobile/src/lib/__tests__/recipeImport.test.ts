@@ -1,6 +1,6 @@
 /// <reference types="jest" />
 import { API_URL, ApiError } from '../api';
-import { importError, importRecipe, recipeLink } from '../recipeImport';
+import { importError, importRecipe, postCreator, postPlatform, recipeLink } from '../recipeImport';
 import type { AIJob, RecipeInput } from '../types';
 
 jest.mock('expo-secure-store', () => ({
@@ -157,4 +157,49 @@ test('each refusal reads as what it means', async () => {
   }
   // Anything else keeps the server's own message, such as a rate limit.
   expect(importError(new ApiError(429, 'Too many requests.'))).toBe('Too many requests.');
+});
+
+const captionless =
+  'We couldn’t find a recipe in that post’s caption. Try the link to the full recipe if the creator shared one.';
+
+test('a video post’s refusals keep the server’s words, which say more than the status', async () => {
+  expect(importError(new ApiError(422, captionless))).toBe(captionless);
+  const gone = 'We couldn’t open that post. It may be private or no longer available.';
+  expect(importError(new ApiError(502, gone))).toBe(gone);
+  // A caption the sous-chef found no recipe in says so too.
+  jest.useFakeTimers();
+  answers.push(
+    { path: '/recipes/import', status: 202, body: { method: 'ai', job: job('queued') } },
+    { path: '/ai/jobs/import-1', status: 200, body: { ...job('failed'), error: captionless } },
+  );
+  const failed = expect(
+    importRecipe('https://vm.tiktok.com/ZMabc123/', { live: () => true }),
+  ).rejects.toThrow(captionless);
+  await jest.advanceTimersByTimeAsync(2100);
+  await failed;
+});
+
+test('links to video and photo posts are told apart from pages', () => {
+  for (const [url, platform] of [
+    ['https://vm.tiktok.com/ZMabc123/', 'TikTok'],
+    ['https://www.tiktok.com/@chefjo/video/7300000000000000001', 'TikTok'],
+    ['https://www.instagram.com/reel/C5aKbmTOTA6/', 'Instagram'],
+    ['https://youtu.be/dQw4w9WgXcQ', 'YouTube'],
+    ['https://m.youtube.com/shorts/dQw4w9WgXcQ', 'YouTube'],
+    ['https://fb.watch/abc123/', 'Facebook'],
+    ['https://www.facebook.com/reel/1050738759418766', 'Facebook'],
+    ['https://pin.it/1Zx2y3', 'Pinterest'],
+    ['https://uk.pinterest.com/pin/99360735500167749/', 'Pinterest'],
+    ['https://www.pinterest.co.uk/pin/99360735500167749/', 'Pinterest'],
+    ['https://blog.test/leek-soup', ''],
+    ['https://faketiktok.com/@a/video/1', ''],
+    ['not a link', ''],
+    ['', ''],
+  ])
+    expect(postPlatform(url)).toBe(platform);
+  // A TikTok's own address names its creator; nothing else's does.
+  expect(postCreator('https://www.tiktok.com/@chef.jo/video/7300000000000000001')).toBe('@chef.jo');
+  expect(postCreator('https://www.tiktok.com/@/video/7300000000000000001')).toBe('');
+  expect(postCreator('https://www.youtube.com/watch?v=dQw4w9WgXcQ')).toBe('');
+  expect(postCreator(undefined)).toBe('');
 });

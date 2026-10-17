@@ -1309,9 +1309,7 @@
   "Add a photo for step {{v0}}": "手順{{v0}}に写真を追加",
   "The language this recipe is written in. Cooking mode reads its steps aloud in it.": "このレシピが書かれている言語です。調理モードでは手順をこの言語で読み上げます。",
   "Import from a link": "リンクから取り込む",
-  "Paste a recipe’s web address. We’ll bring it in for you to edit.": "レシピのウェブアドレスを貼り付けてください。編集できるように取り込みます。",
   "Import a recipe from a link": "リンクからレシピを取り込む",
-  "Paste the address of a recipe page. We’ll bring the recipe into the editor for you to check.": "レシピページのアドレスを貼り付けてください。確認できるようにレシピをエディターに取り込みます。",
   "Recipe link": "レシピのリンク",
   "Enter the full address of a web page, like https://example.com/recipe.": "https://example.com/recipe のように、ウェブページの完全なアドレスを入力してください。",
   "The sous-chef is reading the page…": "料理アシスタントがページを読んでいます…",
@@ -1378,5 +1376,12 @@
   "Resume voice": "音声を再開",
   "Marked {{title}} as cooked": "作った記録：{{title}}",
   "Reading the page…": "ページを読んでいます…",
-  "Photos and clips you make in the editor show up here, with photo touch-ups and imported recipes.": "エディターで作った写真やクリップは、写真の補正やインポートしたレシピと一緒にここに表示されます。"
+  "Photos and clips you make in the editor show up here, with photo touch-ups and imported recipes.": "エディターで作った写真やクリップは、写真の補正やインポートしたレシピと一緒にここに表示されます。",
+  "Paste a link to a recipe page or a cooking video. We’ll bring it in for you to edit.": "レシピページや料理動画のリンクを貼り付けてください。編集できるように取り込みます。",
+  "Paste the address of a recipe page, or of a video on TikTok, Instagram, YouTube, Facebook or Pinterest. We’ll bring the recipe into the editor for you to check.": "レシピページ、またはTikTok・Instagram・YouTube・Facebook・Pinterestの動画のアドレスを貼り付けてください。確認できるようにレシピをエディターに取り込みます。",
+  "The sous-chef is reading the post…": "料理アシスタントが投稿を読んでいます…",
+  "We couldn’t find a recipe in that post’s caption. Try the link to the full recipe if the creator shared one.": "その投稿の説明文にレシピが見つかりませんでした。投稿者がレシピ全文へのリンクを載せている場合は、そちらをお試しください。",
+  "We couldn’t open that post. It may be private or no longer available.": "その投稿を開けませんでした。非公開か、すでに削除されている可能性があります。",
+  "Imported from {{v0}} on {{v1}}": "{{v1}}の{{v0}}から取り込み",
+  "The sous-chef read this from the original. Check the amounts against it before you share it.": "料理アシスタントが元の投稿やページから読み取りました。共有する前に、分量を元のものと照らし合わせてください。"
 }

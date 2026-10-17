@@ -109,11 +109,16 @@ func (a *App) cookEntry(ctx context.Context, owner, recipe string) *cookEntry {
 	return &k
 }
 
-// sharedByUser reports whether the member gave the page's address in the conversation.
+// sharedByUser reports whether the member gave the page's address in the conversation. A post
+// counts under any of its platform's hosts, since a youtu.be link reads as youtube.com.
 func (a *App) sharedByUser(ctx context.Context, project, page string) bool {
 	host := strings.TrimPrefix(strings.ToLower(hostOf(page)), "www.")
+	hosts := []string{host}
+	if aliases, ok := platformHosts[platformOf(host)]; ok {
+		hosts = aliases
+	}
 	var shared bool
-	_ = a.DB.QueryRow(ctx, `SELECT $2<>'' AND EXISTS(SELECT 1 FROM voice_events WHERE project_id=$1 AND role='user' AND strpos(lower(content),$2)>0)`, project, host).Scan(&shared)
+	_ = a.DB.QueryRow(ctx, `SELECT $2<>'' AND EXISTS(SELECT 1 FROM voice_events, unnest($3::text[]) h WHERE project_id=$1 AND role='user' AND strpos(lower(content),h)>0)`, project, host, hosts).Scan(&shared)
 	return shared
 }
 
