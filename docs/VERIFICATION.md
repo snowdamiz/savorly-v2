@@ -181,6 +181,29 @@ including sign-in, localization, recipe editing, failed-save rollback and both s
 Both TypeScript projects, mobile ESLint and the production web export pass. The native export
 and backend results above belong to the initial pass; this follow-up changes only client code.
 
+### Android splash follow-up — 2026-10-16
+
+The installed React Native 0.86 transform-origin parser reads `57.6% 71.3%` as
+`6% 3%`, moving the entire eye layer upward during a blink. The splash now passes a
+numeric origin (`64.512, 79.856, 0`) at its 112px mascot size. A regression test runs
+that origin through the actual native parser, alongside a browser test measuring the
+eyes' position throughout a full blink.
+
+The native launch screen now uses `expo-splash-screen`, the app's background, and
+artwork matching the animated overlay's resting pose and shadow. Auto-hide is held
+until the overlay has a layout; the native exit duration is zero, and the hop starts
+after layout and motion-preference resolution. Reduced motion stays still from the
+first frame. This native configuration requires a new Android build.
+
+- Mobile TypeScript and ESLint pass with zero errors/warnings.
+- All five splash regressions pass in one run, including the native parser, full blink,
+  pixel comparison of launch artwork with the resting overlay, loading stages and loop cleanup.
+- Web, Android and iOS production exports pass. Android prebuild succeeds; its generated
+  splash theme, background and drawable were inspected. Prebuild still reports the existing
+  missing `expo-system-ui` warning for `userInterfaceStyle`.
+- The resting splash screenshot was inspected. No Android device was connected, so these
+  checks do not establish a visually verified release-build cold launch on a handset.
+
 ## Web pages, operations and CI — 2026-10-16
 
 Covers the Worker's new pages and headers, the container image, CI and the scripts. Checked on a

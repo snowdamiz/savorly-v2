@@ -41,6 +41,15 @@
     },
     "plugins": [
       [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#F4F4F4",
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 160,
+          "resizeMode": "contain"
+        }
+      ],
+      [
         "expo-image-picker",
         {
           "photosPermission": "Let Savorly access your photos to add images and videos to your recipes and a picture to your profile.",

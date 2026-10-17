@@ -26,6 +26,13 @@ const mark = (size, monochrome = false) =>
   `<svg x="${(1024 - size) / 2}" y="${(1024 - size) / 2}" width="${size}" height="${size}" viewBox="${artwork.mascot.viewBox}">${mascot(monochrome)}</svg>`;
 const background = `<rect width="1024" height="1024" fill="${cream}"/>`;
 const icon = svg(background + mark(704));
+// Match Splash.tsx's resting frame: a 112px chef, 10px gap and 64x10px shadow,
+// centered as a 132px-tall group within the native splash's 160px image.
+const splash = svg(
+  `<svg x="24" y="14" width="112" height="112" viewBox="${artwork.mascot.viewBox}">${mascot()}</svg>` +
+    '<rect x="48" y="136" width="64" height="10" rx="5" fill="rgba(27,28,26,0.16)"/>',
+  '0 0 160 160',
+);
 // Link previews (Open Graph, 1200 × 630): the chef beside the wordmark on cream.
 const preview = (() => {
   const [width, height, markSize, wordHeight, gap] = [1200, 630, 300, 190, 36];
@@ -71,7 +78,7 @@ try {
           [512, 'android-icon-foreground.png', svg(mark(560))],
           // Themed icons use alpha only: light details are cutouts, with opaque pupil islands.
           [512, 'android-icon-monochrome.png', svg(mark(560, true))],
-          [1024, 'splash-icon.png', svg(mark(704))],
+          [1024, 'splash-icon.png', splash],
         ]),
     // The web app's manifest icons and the iOS home-screen icon (public/manifest.json).
     [192, 'icons/icon-192.png', icon, web],
