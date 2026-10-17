@@ -18,6 +18,7 @@ function allowances(p: PricePlan) {
     { label: 'AI photos', limit: p.images, key: 'images' },
     { label: 'AI videos', limit: p.videos, key: 'videos' },
     { label: 'Natural-voice read-alouds', limit: p.narration, key: 'narration' },
+    { label: 'Cooking questions', limit: p.cookQuestions ?? 0, key: 'cookQuestions' },
   ] as const;
 }
 
@@ -60,6 +61,7 @@ export function PlanSettings() {
     images: billing.usage.images,
     videos: billing.usage.videos,
     narration: billing.usage.narration,
+    cookQuestions: billing.usage.cookQuestions ?? 0,
   };
   const money = (n: number) =>
     new Intl.NumberFormat(locale, { style: 'currency', currency: 'USD' }).format(n);

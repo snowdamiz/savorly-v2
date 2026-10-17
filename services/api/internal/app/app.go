@@ -161,6 +161,8 @@ func NewWithContext(ctx context.Context, db *pgxpool.Pool, config Config) *fiber
 			"creatorFund": creatorFundEnabled(),
 			// Public client identifiers the sign-in SDKs need; none of these are secrets.
 			"auth": fiber.Map{"googleWebClientId": os.Getenv("GOOGLE_WEB_CLIENT_ID"), "googleIosClientId": os.Getenv("GOOGLE_IOS_CLIENT_ID"), "appleServicesId": os.Getenv("APPLE_SERVICES_ID"), "appleRedirectUri": os.Getenv("APPLE_REDIRECT_URI")},
+			// Hands-free cooking's "Chef, …" questions (POST /recipes/:id/ask); its commands need nothing.
+			"cookingQuestions": a.AI.TextEnabled(),
 		})
 	})
 	// Each sign-in route has its own budget, so a few mistyped passwords don't also block a reset.
@@ -233,5 +235,6 @@ func NewWithContext(ctx context.Context, db *pgxpool.Pool, config Config) *fiber
 	a.foodRoutes(v)
 	a.translationRoutes(v)
 	a.creatorFundRoutes(v)
+	a.handsFreeRoutes(v)
 	return f
 }
