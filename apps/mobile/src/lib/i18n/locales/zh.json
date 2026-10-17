@@ -1377,5 +1377,7 @@
   "Speaking…": "正在说话…",
   "Working on it…": "正在处理…",
   "{{v0}} left": "剩余 {{v0}}",
-  "Resume voice": "继续语音"
+  "Resume voice": "继续语音",
+  "Marked {{title}} as cooked": "已标记为做过：{{title}}",
+  "Reading the page…": "正在读取网页…"
 }

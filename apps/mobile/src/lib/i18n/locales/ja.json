@@ -1377,5 +1377,7 @@
   "Speaking…": "話しています…",
   "Working on it…": "対応しています…",
   "{{v0}} left": "残り{{v0}}",
-  "Resume voice": "音声を再開"
+  "Resume voice": "音声を再開",
+  "Marked {{title}} as cooked": "作った記録：{{title}}",
+  "Reading the page…": "ページを読んでいます…"
 }

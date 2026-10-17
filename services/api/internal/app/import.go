@@ -40,32 +40,14 @@ func (a *App) importRecipe(c fiber.Ctx) error {
 	if e := decode(c, &in); e != nil {
 		return e
 	}
-	target, ok := importURL(in.URL)
-	if !ok {
-		return fiber.NewError(400, "Paste the full address of a recipe page.")
-	}
 	ctx, cancel := context.WithTimeout(c.Context(), 20*time.Second)
 	defer cancel()
-	page, e := fetchPage(ctx, target)
-	if errors.Is(e, errNotPage) {
-		return fiber.NewError(422, noRecipeOnPage)
-	}
+	recipe, doc, source, e := a.readRecipePage(ctx, in.URL)
 	if e != nil {
-		slog.Info("recipe import: page unavailable", "host", hostOf(target), "error", e)
-		return fiber.NewError(502, "We couldn’t open that page.")
+		return e
 	}
-	at, e := url.Parse(page.URL)
-	if e != nil {
-		return fiber.NewError(502, "We couldn’t open that page.")
-	}
-	doc, source := readPage(page.HTML), sourceLink(at)
-	if ld, ok := findRecipe(doc.LD); ok {
-		if r, ok := a.structuredRecipe(ld, doc, at, source); ok {
-			return c.JSON(fiber.Map{"method": "structured", "recipe": r})
-		}
-	}
-	if utf8.RuneCountInString(doc.Text) < minPageText {
-		return fiber.NewError(422, noRecipeOnPage)
+	if recipe != nil {
+		return c.JSON(fiber.Map{"method": "structured", "recipe": recipe})
 	}
 	if !a.AI.TextEnabled() {
 		return fiber.NewError(503, "We couldn’t read a recipe from that page.")
@@ -81,6 +63,38 @@ func (a *App) importRecipe(c fiber.Ctx) error {
 		return e
 	}
 	return c.Status(202).JSON(fiber.Map{"method": "ai", "job": json.RawMessage(job)})
+}
+
+// readRecipePage fetches the recipe page at raw and reads it: its recipe when the page has one
+// in schema.org data, otherwise the page (doc) for a model to read. source is how a recipe
+// from it credits the page.
+func (a *App) readRecipePage(ctx context.Context, raw string) (recipe *RecipeInput, doc pageData, source string, e error) {
+	target, ok := importURL(raw)
+	if !ok {
+		return nil, doc, "", fiber.NewError(400, "Paste the full address of a recipe page.")
+	}
+	page, e := fetchPage(ctx, target)
+	if errors.Is(e, errNotPage) {
+		return nil, doc, "", fiber.NewError(422, noRecipeOnPage)
+	}
+	if e != nil {
+		slog.Info("recipe import: page unavailable", "host", hostOf(target), "error", e)
+		return nil, doc, "", fiber.NewError(502, "We couldn’t open that page.")
+	}
+	at, e := url.Parse(page.URL)
+	if e != nil {
+		return nil, doc, "", fiber.NewError(502, "We couldn’t open that page.")
+	}
+	doc, source = readPage(page.HTML), sourceLink(at)
+	if ld, ok := findRecipe(doc.LD); ok {
+		if r, ok := a.structuredRecipe(ld, doc, at, source); ok {
+			return &r, doc, source, nil
+		}
+	}
+	if utf8.RuneCountInString(doc.Text) < minPageText {
+		return nil, doc, source, fiber.NewError(422, noRecipeOnPage)
+	}
+	return nil, doc, source, nil
 }
 
 // importURL reads the address a member pasted: http(s) with a host and no credentials, the

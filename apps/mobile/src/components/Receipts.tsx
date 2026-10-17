@@ -7,6 +7,7 @@ import {
   CalendarDays,
   Check,
   ChefHat,
+  CookingPot,
   Flag,
   Globe,
   ImagePlus,
@@ -47,6 +48,7 @@ const icons: Record<StudioEffect['kind'], LucideIcon> = {
   review: Star,
   report: Flag,
   media: ImagePlus,
+  cooked: CookingPot,
 };
 
 type Translate = ReturnType<typeof useI18n>['t'];
@@ -92,6 +94,8 @@ function receiptText(tr: Translate, f: StudioEffect) {
       return tr('Reported {{title}}', { title });
     case 'media':
       return tr('Making new media for {{title}}', { title });
+    case 'cooked':
+      return tr('Marked {{title}} as cooked', { title });
   }
 }
 
