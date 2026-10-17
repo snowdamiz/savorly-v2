@@ -16,6 +16,7 @@ Every route allows 300 requests a minute per visitor address ([deployment](DEPLO
 | Data export | `GET /me/export`, `POST /me/export-link`, `GET /export/:token` |
 | Recipes | `GET /recipes`, `GET /recipes/:id`, `POST /recipes`, `PUT /recipes/:id`, `DELETE /recipes/:id`, `GET /recipes/:id/variations`, `POST /recipes/import`, `GET /feed`, `GET /sitemap` |
 | Narration | `POST /recipes/:id/steps/:step/narration`, `GET /recipes/:id/steps/:step/narration/:key` |
+| Hands-free cooking | [`POST /recipes/:id/ask`](#hands-free-cooking) |
 | Reviews and reports | `GET /recipes/:id/reviews`, `PUT` or `DELETE /recipes/:id/review`, `PUT` or `DELETE /recipes/:id/reviews/:review/reply`, `POST /recipes/:id/report` |
 | Comments and cooks | `GET` or `POST /recipes/:id/comments`, `DELETE /comments/:id`, `GET /recipes/:id/cooks`, `POST` or `DELETE /recipes/:id/cooked` |
 | Creators | `GET /creators`, `GET /creators/:id`, `PUT` or `DELETE /creators/:id/follow`, `GET /creators/:id/cookbooks` |
@@ -162,6 +163,10 @@ Poll `GET /ai/jobs` for the current account's latest 30 jobs, or `GET /ai/jobs/:
 Both routes need a session and a recipe that is published or the caller's own; `:step` is the zero-based step index (0–99, else `400`), and a missing recipe or step is `404`. `POST /recipes/:id/steps/:step/narration` takes `{ "text" }`, which must equal the saved step text (`409` otherwise), and answers `{ "path", "model" }`, where `path` is the audio route relative to `/v1`. A blank step or one over 4,000 characters is `422` (use device speech), and `503` means narration is unconfigured or busy. An uncached step starts generating in the background, where plan allowances and AI budgets are checked, so a refusal shows up as a failed GET (`502`) rather than a `429`.
 
 `GET /recipes/:id/steps/:step/narration/:key` answers `audio/mpeg` and never starts a generation; a stale key (the step text, voice or model changed) is `404`. Cached audio supports a single byte range (`206`, or `416` for an invalid one). Audio still being generated on the same API process streams as it arrives, but a bounded range such as `bytes=0-1` waits for the whole file; otherwise, as when another replica is generating, the GET waits up to 26 seconds for the shared cache and then answers `504`. A failed generation is `502`. `/capabilities` reports `cookingNarration`; see [cooking narration](COOKING-NARRATION.md).
+
+## Hands-free cooking
+
+`POST /recipes/:id/ask` answers a question asked hands-free in cooking mode ("Chef, how long do I boil it?"); the commands themselves never reach the server ([hands-free cooking](HANDS-FREE.md)). It needs a session and a recipe that is published by a cook in good standing or the caller's own (`404` otherwise), and takes `{ "question", "step", "language" }`: the question as recognized (2–300 characters, else `400`), the 1-based step on screen (`0` for none; past the last step counts as none; outside 0–100 is `400`), and one of the app's nine language codes for the answer (English otherwise). It answers `{ "answer" }`, one to three short sentences meant to be read aloud, from the recipe and that step. The model has no tools and changes nothing. Each question reserves its cost and counts against the plan's cooking questions (`429` with the plan's message when they or the AI budgets are used up); `502` means the model couldn't answer (the reservation stands), and `503` that OpenRouter isn't configured. Members may ask 20 a minute. `/capabilities` reports `cookingQuestions`, and `GET /billing` reports `usage.cookQuestions` and each plan's `cookQuestions`.
 
 ## Billing
 

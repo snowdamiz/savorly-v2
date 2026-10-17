@@ -31,6 +31,7 @@ import { CookCommand, Recipe } from '../lib/types';
 import { color, font, radius, s } from '../lib/theme';
 import { Button, FoodImage, IconButton, useChrome, useSlideOver, webPosition } from './ui';
 import { StepClip } from './VideoPlayer';
+import { HandsFree } from './HandsFree';
 const RING = 92;
 const CIRCUMFERENCE = 2 * Math.PI * RING;
 export function CookMode({
@@ -220,6 +221,21 @@ export function CookMode({
               }}
             />
           </View>
+          {/* Free on-device listening, the first choice over a live call's voice minutes. */}
+          <HandsFree
+            recipe={recipe}
+            cook={{
+              step,
+              done,
+              reading: speaking,
+              timer: { seconds: current.seconds, remaining, running: !!endAt },
+              next,
+              previous: () => step > 0 && change(step - 1),
+              read,
+              stopReading: stop,
+              setTimer: (run) => setEndAt(run ? Date.now() + remaining * 1000 : null),
+            }}
+          />
           {done ? (
             <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 16 }}>
               <View

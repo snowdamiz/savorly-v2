@@ -21,9 +21,10 @@ Allowances cover a rolling 30 days once `PAID_PLANS=true`.
 | AI photos                             |     1 |                6 |                10 |
 | AI videos                             |     0 |                0 |                 1 |
 | Natural-voice read-alouds (new steps) |     5 |               30 |                30 |
-| AI spend ceiling (`SpendCap`)         | $0.50 |            $3.80 |             $7.65 |
+| Cooking questions (“Chef, …”)         |    30 |              100 |               150 |
+| AI spend ceiling (`SpendCap`)         | $0.50 |            $3.80 |             $7.69 |
 
-Everything else (recipes, cookbooks, planner, groceries, pantry, community, device read-aloud) stays free. Comparable apps charge $4.99–$9.99 a month: Samsung Food+ $6.99/$59.99, SideChef $4.99/$49.99, Plan to Eat $5.95/$49, Ollie from $9.99 (October 2026 store listings).
+Everything else (recipes, cookbooks, planner, groceries, pantry, community, device read-aloud, and hands-free cooking's spoken commands) stays free. Comparable apps charge $4.99–$9.99 a month: Samsung Food+ $6.99/$59.99, SideChef $4.99/$49.99, Plan to Eat $5.95/$49, Ollie from $9.99 (October 2026 store listings).
 
 ## Why these numbers are cash-flow positive
 
@@ -36,8 +37,9 @@ Everything else (recipes, cookbooks, planner, groceries, pantry, community, devi
 | AI cover photo                    |                                                                       ~$0.01–0.02 (reserved $0.05) | GPT Image 2.5 Flare, OpenRouter image endpoints                                     |
 | AI video (5 s, 720p)              |                                                                            $1.005 (reserved $1.50) | Seedance 2.5 Eco, reapi.ai/models/seedance-2-5                                      |
 | Read-aloud step (~300 characters) |                                                                                            ~$0.012 | OpenRouter elevenlabs/eleven-v4-turbo, regular $0.04 per 1K characters; launch discount excluded                                 |
+| Cooking question (hands-free)     | $0.0005 planning cost (~1,500 tokens in, ~150 out); reserved ~$0.001, at most ~$0.005; settles to provider usage | GPT-6 Luna at the fast tier's $0.20 / $1 per M tokens, low reasoning, 300 output tokens at most |
 
-**Per-member guarantee.** Every AI cost is recorded against the member (the `ai_spend` view). A request is refused once it would take the member past their plan's `SpendCap` for the last 30 days. Sous-chef turns settle to the cost OpenRouter reports, voice to the connected seconds, and media keeps its (higher) reservation, so recorded spend never undercounts. Each plan's allowances at the costs above fit inside its ceiling, so members reach their allowances before the ceiling in normal use.
+**Per-member guarantee.** Every AI cost is recorded against the member (the `ai_spend` view). A request is refused once it would take the member past their plan's `SpendCap` for the last 30 days. Sous-chef turns and cooking questions settle to the cost OpenRouter reports, voice to the connected seconds, and media keeps its (higher) reservation, so recorded spend never undercounts. Each plan's allowances at the costs above fit inside its ceiling, so members reach their allowances before the ceiling in normal use.
 
 **Fees.** Revenue is counted after a conservative 11% + $0.30 per charge: Stripe cards 2.9% + $0.30, Billing 0.7%, Tax 0.5%, plus room for Stripe Managed Payments (+3.5%), international cards and conversion, and about 1% refunds and disputes (stripe.com/pricing).
 
@@ -45,10 +47,12 @@ Everything else (recipes, cookbooks, planner, groceries, pantry, community, devi
 | ------------ | ------------: | ------------: | -----------: |
 | Plus monthly |         $8.59 |         $3.80 |          44% |
 | Plus yearly  |         $5.91 |         $3.80 |          64% |
-| Pro monthly  |        $17.49 |         $7.65 |          44% |
-| Pro yearly   |        $11.84 |         $7.65 |          65% |
+| Pro monthly  |        $17.49 |         $7.69 |          44% |
+| Pro yearly   |        $11.84 |         $7.69 |          65% |
 
-So even a member who maxes out everything leaves at least 35% of net revenue. Yearly plans collect twelve months up front. Typical members use a fraction of their allowances, so the realistic margin is much higher.
+So even a member who maxes out everything leaves at least 35% of net revenue.
+
+**Cooking questions.** Hands-free cooking ([hands-free](HANDS-FREE.md)) recognizes speech on the device, so its commands cost nothing and have no limit; only a question that starts with "Chef" calls the model. A question reserves its prompt counted byte for byte as tokens at the fast tier's prices (about $0.001 for a typical recipe; the longest prompt the server builds, about 20 KB, reserves about $0.005) and settles to OpenRouter's reported cost, typically $0.0002–0.0005. At the $0.0005 planning cost, Free's 30 questions add $0.015 (its allowances come to $0.475 of its $0.50 ceiling) and Plus's 100 add $0.05 ($3.71 of $3.80). Pro's other allowances already came to $7.61 of its $7.65 ceiling, so its 150 questions ($0.075) raise the ceiling to $7.69, still under 65% of its yearly net ($7.70). Allowances of 300 and 600 would not fit Pro's ceiling without cutting another allowance; a typical cook asks a handful, so 30, 100 and 150 cover several cooks a week. A cook who runs out keeps every command, and the live sous-chef keeps its own minutes. Yearly plans collect twelve months up front. Typical members use a fraction of their allowances, so the realistic margin is much higher.
 
 **Free use is paid for.** Free members share a daily budget of `AI_FREE_DAILY_BUDGET_USD` (default $5, about $150 a month at most) plus 15% of paying members' daily net revenue. A hard daily circuit breaker (`AI_DAILY_BUDGET_USD`, default $25, plus every paying member's ceiling ÷ 30) stops runaway spend from a bug without blocking members inside their plan. Complimentary plans granted in the admin console bring no revenue, so they add to neither; their use comes out of the base budgets. Owners can override the base budgets from the console, up to ten times the environment's values ([admin console](ADMIN.md#operator-settings)).
 

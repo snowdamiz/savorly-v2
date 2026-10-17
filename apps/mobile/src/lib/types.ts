@@ -118,6 +118,8 @@ export type PricePlan = {
   images: number;
   videos: number;
   narration: number;
+  /** Hands-free cooking questions ("Chef, …"). Missing on older servers. */
+  cookQuestions?: number;
 };
 export type Billing = {
   plan: PlanID;
@@ -131,6 +133,8 @@ export type Billing = {
     images: number;
     videos: number;
     narration: number;
+    /** Missing on older servers. */
+    cookQuestions?: number;
   };
   plans: PricePlan[];
   /** Stripe checkout is configured on the server. */
@@ -258,6 +262,8 @@ export type Capabilities = {
   turnstileSiteKey?: string;
   appleSignIn?: boolean;
   googleSignIn?: boolean;
+  /** Hands-free cooking can ask the sous-chef questions (POST /recipes/:id/ask). */
+  cookingQuestions?: boolean;
   auth?: {
     googleWebClientId: string;
     googleIosClientId: string;

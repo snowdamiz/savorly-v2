@@ -22,6 +22,7 @@ The existing embedded database migration runs on API startup. This provider chan
 - The audio GET streams MP3 chunks while synthesis continues, including for the usual `bytes=0-` request. Fully cached audio supports byte ranges. Players that first request a bounded range such as `bytes=0-1` (including some iOS players) wait for the complete file to obtain its length; preloading removes this wait on subsequent steps.
 - Native playback uses `expo-audio`; web playback explicitly handles browser autoplay restrictions. If Safari requires another gesture after the initial download, the screen asks the user to tap again, reusing the prepared recording.
 - Stop, Next, Previous, Finish, opening the sous-chef, and closing cooking mode stop playback. Late requests cannot resume an old step. In-flight generation is allowed to finish and populate the cache, since it may already have incurred a provider charge.
+- With [hands-free cooking](HANDS-FREE.md) on, a step reached by a spoken "next step" or "previous step" is read the same way, and listening pauses while it plays, so the recognizer never hears the narration.
 - The mobile screen retains a small window of prepared players for the current cooking session. Separately, the recordings of the last recipes read aloud stay on the device for cooking without a connection (below).
 
 ## Offline
