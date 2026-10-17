@@ -48,18 +48,29 @@ func saveAvoid(ctx context.Context, db recipeWriter, user string, diets, allergi
 	return e
 }
 
-// avoidOf is what a member avoids ({} for a guest or nobody).
+// avoidOf is what a member's kitchen avoids: theirs, and that of everyone in their household who
+// shares their diets and allergies ({} for a guest or nobody). Suggestions, pantry matches and
+// "fits" filters cook for the whole household.
 func avoidOf(ctx context.Context, db recipeWriter, user string) (groups, terms []string, err error) {
 	groups, terms = []string{}, []string{}
 	if user == "" {
 		return groups, terms, nil
 	}
-	err = db.QueryRow(ctx, `SELECT groups,terms FROM food_avoid WHERE user_id=$1`, user).Scan(&groups, &terms)
-	if errors.Is(err, pgx.ErrNoRows) {
-		err = nil
-	}
+	err = db.QueryRow(ctx, `SELECT COALESCE(array_agg(DISTINCT g) FILTER (WHERE g IS NOT NULL),'{}'),COALESCE(array_agg(DISTINCT t) FILTER (WHERE t IS NOT NULL),'{}') FROM (
+ SELECT unnest(f.groups) g,unnest(f.terms) t FROM food_avoid f
+ WHERE f.user_id=$1 OR f.user_id IN (`+sharingHousemates+`)) x`, user).Scan(&groups, &terms)
 	return groups, terms, err
 }
+
+// sharingHousemates is the ids of the other members of $1's household who share their diets and
+// allergies with it.
+const sharingHousemates = `SELECT o.user_id FROM household_members me JOIN household_members o ON o.household_id=me.household_id AND o.user_id<>me.user_id
+ JOIN users ou ON ou.id=o.user_id AND ou.suspended_at IS NULL WHERE me.user_id=$1 AND (ou.preferences->>'shareDiet')::boolean IS TRUE`
+
+// householdAvoidJSON is GET /me's householdAvoid: [{id, name, avoid}] for each housemate who
+// shares their diets and allergies, so the app can say whose they are.
+const householdAvoidJSON = `COALESCE((SELECT jsonb_agg(jsonb_build_object('id',x.id,'name',x.name,'avoid',f.avoid) ORDER BY x.name,x.id)
+ FROM food_avoid f JOIN users x ON x.id=f.user_id WHERE f.user_id IN (` + sharingHousemates + `)),'[]')`
 
 // memberLanguage is the language a member writes in, which reads German compounds; "" when
 // they chose none.

@@ -692,8 +692,11 @@ export function Discover({
 function Hero({ recipe, onOpen }: { recipe: Recipe; onOpen: (r: Recipe) => void }) {
   const { t: tr } = useI18n();
   const { compact, width } = useChrome();
-  const { avoid } = useFood();
-  const conflicts = useMemo(() => foodConflicts(recipe, avoid), [recipe, avoid]);
+  const { avoid, household } = useFood();
+  const conflicts = useMemo(
+    () => foodConflicts(recipe, avoid, household),
+    [recipe, avoid, household],
+  );
   const press = usePress(0.985);
   const hover = useState(() => new Animated.Value(0))[0];
   return (

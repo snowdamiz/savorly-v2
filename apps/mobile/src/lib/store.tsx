@@ -54,8 +54,8 @@ const useSameIds = (ids: string[]) => {
 const useSameFood = (food: FoodState) => {
   const key = foodKey(food);
   return useMemo<FoodState>(() => {
-    const [groups, terms, diets, pantryCover] = JSON.parse(key);
-    return { avoid: { groups, terms }, diets, pantryCover };
+    const [groups, terms, diets, pantryCover, household] = JSON.parse(key);
+    return { avoid: { groups, terms }, household, diets, pantryCover };
   }, [key]);
 };
 // A cancelled share sheet or picker isn't a failure to report.
@@ -408,6 +408,7 @@ function useAppState() {
     user
       ? {
           avoid: user.avoid ?? null,
+          household: (user.householdAvoid ?? []).map((h) => ({ name: h.name, avoid: h.avoid })),
           diets: user.preferences.diets ?? [],
           pantryCover: kitchen.pantryCover ?? [],
         }

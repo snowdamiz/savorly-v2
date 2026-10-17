@@ -72,6 +72,11 @@ export type Recipe = Omit<RecipeInput, 'derivedFrom'> & {
   allergens?: string[];
   /** What each ingredient is, in the same order as `ingredients`. Missing on older servers. */
   ingredientFood?: IngredientFood[];
+  /**
+   * Another household member's private recipe on the shared plan: its name and photo only, with
+   * no ingredients or steps, and it doesn't open.
+   */
+  teaser?: boolean;
   /** Finished cooking-mode sessions that count as real cooks. Missing on older servers. */
   verifiedCooks?: number;
   /** How long verified cooks usually take, in minutes; null until 3 agree. Missing on older servers. */
@@ -107,6 +112,8 @@ export type Preferences = {
   /** The app's language, which notifications are written in ('' until one is chosen). */
   language?: string;
   notifications?: Partial<NotificationPreferences>;
+  /** The household sees this member's diets and allergies, and recipes warn about them for all. */
+  shareDiet?: boolean;
   /** Recipes in other languages open translated into the app's. Older servers leave it out. */
   translateRecipes?: boolean;
 };
@@ -129,6 +136,8 @@ export type User = Creator & {
   adminPending?: boolean;
   /** What recipe pages warn this member about. Missing on older servers. */
   avoid?: Avoid;
+  /** Housemates who share their diets and allergies, and what they avoid. Missing on older servers. */
+  householdAvoid?: { id: string; name: string; avoid: Avoid }[];
 };
 export type PlanID = 'free' | 'plus' | 'pro';
 /** A subscription plan; `Plan` is a meal-plan entry. */
@@ -223,6 +232,8 @@ export type Plan = {
   meal: string;
   servings: number;
   recipe: Recipe;
+  /** Who planned it on a household's plan; null on a member's own. Missing on older servers. */
+  plannedBy?: { id: string; name: string } | null;
 };
 export type Grocery = {
   id: string;
@@ -233,7 +244,14 @@ export type Grocery = {
   /** Who put it on a household's shared list; null for older items (and missing on older servers). */
   addedBy?: { id: string; name: string } | null;
 };
-export type PantryItem = { id: string; name: string; quantity: string; expiresOn: string | null };
+export type PantryItem = {
+  id: string;
+  name: string;
+  quantity: string;
+  expiresOn: string | null;
+  /** Who added it to a household's pantry; null on a member's own. Missing on older servers. */
+  addedBy?: { id: string; name: string } | null;
+};
 export type Kitchen = {
   plans: Plan[];
   groceries: Grocery[];

@@ -159,7 +159,7 @@ test('the week’s groceries go on the list in one request, and the toast says w
       { exact: true },
     ),
   ).toBeVisible();
-  expect(posted).toEqual([{ from: '2026-10-11', to: '2026-10-17' }]);
+  expect(posted).toEqual([{ from: '2026-10-11', to: '2026-10-17', skipPantry: true }]);
   // One request for the whole week (not one per recipe), then the list is fetched again.
   expect(requests.filter((r) => r.startsWith('POST'))).toEqual(['POST /planner/groceries']);
   const added = requests.indexOf('POST /planner/groceries');
@@ -186,6 +186,6 @@ test.describe('Russian', () => {
         { exact: true },
       ),
     ).toBeVisible();
-    expect(posted).toEqual([{ from: '2026-10-12', to: '2026-10-18' }]);
+    expect(posted).toEqual([{ from: '2026-10-12', to: '2026-10-18', skipPantry: true }]);
   });
 });

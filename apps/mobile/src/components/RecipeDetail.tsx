@@ -127,7 +127,10 @@ export function RecipeDetail({
   const app = useApp();
   // What the reader avoids that this recipe has, and which lines their pantry covers.
   const food = useFood();
-  const conflicts = useMemo(() => foodConflicts(recipe, food.avoid), [recipe, food.avoid]);
+  const conflicts = useMemo(
+    () => foodConflicts(recipe, food.avoid, food.household),
+    [recipe, food.avoid, food.household],
+  );
   const pantry = useMemo(() => pantryLines(recipe, food.pantryCover), [recipe, food.pantryCover]);
   const page = useSlideOver(onClose);
   const { width, height, insets, gutter, webPage } = useChrome();

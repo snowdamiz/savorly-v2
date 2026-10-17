@@ -1,6 +1,15 @@
 import { useI18n } from '../lib/i18n';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  AppState,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import {
   BookOpen,
   CalendarDays,
@@ -297,12 +306,24 @@ function MealSlot({
   onRemove: () => void;
 }) {
   const { t: tr, locale } = useI18n();
+  const app = useApp();
+  // Another household member's private recipe is only its name here: it doesn't open.
+  const teaser = !!plan?.recipe.teaser;
+  const by = plan?.plannedBy && plan.plannedBy.id !== app.user?.id ? plan.plannedBy.name : '';
   return plan ? (
     <View style={[s.card, s.row, { padding: 10, gap: 12, flex: 1 }]}>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={tr('View {{v0}}', { v0: plan.recipe.title })}
-        onPress={() => onOpen(plan.recipe)}
+        accessibilityLabel={
+          teaser
+            ? tr('{{v0}}’s private recipe: {{v1}}', { v0: by, v1: plan.recipe.title })
+            : tr('View {{v0}}', { v0: plan.recipe.title })
+        }
+        onPress={() =>
+          teaser
+            ? app.notify(tr('Only {{v0}} can open this recipe; it’s private.', { v0: by }))
+            : onOpen(plan.recipe)
+        }
         style={[s.row, { gap: 12, flex: 1 }]}
       >
         <FoodImage uri={plan.recipe.image} style={{ width: 56, height: 56, borderRadius: 18 }} />
@@ -311,7 +332,11 @@ function MealSlot({
           <Text numberOfLines={1} style={[s.h3, { fontSize: 15 }]}>
             {plan.recipe.title}
           </Text>
-          <Text style={s.small}>{tr('servingCount', { count: plan.servings })}</Text>
+          <Text numberOfLines={1} style={s.small}>
+            {by
+              ? `${tr('servingCount', { count: plan.servings })} · ${tr('Planned by {{v0}}', { v0: by })}`
+              : tr('servingCount', { count: plan.servings })}
+          </Text>
         </View>
       </Pressable>
       <IconButton
@@ -414,6 +439,31 @@ function useWeekPlans(from: string, to: string, today: string, userId: string | 
     reload,
   };
 }
+/**
+ * Others in the household change the same kitchen, so while it's on screen it's asked for again
+ * every 20 seconds, and as the app comes back to the foreground. A kitchen of one changes only
+ * when its cook does, and isn't polled.
+ */
+function useLiveKitchen(shared: boolean, refresh: () => Promise<unknown>) {
+  const latest = useRef(refresh);
+  useEffect(() => {
+    latest.current = refresh;
+  });
+  useEffect(() => {
+    if (!shared) return;
+    const hidden = () =>
+      Platform.OS === 'web' && typeof document !== 'undefined' && document.hidden;
+    const tick = () => {
+      if (AppState.currentState === 'active' && !hidden()) void latest.current().catch(() => {});
+    };
+    const timer = setInterval(tick, 20_000);
+    const back = AppState.addEventListener('change', (state) => state === 'active' && tick());
+    return () => {
+      clearInterval(timer);
+      back.remove();
+    };
+  }, [shared]);
+}
 export function Planner({
   onOpen,
   onAsk,
@@ -448,10 +498,11 @@ export function Planner({
   const shared = household.supported && !!household.household;
   const groceries = app.kitchen.groceries;
   const checked = groceries.filter((g) => g.checked).length;
-  // Others add to a shared list too, so opening it shows their latest.
+  // Others add to a shared list too, so opening it shows their latest, and it keeps up.
   useEffect(() => {
     if (tab === 'groceries' && shared) void refreshKitchen().catch(() => {});
   }, [tab, shared, refreshKitchen]);
+  useLiveKitchen(shared, () => Promise.all([refreshKitchen(), week.reload()]));
   const moveWeek = (n: number) => {
     setOffset(n);
     const next = weekDays(n, firstDay);
@@ -1008,6 +1059,11 @@ export function Pantry({
     return date ? daysBetween(now, date) : null;
   };
   const matching = usePantryMatches();
+  // A household shares the pantry: it says who added what, and keeps up with the others.
+  const household = useHousehold(app.user?.id ?? null);
+  const shared = household.supported && !!household.household;
+  const [sharing, setSharing] = useState(false);
+  useLiveKitchen(shared, app.refreshKitchen);
   const ask = (
     <AskCard
       title={tr('What can I make with this?')}
@@ -1064,6 +1120,9 @@ export function Pantry({
       />
     </View>
   );
+  const entry = household.supported && household.ready && (
+    <HouseholdEntry household={household.household} onPress={() => setSharing(true)} />
+  );
   const stock = (
     <>
       {app.kitchen.pantry.length ? (
@@ -1106,6 +1165,7 @@ export function Pantry({
                       ? tr(' · best before {{v0}}', { v0: formatDay(p.expiresOn, locale) })
                       : ''}
                   </Text>
+                  {p.addedBy && p.addedBy.id !== app.user?.id && <AddedBy name={p.addedBy.name} />}
                 </View>
                 {expired ? (
                   <Pill title={tr('Expired')} tone="error" />
@@ -1166,6 +1226,7 @@ export function Pantry({
           <View style={{ width: 380, gap: 16 }}>
             {ask}
             {add}
+            {entry}
           </View>
           <View style={{ flex: 1, gap: 22 }}>{stock}</View>
         </View>
@@ -1173,9 +1234,11 @@ export function Pantry({
         <>
           {ask}
           {add}
+          {entry}
           {stock}
         </>
       )}
+      <HouseholdSheet visible={sharing} onClose={() => setSharing(false)} state={household} />
     </View>
   );
 }

@@ -88,7 +88,7 @@ type planSlot struct {
 
 func (a *App) planSlot(ctx context.Context, owner, day, meal string) *planSlot {
 	var s planSlot
-	if a.DB.QueryRow(ctx, `SELECT recipe_id,servings FROM meal_plans WHERE user_id=$1 AND day=$2::date AND meal=$3`, owner, day, meal).Scan(&s.Recipe, &s.Servings) != nil {
+	if a.DB.QueryRow(ctx, `SELECT m.recipe_id,m.servings FROM meal_plans m WHERE `+kitchenScope("m", 1)+` AND m.day=$2::date AND m.meal=$3`, owner, day, meal).Scan(&s.Recipe, &s.Servings) != nil {
 		return nil
 	}
 	return &s
@@ -130,14 +130,14 @@ type pantryEntry struct {
 
 func (a *App) pantryEntry(ctx context.Context, owner, name string) *pantryEntry {
 	var p pantryEntry
-	if a.DB.QueryRow(ctx, `SELECT quantity,to_char(expires_on,'YYYY-MM-DD') FROM pantry WHERE user_id=$1 AND name=$2`, owner, name).Scan(&p.Quantity, &p.ExpiresOn) != nil {
+	if a.DB.QueryRow(ctx, `SELECT k.quantity,to_char(k.expires_on,'YYYY-MM-DD') FROM pantry k WHERE `+kitchenScope("k", 1)+` AND k.name=$2`, owner, name).Scan(&p.Quantity, &p.ExpiresOn) != nil {
 		return nil
 	}
 	return &p
 }
 
 // undoEffect takes back what f did, as far as it is still there. It only touches the
-// member's own rows.
+// member's own rows, or their household's kitchen.
 func undoEffect(ctx context.Context, tx pgx.Tx, owner string, f effect) error {
 	var e error
 	switch f.Kind {
@@ -167,9 +167,9 @@ func undoEffect(ctx context.Context, tx pgx.Tx, owner string, f effect) error {
 		}
 		// Only while the slot still holds what was planned: a later change stays.
 		if u.Previous == nil {
-			_, e = tx.Exec(ctx, `DELETE FROM meal_plans WHERE user_id=$1 AND day=$2::date AND meal=$3 AND recipe_id=$4`, owner, u.Day, u.Meal, u.Recipe)
+			_, e = tx.Exec(ctx, `DELETE FROM meal_plans m WHERE `+kitchenScope("m", 1)+` AND m.day=$2::date AND m.meal=$3 AND m.recipe_id=$4`, owner, u.Day, u.Meal, u.Recipe)
 		} else {
-			_, e = tx.Exec(ctx, `UPDATE meal_plans SET recipe_id=$5,servings=$6 WHERE user_id=$1 AND day=$2::date AND meal=$3 AND recipe_id=$4`, owner, u.Day, u.Meal, u.Recipe, u.Previous.Recipe, u.Previous.Servings)
+			_, e = tx.Exec(ctx, `UPDATE meal_plans m SET recipe_id=$5,servings=$6 WHERE `+kitchenScope("m", 1)+` AND m.day=$2::date AND m.meal=$3 AND m.recipe_id=$4`, owner, u.Day, u.Meal, u.Recipe, u.Previous.Recipe, u.Previous.Servings)
 		}
 	case "pantry":
 		var u struct {
@@ -180,9 +180,9 @@ func undoEffect(ctx context.Context, tx pgx.Tx, owner string, f effect) error {
 			return e
 		}
 		if u.Previous == nil {
-			_, e = tx.Exec(ctx, `DELETE FROM pantry WHERE user_id=$1 AND name=$2`, owner, u.Name)
+			_, e = tx.Exec(ctx, `DELETE FROM pantry k WHERE `+kitchenScope("k", 1)+` AND k.name=$2`, owner, u.Name)
 		} else {
-			_, e = tx.Exec(ctx, `UPDATE pantry SET quantity=$3,expires_on=$4::date WHERE user_id=$1 AND name=$2`, owner, u.Name, u.Previous.Quantity, u.Previous.ExpiresOn)
+			_, e = tx.Exec(ctx, `UPDATE pantry k SET quantity=$3,expires_on=$4::date WHERE `+kitchenScope("k", 1)+` AND k.name=$2`, owner, u.Name, u.Previous.Quantity, u.Previous.ExpiresOn)
 		}
 	case "saved", "unsaved":
 		var u struct {

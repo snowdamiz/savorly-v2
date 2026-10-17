@@ -27,11 +27,11 @@ func stapleKeys() []string {
 	return out
 }
 
-// pantryCoverOf is every key the member's pantry covers; expiring is those of items that expire
+// pantryCoverOf is every key the member's pantry (their household's, in one) covers; expiring is those of items that expire
 // within days days (of the server's date: a day either way changes little here).
 func pantryCoverOf(ctx context.Context, db recipeWriter, user string, days int) (cover, expiring []string, err error) {
-	err = db.QueryRow(ctx, `SELECT COALESCE(array_agg(DISTINCT k),'{}'),COALESCE(array_agg(DISTINCT k) FILTER (WHERE p.expires_on<=current_date+$2::int),'{}')
- FROM pantry p, unnest(p.food_keys) k WHERE p.user_id=$1`, user, days).Scan(&cover, &expiring)
+	err = db.QueryRow(ctx, `SELECT COALESCE(array_agg(DISTINCT x),'{}'),COALESCE(array_agg(DISTINCT x) FILTER (WHERE k.expires_on<=current_date+$2::int),'{}')
+ FROM pantry k, unnest(k.food_keys) x WHERE `+kitchenScope("k", 1), user, days).Scan(&cover, &expiring)
 	return cover, expiring, err
 }
 

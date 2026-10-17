@@ -28,10 +28,21 @@ const avoid: Avoid = {
 describe('what a recipe has that its reader avoids', () => {
   test('groups and the reader’s own words, with the lines that have them', () => {
     expect(foodConflicts(recipe({}), avoid)).toEqual([
-      { group: 'poultry', from: ['Vegetarian'], ingredients: [0] },
-      { group: 'peanut', from: ['Peanuts'], ingredients: [1] },
-      { term: 'cilantro', from: ['coriander'], ingredients: [2] },
+      { group: 'poultry', from: [{ what: 'Vegetarian' }], ingredients: [0] },
+      { group: 'peanut', from: [{ what: 'Peanuts' }], ingredients: [1] },
+      { term: 'cilantro', from: [{ what: 'coriander' }], ingredients: [2] },
     ]);
+  });
+  test('housemates who share theirs add their reasons, by name', () => {
+    const ben = { name: 'Ben', avoid: { groups: { peanut: ['Peanuts'] }, terms: {} } };
+    expect(foodConflicts(recipe({}), null, [ben])).toEqual([
+      { group: 'peanut', from: [{ what: 'Peanuts', who: 'Ben' }], ingredients: [1] },
+    ]);
+    expect(foodConflicts(recipe({}), avoid, [ben])[1]).toEqual({
+      group: 'peanut',
+      from: [{ what: 'Peanuts' }, { what: 'Peanuts', who: 'Ben' }],
+      ingredients: [1],
+    });
   });
   test('nothing for a guest, or a reader who avoids nothing here', () => {
     expect(foodConflicts(recipe({}), null)).toEqual([]);
@@ -39,8 +50,8 @@ describe('what a recipe has that its reader avoids', () => {
   });
   test('older recipes without ingredient facts conflict by their groups, with no lines', () => {
     expect(foodConflicts(recipe({ ingredientFood: undefined }), avoid)).toEqual([
-      { group: 'peanut', from: ['Peanuts'], ingredients: [] },
-      { group: 'poultry', from: ['Vegetarian'], ingredients: [] },
+      { group: 'peanut', from: [{ what: 'Peanuts' }], ingredients: [] },
+      { group: 'poultry', from: [{ what: 'Vegetarian' }], ingredients: [] },
     ]);
     // Facts that don't line up with the ingredients (an edit not yet indexed) aren't trusted.
     const shorter = recipe({}).ingredientFood!.slice(0, 2);
@@ -63,7 +74,7 @@ describe('the pantry and names', () => {
     expect(joinNames(['卵', 'バター'], 'ja')).toBe('卵、バター');
   });
   test('the same food state has the same key', () => {
-    const a = { avoid, diets: ['Vegetarian'], pantryCover: ['egg'] };
+    const a = { avoid, household: [], diets: ['Vegetarian'], pantryCover: ['egg'] };
     expect(foodKey(a)).toBe(foodKey(JSON.parse(JSON.stringify(a))));
     expect(foodKey(a)).not.toBe(foodKey(noFood));
   });

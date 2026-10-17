@@ -1081,9 +1081,9 @@ func listOrNone(items []string) string {
 // items rather than ids.
 func (a *App) removalDescription(ctx context.Context, owner, kind string, ids []string) (string, error) {
 	query := map[string]string{
-		"plan":     `SELECT to_char(m.day,'Dy DD Mon')||' '||lower(m.meal)||', '||r.title FROM meal_plans m JOIN recipes r ON r.id=m.recipe_id WHERE m.id=ANY($1) AND m.user_id=$2 ORDER BY m.day`,
+		"plan":     `SELECT to_char(m.day,'Dy DD Mon')||' '||lower(m.meal)||', '||r.title FROM meal_plans m JOIN recipes r ON r.id=m.recipe_id WHERE m.id=ANY($1) AND ` + kitchenScope("m", 2) + ` ORDER BY m.day`,
 		"grocery":  `SELECT g.name FROM groceries g WHERE g.id=ANY($1) AND ` + groceryScope(2) + ` ORDER BY g.name`,
-		"pantry":   `SELECT name FROM pantry WHERE id=ANY($1) AND user_id=$2 ORDER BY name`,
+		"pantry":   `SELECT k.name FROM pantry k WHERE k.id=ANY($1) AND ` + kitchenScope("k", 2) + ` ORDER BY k.name`,
 		"cookbook": `SELECT name FROM collections WHERE id=ANY($1) AND user_id=$2 ORDER BY name`,
 	}[kind]
 	rows, e := a.DB.Query(ctx, query, ids, owner)

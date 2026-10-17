@@ -78,8 +78,8 @@ function useRating(recipe: Recipe) {
 }
 // What the reader avoids that a recipe has, for its card.
 function useConflicts(recipe: Recipe) {
-  const { avoid } = useFood();
-  return useMemo(() => foodConflicts(recipe, avoid), [recipe, avoid]);
+  const { avoid, household } = useFood();
+  return useMemo(() => foodConflicts(recipe, avoid, household), [recipe, avoid, household]);
 }
 function Badge({ recipe }: { recipe: Recipe }) {
   const { t: tr } = useI18n();
