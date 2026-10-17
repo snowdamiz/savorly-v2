@@ -58,6 +58,7 @@ import { useSousChefDock } from './sousChefDock';
 import { fileForm } from '../lib/photos';
 import { requestKey } from '../lib/utils';
 import { openVoice } from '../lib/voice/transport';
+import { studioPollDelay } from '../lib/studioPace';
 import { VoiceConnection, VoiceEvent } from '../lib/voice/connection';
 
 // Consecutive events from one side are one bubble; its receipts remember which event they came
@@ -296,10 +297,13 @@ export function RecipeStudio({
     await current?.close();
   }, []);
   const refresh = useCallback(async (id: string) => {
-    const [next, incoming] = await Promise.all([
-      api<StudioProject>(`/recipe-studio/${id}`),
-      api<StudioEvent[]>(`/recipe-studio/${id}/events?after=${cursor.current}`),
-    ]);
+    // The conversation comes with what's new in it; an older server sends that separately.
+    const after = cursor.current;
+    const { events: included, ...next } = await api<StudioProject & { events?: StudioEvent[] }>(
+      `/recipe-studio/${id}?after=${after}`,
+    );
+    const incoming =
+      included ?? (await api<StudioEvent[]>(`/recipe-studio/${id}/events?after=${after}`));
     if (!live.current || projectRef.current?.id !== id) return;
     projectRef.current = next;
     setProject(next);
@@ -429,7 +433,11 @@ export function RecipeStudio({
           setError((e as Error).message);
         }
       } finally {
-        if (!done) timeout = setTimeout(() => void poll(), 1800);
+        if (!done)
+          timeout = setTimeout(
+            () => void poll(),
+            studioPollDelay(projectRef.current, !!connection.current),
+          );
       }
     };
     timeout = setTimeout(() => void poll(), 1200);
@@ -437,7 +445,8 @@ export function RecipeStudio({
       done = true;
       clearTimeout(timeout);
     };
-  }, [project?.id, refresh, watching]);
+    // A reply on its way, or a call, looks again soon rather than at the quiet pace.
+  }, [project?.id, refresh, watching, project?.busy, runningVoice]);
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
       if (state === 'background') {

@@ -43,16 +43,28 @@ const questionSQL = `CASE WHEN p.pending IS NOT NULL THEN jsonb_build_object('ki
 func (a *App) studioList(c fiber.Ctx) error {
 	return a.queryMany(c, `SELECT `+projectJSON+` FROM voice_projects p WHERE p.user_id=$1 AND p.deleted_at IS NULL ORDER BY p.updated_at DESC LIMIT 20`, userID(c))
 }
+
+// studioGet reads a conversation. With ?after=<seq> it also carries the events after it
+// (events), so a polling app makes one request rather than two.
 func (a *App) studioGet(c fiber.Ctx) error {
+	if after := c.Query("after"); after != "" {
+		seq, _ := strconv.Atoi(after)
+		return a.queryOne(c, `SELECT `+projectJSON+`||jsonb_build_object('events',(SELECT COALESCE(jsonb_agg(ev.event ORDER BY ev.seq),'[]') FROM (`+studioEventsSQL+`) ev)) FROM voice_projects p WHERE p.id=$1 AND p.user_id=$2 AND p.deleted_at IS NULL`, c.Params("id"), userID(c), seq)
+	}
 	return a.queryOne(c, `SELECT `+projectJSON+` FROM voice_projects p WHERE p.id=$1 AND p.user_id=$2 AND p.deleted_at IS NULL`, c.Params("id"), userID(c))
 }
 func (a *App) studioEvents(c fiber.Ctx) error {
 	after, _ := strconv.Atoi(c.Query("after", "0"))
-	return a.queryMany(c, `SELECT jsonb_build_object('seq',e.seq,'role',e.role,'content',e.content,'imageCount',jsonb_array_length(e.images),'actions',e.actions,'changed',e.changed,
- 'effects',`+publicEffectsSQL+`,
- 'failed',starts_with(e.event_id,'result_') AND EXISTS(SELECT 1 FROM voice_actions a WHERE a.id=substr(e.event_id,8) AND a.status='failed'),
- 'recipes',(SELECT COALESCE(jsonb_agg(jsonb_build_object('id',r.id,'title',r.title,'image',r.image,'minutes',r.minutes,'cuisine',r.cuisine) ORDER BY x.n),'[]') FROM jsonb_array_elements_text(e.recipes) WITH ORDINALITY x(id,n) JOIN recipes r ON r.id=x.id AND (r.published OR r.author_id=p.user_id) JOIN users u ON u.id=r.author_id AND u.suspended_at IS NULL)) FROM voice_events e JOIN voice_projects p ON p.id=e.project_id WHERE p.id=$1 AND p.user_id=$2 AND p.deleted_at IS NULL AND e.seq>$3 ORDER BY e.seq LIMIT 1000`, c.Params("id"), userID(c), after)
+	return a.queryMany(c, `SELECT ev.event FROM (`+studioEventsSQL+`) ev ORDER BY ev.seq`, c.Params("id"), userID(c), after)
 }
+
+// studioEventsSQL is conversation $1's events after seq $3, as its owner $2 sees them: up to
+// 1,000, oldest first.
+const studioEventsSQL = `SELECT e.seq,jsonb_build_object('seq',e.seq,'role',e.role,'content',e.content,'imageCount',jsonb_array_length(e.images),'actions',e.actions,'changed',e.changed,
+ 'effects',` + publicEffectsSQL + `,
+ 'failed',starts_with(e.event_id,'result_') AND EXISTS(SELECT 1 FROM voice_actions a WHERE a.id=substr(e.event_id,8) AND a.status='failed'),
+ 'recipes',(SELECT COALESCE(jsonb_agg(jsonb_build_object('id',r.id,'title',r.title,'image',r.image,'minutes',r.minutes,'cuisine',r.cuisine) ORDER BY x.n),'[]') FROM jsonb_array_elements_text(e.recipes) WITH ORDINALITY x(id,n) JOIN recipes r ON r.id=x.id AND (r.published OR r.author_id=p.user_id) JOIN users u ON u.id=r.author_id AND u.suspended_at IS NULL)) event
+ FROM voice_events e JOIN voice_projects p ON p.id=e.project_id WHERE p.id=$1 AND p.user_id=$2 AND p.deleted_at IS NULL AND e.seq>$3 ORDER BY e.seq LIMIT 1000`
 
 // maxConversations bounds each member's conversations. Past it, a new one erases the oldest
 // that have been idle for 30 days, as deleting them would: the app lists only the 20 most
