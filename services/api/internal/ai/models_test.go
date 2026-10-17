@@ -128,8 +128,31 @@ func TestAgentPreservesReasoningSignaturesAndUsesFastRouting(t *testing.T) {
 			t.Error("tool arguments changed")
 		}
 		return `{"pantry":["lentils"]}`
+	}, func(content string) (string, bool) {
+		if content != "" {
+			t.Errorf("content with the calls: %q", content)
+		}
+		return "", false
 	})
 	if e != nil || reply != "Your pantry has lentils." || cost != .002 || executed != 1 || turn != 2 {
 		t.Fatalf("agent result: %q cost=%v tools=%d turns=%d err=%v", reply, cost, executed, turn, e)
+	}
+}
+
+func TestAgentEndsWhenTheAppSettlesARound(t *testing.T) {
+	rounds := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rounds++
+		message := map[string]any{"content": " Opening it now. ", "tool_calls": []any{map[string]any{"id": "call_1", "type": "function", "function": map[string]any{"name": "app_action", "arguments": `{"action":"open_recipe"}`}}}}
+		json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": message}}, "usage": map[string]any{"cost": .001}})
+	}))
+	defer server.Close()
+	c := New()
+	c.OpenRouterURL = server.URL
+	reply, cost, e := c.Agent(context.Background(), map[string]string{}, nil, []Tool{{Name: "app_action", Parameters: map[string]any{"type": "object"}}}, func(string, json.RawMessage) string { return `{"ok":true}` }, func(content string) (string, bool) {
+		return content, content != ""
+	})
+	if e != nil || reply != "Opening it now." || cost != .001 || rounds != 1 {
+		t.Fatalf("settled round: %q cost=%v rounds=%d err=%v", reply, cost, rounds, e)
 	}
 }

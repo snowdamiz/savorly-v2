@@ -106,7 +106,7 @@ func TestDeletingAConversationStopsItsTurns(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	reply, cost, e := a.AI.Agent(ctx, input, nil, agentTools, func(name string, args json.RawMessage) string { return a.agentTool(ctx, run, name, args) })
+	reply, cost, e := a.AI.Agent(ctx, input, nil, agentTools, func(name string, args json.RawMessage) string { return a.agentTool(ctx, run, name, args) }, nil)
 	if e != nil || deleted != 204 {
 		t.Fatalf("turn %v, delete %d", e, deleted)
 	}

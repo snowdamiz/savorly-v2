@@ -27,6 +27,10 @@ func TestLiveWebRTCAndSidebandContract(t *testing.T) {
 			if session["model"] != "gpt-live-1" || session["store"] != false || session["delegation"].(map[string]any)["type"] != "client" {
 				t.Error("wrong live configuration")
 			}
+			// What the user has open follows the instructions, as data.
+			if instructions, _ := session["instructions"].(string); !strings.HasPrefix(instructions, Instructions) || !strings.HasSuffix(instructions, "\n\nApp context. Open recipe: “Lemon toast”.") {
+				t.Errorf("instructions without the app context: %q", instructions)
+			}
 			if body["transport"].(map[string]any)["type"] != "webrtc" {
 				t.Error("wrong transport")
 			}
@@ -54,7 +58,7 @@ func TestLiveWebRTCAndSidebandContract(t *testing.T) {
 	client := &Client{Key: "test-secret", BaseURL: server.URL, Voice: "gleam", HTTP: server.Client()}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	answer, e := client.Create(ctx, "v=0", []Message{{Role: "user", Content: "Two slices"}}, "Draft saved.")
+	answer, e := client.Create(ctx, "v=0", []Message{{Role: "user", Content: "Two slices"}}, "Draft saved.", "App context. Open recipe: “Lemon toast”.")
 	if e != nil || answer.Transport.SDP != "answer" {
 		t.Fatal(e)
 	}
@@ -106,7 +110,7 @@ func TestLiveModelEnvironmentReachesSession(t *testing.T) {
 			if c.ModelID() != want {
 				t.Fatal("model configuration not exposed")
 			}
-			if _, e := c.Create(context.Background(), "offer", nil, ""); e != nil {
+			if _, e := c.Create(context.Background(), "offer", nil, "", ""); e != nil {
 				t.Fatal(e)
 			}
 		})

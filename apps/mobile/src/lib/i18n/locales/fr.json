@@ -1373,5 +1373,9 @@
   "Add a clip to step {{v0}}": "Ajouter une vidéo à l’étape {{v0}}",
   "Replace the clip for step {{v0}}": "Remplacer la vidéo de l’étape {{v0}}",
   "Remove the clip for step {{v0}}": "Supprimer la vidéo de l’étape {{v0}}",
-  "Each step can have a photo and a short clip of up to 30 seconds.": "Chaque étape peut avoir une photo et une courte vidéo de 30 secondes au plus."
+  "Each step can have a photo and a short clip of up to 30 seconds.": "Chaque étape peut avoir une photo et une courte vidéo de 30 secondes au plus.",
+  "Speaking…": "En train de parler…",
+  "Working on it…": "C’est en cours…",
+  "{{v0}} left": "Il reste {{v0}}",
+  "Resume voice": "Reprendre l’échange vocal"
 }

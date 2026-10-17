@@ -102,6 +102,9 @@ type agentRun struct {
 	// action is the turn's voice_actions id; step is what it's doing; cancel stops it.
 	action, step string
 	cancel       func()
+	// voice is a turn delegated from a live call; screen counts the screen actions it made.
+	voice  bool
+	screen int
 }
 
 // The assistant acts through the same handlers as the app, so validation and ownership
@@ -664,6 +667,7 @@ func (a *App) agentTool(ctx context.Context, run *agentRun, name string, raw jso
 			return toolError("One reply can do up to four things on screen.")
 		}
 		run.actions = append(run.actions, act)
+		run.screen++
 		return `{"ok":true,"note":"This happens on the user's screen when your reply arrives."}`
 	case "save_recipe_draft", "read_back_draft", "publish_draft", "retry_draft_media":
 		action := map[string]string{"save_recipe_draft": "build", "read_back_draft": "review", "publish_draft": "publish", "retry_draft_media": "retry_media"}[name]
