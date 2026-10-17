@@ -1,6 +1,6 @@
 name: Verify Savorly
 # Pushes to the long-lived branches and every pull request; a pull request's commits run once, as
-# pull_request. Actions are pinned to commit SHAs (Dependabot proposes updates).
+# pull_request. Actions are pinned to commit SHAs; update them by hand.
 on:
   push:
     branches: [main, staging, release]
