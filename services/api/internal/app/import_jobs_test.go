@@ -166,7 +166,7 @@ func TestFailedImportsDontCountAgainstTheMember(t *testing.T) {
 	u, e := usageOf(ctx, db, "cook")
 	var mine, total float64
 	if e == nil {
-		e = db.QueryRow(ctx, budgetSumsSQL, "cook").Scan(&mine, new(float64), &total)
+		e = db.QueryRow(ctx, budgetSumsSQL, []string{"cook"}).Scan(&mine, new(float64), &total)
 	}
 	estimate := ai.GenerationEstimate("recipe")
 	if e != nil || u.Assistant != 2 || u.Spend != 2*estimate || mine != 2*estimate {

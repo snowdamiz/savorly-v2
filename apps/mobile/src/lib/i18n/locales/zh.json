@@ -1576,5 +1576,11 @@
   "Ordering groceries isn't available right now. You can share the list instead.": "目前无法下单购买食材，你可以改为分享清单。",
   "Your grocery list has nothing left to buy.": "购物清单上已没有要买的东西。",
   "You already have everything this recipe needs.": "这道菜需要的食材你都有了。",
-  "We couldn't reach Instacart. Try again in a moment, or share the list instead.": "无法连接 Instacart。请稍后再试，或改为分享清单。"
+  "We couldn't reach Instacart. Try again in a moment, or share the list instead.": "无法连接 Instacart。请稍后再试，或改为分享清单。",
+  "{{v0}} shares this plan with your household. Allowances are for everyone on it and cover the last 30 days.": "{{v0}}与你的家庭共享此方案。额度由所有人共用，按最近 30 天计算。",
+  "sharedPlanCount": "你的方案也覆盖家庭中另外 {{count}} 人；你们共用额度，按最近 30 天计算。",
+  "sharedPlanCount_one": "你的方案也覆盖家庭中另外 {{count}} 人；你们共用额度，按最近 30 天计算。",
+  "sharedPlanCount_few": "你的方案也覆盖家庭中另外 {{count}} 人；你们共用额度，按最近 30 天计算。",
+  "sharedPlanCount_many": "你的方案也覆盖家庭中另外 {{count}} 人；你们共用额度，按最近 30 天计算。",
+  "sharedPlanCount_other": "你的方案也覆盖家庭中另外 {{count}} 人；你们共用额度，按最近 30 天计算。"
 }

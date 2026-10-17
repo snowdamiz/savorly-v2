@@ -24,6 +24,8 @@ Allowances cover a rolling 30 days once `PAID_PLANS=true`.
 | Cooking questions (“Chef, …”)         |    30 |              100 |               150 |
 | AI spend ceiling (`SpendCap`)         | $0.50 |            $3.80 |             $7.69 |
 
+**A plan covers the household.** Members of a household without a paid plan of their own use the best one in it (Pro before Plus, then whoever joined first), so a partner or flatmate never pays again. Everyone on a shared plan draws from its allowances and its one `SpendCap` (`poolOf` in `plans.go`), so a subscription costs no more however many share it, and every margin below holds as it is. A member with a lesser plan of their own keeps it, and leaving the household, or a suspended payer, ends the sharing. The creator fund counts only the payer's verified cooks, since only the payer's revenue funds it.
+
 Everything else (recipes, cookbooks, planner, groceries, pantry, community, device read-aloud, recipes translated into your language, and hands-free cooking's spoken commands) stays free. Comparable apps charge $4.99–$9.99 a month: Samsung Food+ $6.99/$59.99, SideChef $4.99/$49.99, Plan to Eat $5.95/$49, Ollie from $9.99 (October 2026 store listings).
 
 ## Why these numbers are cash-flow positive

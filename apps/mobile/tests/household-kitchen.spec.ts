@@ -106,3 +106,51 @@ test('a housemate’s shared allergies warn on recipes, with their name', async 
     page.getByLabel('Contains Peanuts, which your household avoids', { exact: true }).first(),
   ).toBeVisible();
 });
+
+test('a plan shared by a housemate says whose it is', async ({ page }) => {
+  const plus = {
+    id: 'plus',
+    monthlyUSD: 9.99,
+    yearlyUSD: 79.99,
+    assistant: 80,
+    voiceMinutes: 20,
+    images: 6,
+    videos: 0,
+    narration: 30,
+    cookQuestions: 100,
+  };
+  const api = await mockApi(page, {
+    user: { plan: 'plus' },
+    capabilities: { plans: true, billing: true },
+  });
+  api.on('GET', '/billing', () =>
+    json({
+      plan: 'plus',
+      status: '',
+      interval: '',
+      renewsAt: null,
+      cancels: false,
+      usage: {
+        assistant: 12,
+        voiceSeconds: 0,
+        images: 2,
+        videos: 0,
+        narration: 0,
+        cookQuestions: 0,
+      },
+      plans: [plus],
+      checkout: true,
+      manage: false,
+      sharedBy: { id: 'ana', name: 'Ana' },
+      sharedWith: 1,
+    }),
+  );
+  await page.goto('/?page=profile');
+  await expect(
+    page.getByText(
+      'Ana shares this plan with your household. Allowances are for everyone on it and cover the last 30 days.',
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await expect(page.getByText('12 of 80')).toBeVisible();
+});

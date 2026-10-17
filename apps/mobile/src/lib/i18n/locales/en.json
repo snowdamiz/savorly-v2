@@ -1576,5 +1576,11 @@
   "Ordering groceries isn't available right now. You can share the list instead.": "Ordering groceries isn't available right now. You can share the list instead.",
   "Your grocery list has nothing left to buy.": "Your grocery list has nothing left to buy.",
   "You already have everything this recipe needs.": "You already have everything this recipe needs.",
-  "We couldn't reach Instacart. Try again in a moment, or share the list instead.": "We couldn't reach Instacart. Try again in a moment, or share the list instead."
+  "We couldn't reach Instacart. Try again in a moment, or share the list instead.": "We couldn't reach Instacart. Try again in a moment, or share the list instead.",
+  "{{v0}} shares this plan with your household. Allowances are for everyone on it and cover the last 30 days.": "{{v0}} shares this plan with your household. Allowances are for everyone on it and cover the last 30 days.",
+  "sharedPlanCount": "Your plan covers {{count}} others in your household too; you share its allowances, which cover the last 30 days.",
+  "sharedPlanCount_one": "Your plan covers {{count}} other person in your household too; you share its allowances, which cover the last 30 days.",
+  "sharedPlanCount_few": "Your plan covers {{count}} others in your household too; you share its allowances, which cover the last 30 days.",
+  "sharedPlanCount_many": "Your plan covers {{count}} others in your household too; you share its allowances, which cover the last 30 days.",
+  "sharedPlanCount_other": "Your plan covers {{count}} others in your household too; you share its allowances, which cover the last 30 days."
 }

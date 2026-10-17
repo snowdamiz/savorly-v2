@@ -1576,5 +1576,11 @@
   "Ordering groceries isn't available right now. You can share the list instead.": "Commander les courses n’est pas disponible pour le moment. Vous pouvez partager la liste à la place.",
   "Your grocery list has nothing left to buy.": "Il ne reste rien à acheter sur votre liste.",
   "You already have everything this recipe needs.": "Vous avez déjà tout ce qu’il faut pour cette recette.",
-  "We couldn't reach Instacart. Try again in a moment, or share the list instead.": "Impossible de joindre Instacart. Réessayez dans un instant ou partagez la liste."
+  "We couldn't reach Instacart. Try again in a moment, or share the list instead.": "Impossible de joindre Instacart. Réessayez dans un instant ou partagez la liste.",
+  "{{v0}} shares this plan with your household. Allowances are for everyone on it and cover the last 30 days.": "{{v0}} partage cette formule avec votre foyer. Les quotas valent pour tous ceux qui l’utilisent, sur les 30 derniers jours.",
+  "sharedPlanCount": "Votre formule couvre aussi {{count}} autres personnes de votre foyer ; vous partagez ses quotas, sur les 30 derniers jours.",
+  "sharedPlanCount_one": "Votre formule couvre aussi {{count}} autre personne de votre foyer ; vous partagez ses quotas, sur les 30 derniers jours.",
+  "sharedPlanCount_few": "Votre formule couvre aussi {{count}} autres personnes de votre foyer ; vous partagez ses quotas, sur les 30 derniers jours.",
+  "sharedPlanCount_many": "Votre formule couvre aussi {{count}} autres personnes de votre foyer ; vous partagez ses quotas, sur les 30 derniers jours.",
+  "sharedPlanCount_other": "Votre formule couvre aussi {{count}} autres personnes de votre foyer ; vous partagez ses quotas, sur les 30 derniers jours."
 }

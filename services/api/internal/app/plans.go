@@ -4,6 +4,7 @@ import (
 	"context"
 	"math"
 	"os"
+	"slices"
 	"strconv"
 
 	"github.com/gofiber/fiber/v3"
@@ -99,13 +100,69 @@ type querier interface {
 	QueryRow(context.Context, string, ...any) pgx.Row
 }
 
-func planOf(ctx context.Context, q querier, owner string) (Plan, error) {
+// A paid plan covers its member's household: members without a plan of their own use the best
+// one in their household (Pro before Plus, then whoever joined first), and everyone on it shares
+// its allowances and its SpendCap, so a subscription costs no more however many share it.
+// memberPlanSQL is that plan for a users row (alias u), for what the app shows and budgets.
+const memberPlanSQL = `CASE WHEN ` + effectivePlanSQL + `<>'free' THEN ` + effectivePlanSQL + ` ELSE COALESCE((SELECT x.plan FROM household_members me
+ JOIN household_members o ON o.household_id=me.household_id AND o.user_id<>me.user_id JOIN users x ON x.id=o.user_id AND x.suspended_at IS NULL
+ WHERE me.user_id=u.id AND x.plan<>'free' AND x.plan_status IN ('active','trialing','past_due') ORDER BY x.plan='pro' DESC,o.joined_at,o.user_id LIMIT 1),'free') END`
+
+// planPool is the plan a member uses, who shares it (its allowances and SpendCap count all of
+// them), and whose it is when it isn't the member's own ("" for their own, or for Free).
+type planPool struct {
+	Plan     Plan
+	Members  []string
+	SharedBy string
+}
+
+var planRank = map[string]int{"free": 0, "plus": 1, "pro": 2}
+
+func poolOf(ctx context.Context, q querier, owner string) (planPool, error) {
 	if !paidPlans() {
-		return unlimitedFree, nil
+		return planPool{Plan: unlimitedFree, Members: []string{owner}}, nil
 	}
-	var id string
-	e := q.QueryRow(ctx, `SELECT `+effectivePlanSQL+` FROM users u WHERE u.id=$1`, owner).Scan(&id)
-	return planByID(id), e
+	// The member and their household, in the order they joined, with each one's own plan.
+	var ids, own []string
+	e := q.QueryRow(ctx, `WITH home AS (SELECT household_id FROM household_members WHERE user_id=$1),
+ kitchen AS (SELECT u.id,CASE WHEN u.suspended_at IS NULL THEN `+effectivePlanSQL+` ELSE 'free' END AS plan,COALESCE(m.joined_at,'-infinity') AS joined
+  FROM users u LEFT JOIN household_members m ON m.user_id=u.id WHERE u.id=$1 OR m.household_id=(SELECT household_id FROM home))
+ SELECT COALESCE(array_agg(id ORDER BY joined,id),'{}'),COALESCE(array_agg(plan ORDER BY joined,id),'{}') FROM kitchen`, owner).Scan(&ids, &own)
+	if e != nil {
+		return planPool{}, e
+	}
+	payer := ""
+	for i, id := range ids {
+		if own[i] != "free" && (payer == "" || planRank[own[i]] > planRank[own[slices.Index(ids, payer)]]) {
+			payer = id
+		}
+	}
+	mine := "free"
+	if i := slices.Index(ids, owner); i >= 0 {
+		mine = own[i]
+	}
+	switch {
+	case mine != "free" && owner != payer:
+		// A plan of their own, below the household's best: theirs alone.
+		return planPool{Plan: planByID(mine), Members: []string{owner}}, nil
+	case payer == "":
+		return planPool{Plan: plans[0], Members: []string{owner}}, nil
+	}
+	pool := planPool{Plan: planByID(own[slices.Index(ids, payer)]), Members: []string{payer}}
+	for i, id := range ids {
+		if own[i] == "free" {
+			pool.Members = append(pool.Members, id)
+		}
+	}
+	if payer != owner {
+		pool.SharedBy = payer
+	}
+	return pool, nil
+}
+
+func planOf(ctx context.Context, q querier, owner string) (Plan, error) {
+	pool, e := poolOf(ctx, q, owner)
+	return pool.Plan, e
 }
 
 type usage struct {
@@ -119,20 +176,28 @@ type usage struct {
 	CookQuestions int `json:"cookQuestions"`
 }
 
-// usageOf counts the last 30 days. Jobs that never reserved a cost (refused up front), and
-// sous-chef turns that failed before reaching the model, don't count; provider failures do,
-// since they may still be billed.
+// usageOf counts the last 30 days of everyone sharing the member's plan (poolOf). Jobs that
+// never reserved a cost (refused up front), and sous-chef turns that failed before reaching the
+// model, don't count; provider failures do, since they may still be billed.
 func usageOf(ctx context.Context, q querier, owner string) (usage, error) {
+	pool, e := poolOf(ctx, q, owner)
+	if e != nil {
+		return usage{}, e
+	}
+	return poolUsage(ctx, q, pool.Members)
+}
+
+func poolUsage(ctx context.Context, q querier, members []string) (usage, error) {
 	var u usage
 	e := q.QueryRow(ctx, `SELECT
- (SELECT count(*) FROM voice_actions a JOIN voice_projects p ON p.id=a.project_id WHERE p.user_id=$1 AND a.estimated_cost>0 AND a.created_at>now()-interval '30 days')
-  +(SELECT count(*) FROM ai_jobs WHERE user_id=$1 AND kind NOT IN ('image','video') AND estimated_cost>0 AND created_at>now()-interval '30 days'),
- (SELECT COALESCE(sum(CASE WHEN finalized THEN seconds ELSE reserved_seconds END),0)::int FROM voice_sessions WHERE user_id=$1 AND reserved_seconds>0 AND created_at>now()-interval '30 days'),
- (SELECT count(*) FROM ai_jobs WHERE user_id=$1 AND kind='image' AND estimated_cost>0 AND created_at>now()-interval '30 days'),
- (SELECT count(*) FROM ai_jobs WHERE user_id=$1 AND kind='video' AND estimated_cost>0 AND created_at>now()-interval '30 days'),
- (SELECT count(*) FROM narration_usage WHERE user_id=$1 AND created_at>now()-interval '30 days'),
- (SELECT COALESCE(sum(cost),0) FROM ai_spend WHERE user_id=$1 AND created_at>now()-interval '30 days'),
- (SELECT count(*) FROM ai_usage WHERE user_id=$1 AND kind='cook_question' AND created_at>now()-interval '30 days')`, owner).
+ (SELECT count(*) FROM voice_actions a JOIN voice_projects p ON p.id=a.project_id WHERE p.user_id=ANY($1) AND a.estimated_cost>0 AND a.created_at>now()-interval '30 days')
+  +(SELECT count(*) FROM ai_jobs WHERE user_id=ANY($1) AND kind NOT IN ('image','video') AND estimated_cost>0 AND created_at>now()-interval '30 days'),
+ (SELECT COALESCE(sum(CASE WHEN finalized THEN seconds ELSE reserved_seconds END),0)::int FROM voice_sessions WHERE user_id=ANY($1) AND reserved_seconds>0 AND created_at>now()-interval '30 days'),
+ (SELECT count(*) FROM ai_jobs WHERE user_id=ANY($1) AND kind='image' AND estimated_cost>0 AND created_at>now()-interval '30 days'),
+ (SELECT count(*) FROM ai_jobs WHERE user_id=ANY($1) AND kind='video' AND estimated_cost>0 AND created_at>now()-interval '30 days'),
+ (SELECT count(*) FROM narration_usage WHERE user_id=ANY($1) AND created_at>now()-interval '30 days'),
+ (SELECT COALESCE(sum(cost),0) FROM ai_spend WHERE user_id=ANY($1) AND created_at>now()-interval '30 days'),
+ (SELECT count(*) FROM ai_usage WHERE user_id=ANY($1) AND kind='cook_question' AND created_at>now()-interval '30 days')`, members).
 		Scan(&u.Assistant, &u.VoiceSeconds, &u.Images, &u.Videos, &u.Narration, &u.Spend, &u.CookQuestions)
 	return u, e
 }

@@ -173,6 +173,10 @@ export type Billing = {
   checkout: boolean;
   /** There's a Stripe customer whose subscription can be managed. */
   manage: boolean;
+  /** The household member whose plan this is, when it isn't the member's own; older servers leave it out. */
+  sharedBy?: { id: string; name: string } | null;
+  /** How many others in the household use this member's plan (0 or missing for none). */
+  sharedWith?: number;
 };
 export type Review = {
   id: string;

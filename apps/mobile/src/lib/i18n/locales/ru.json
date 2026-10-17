@@ -1576,5 +1576,11 @@
   "Ordering groceries isn't available right now. You can share the list instead.": "Заказ продуктов сейчас недоступен. Можно поделиться списком.",
   "Your grocery list has nothing left to buy.": "В списке покупок ничего не осталось.",
   "You already have everything this recipe needs.": "У вас уже есть всё для этого рецепта.",
-  "We couldn't reach Instacart. Try again in a moment, or share the list instead.": "Не удалось связаться с Instacart. Попробуйте чуть позже или поделитесь списком."
+  "We couldn't reach Instacart. Try again in a moment, or share the list instead.": "Не удалось связаться с Instacart. Попробуйте чуть позже или поделитесь списком.",
+  "{{v0}} shares this plan with your household. Allowances are for everyone on it and cover the last 30 days.": "{{v0}} делится этим тарифом с семьёй. Лимиты общие для всех и считаются за последние 30 дней.",
+  "sharedPlanCount": "Ваш тариф действует ещё для {{count}} человек в семье; лимиты общие и считаются за последние 30 дней.",
+  "sharedPlanCount_one": "Ваш тариф действует ещё для {{count}} человека в семье; лимиты общие и считаются за последние 30 дней.",
+  "sharedPlanCount_few": "Ваш тариф действует ещё для {{count}} человек в семье; лимиты общие и считаются за последние 30 дней.",
+  "sharedPlanCount_many": "Ваш тариф действует ещё для {{count}} человек в семье; лимиты общие и считаются за последние 30 дней.",
+  "sharedPlanCount_other": "Ваш тариф действует ещё для {{count}} человека в семье; лимиты общие и считаются за последние 30 дней."
 }

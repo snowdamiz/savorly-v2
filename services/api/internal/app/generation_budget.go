@@ -26,12 +26,14 @@ func reserveGeneration(ctx context.Context, tx pgx.Tx, owner string, estimate fl
 	if settings.AIPaused {
 		return fiber.NewError(503, aiPausedMessage)
 	}
-	p, e := planOf(ctx, tx, owner)
+	pool, e := poolOf(ctx, tx, owner)
 	if e != nil {
 		return e
 	}
+	p := pool.Plan
+	// A plan shared with a household has one ceiling for everyone on it.
 	var mine, free, total float64
-	e = tx.QueryRow(ctx, budgetSumsSQL, owner).Scan(&mine, &free, &total)
+	e = tx.QueryRow(ctx, budgetSumsSQL, pool.Members).Scan(&mine, &free, &total)
 	if e != nil {
 		return e
 	}
@@ -67,7 +69,7 @@ func reserveShared(ctx context.Context, tx pgx.Tx, estimate float64) error {
 		return fiber.NewError(503, aiPausedMessage)
 	}
 	var free, total float64
-	if e = tx.QueryRow(ctx, budgetSumsSQL, "").Scan(new(float64), &free, &total); e != nil {
+	if e = tx.QueryRow(ctx, budgetSumsSQL, []string{}).Scan(new(float64), &free, &total); e != nil {
 		return e
 	}
 	freeHeadroom, paidHeadroom, e := memberBudgets(ctx, tx)
@@ -83,10 +85,11 @@ func reserveShared(ctx context.Context, tx pgx.Tx, estimate float64) error {
 	return nil
 }
 
-// budgetSumsSQL is the member's ($1) last 30 days of spend and everyone's, and free members',
-// last 24 hours, each read through an index on the spend sources' created_at.
+// budgetSumsSQL is the last 30 days of spend of the members sharing a plan ($1), and everyone's,
+// and free members', last 24 hours, each read through an index on the spend sources'
+// created_at. Members using a household's plan aren't free.
 const budgetSumsSQL = `SELECT
- (SELECT COALESCE(sum(cost),0) FROM ai_spend WHERE user_id=$1 AND created_at>now()-interval '30 days'),
- COALESCE(sum(s.cost) FILTER (WHERE u.id IS NULL OR ` + effectivePlanSQL + `='free'),0),
+ (SELECT COALESCE(sum(cost),0) FROM ai_spend WHERE user_id=ANY($1::text[]) AND created_at>now()-interval '30 days'),
+ COALESCE(sum(s.cost) FILTER (WHERE u.id IS NULL OR ` + memberPlanSQL + `='free'),0),
  COALESCE(sum(s.cost),0)
  FROM ai_spend s LEFT JOIN users u ON u.id=s.user_id WHERE s.created_at>now()-interval '24 hours'`

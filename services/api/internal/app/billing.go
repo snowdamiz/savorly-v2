@@ -88,11 +88,25 @@ func (a *App) billing(c fiber.Ctx) error {
 	if e != nil {
 		return e
 	}
-	used, e := usageOf(c.Context(), a.DB, owner)
+	// On a plan a household shares, the allowances shown are what everyone on it has used.
+	pool, e := poolOf(c.Context(), a.DB, owner)
 	if e != nil {
 		return e
 	}
-	return c.JSON(fiber.Map{"plan": plan, "status": status, "interval": interval, "renewsAt": renews, "cancels": cancels, "usage": used, "plans": plans, "checkout": billingEnabled(), "manage": customer && billingEnabled()})
+	used, e := poolUsage(c.Context(), a.DB, pool.Members)
+	if e != nil {
+		return e
+	}
+	var sharedBy any
+	if pool.SharedBy != "" {
+		var name string
+		if e = a.DB.QueryRow(c.Context(), `SELECT name FROM users WHERE id=$1`, pool.SharedBy).Scan(&name); e != nil {
+			return e
+		}
+		plan, sharedBy = pool.Plan.ID, fiber.Map{"id": pool.SharedBy, "name": name}
+	}
+	return c.JSON(fiber.Map{"plan": plan, "status": status, "interval": interval, "renewsAt": renews, "cancels": cancels, "usage": used, "plans": plans, "checkout": billingEnabled(), "manage": customer && billingEnabled(),
+		"sharedBy": sharedBy, "sharedWith": len(pool.Members) - 1})
 }
 
 func (a *App) checkout(c fiber.Ctx) error {

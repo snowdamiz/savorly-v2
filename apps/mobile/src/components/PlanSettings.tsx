@@ -81,7 +81,7 @@ export function PlanSettings() {
           <Text style={s.small}>{tr('Your plan')}</Text>
           <Text style={s.h2}>{tr(planNames[billing.plan])}</Text>
         </View>
-        {billing.plan !== 'free' && (
+        {billing.plan !== 'free' && !billing.sharedBy && (
           <Pill
             title={
               billing.status === 'past_due'
@@ -119,7 +119,16 @@ export function PlanSettings() {
               </View>
             </View>
           ))}
-        <Text style={s.small}>{tr('Allowances cover the last 30 days.')}</Text>
+        <Text style={s.small}>
+          {billing.sharedBy
+            ? tr(
+                '{{v0}} shares this plan with your household. Allowances are for everyone on it and cover the last 30 days.',
+                { v0: billing.sharedBy.name },
+              )
+            : billing.sharedWith
+              ? tr('sharedPlanCount', { count: billing.sharedWith })
+              : tr('Allowances cover the last 30 days.')}
+        </Text>
       </View>
       {sell && billing.checkout && billing.plan === 'free' && (
         <View style={{ gap: 12 }}>

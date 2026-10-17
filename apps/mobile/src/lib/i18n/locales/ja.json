@@ -1576,5 +1576,11 @@
   "Ordering groceries isn't available right now. You can share the list instead.": "現在、食料品の注文はご利用いただけません。代わりにリストを共有できます。",
   "Your grocery list has nothing left to buy.": "買い物リストに買うものは残っていません。",
   "You already have everything this recipe needs.": "このレシピに必要なものはすべてそろっています。",
-  "We couldn't reach Instacart. Try again in a moment, or share the list instead.": "Instacartに接続できませんでした。少し待ってからもう一度試すか、リストを共有してください。"
+  "We couldn't reach Instacart. Try again in a moment, or share the list instead.": "Instacartに接続できませんでした。少し待ってからもう一度試すか、リストを共有してください。",
+  "{{v0}} shares this plan with your household. Allowances are for everyone on it and cover the last 30 days.": "{{v0}}さんがこのプランをグループで共有しています。利用枠は全員で共有し、過去30日間が対象です。",
+  "sharedPlanCount": "あなたのプランはグループの他の{{count}}人も利用できます。利用枠は共有で、過去30日間が対象です。",
+  "sharedPlanCount_one": "あなたのプランはグループの他の{{count}}人も利用できます。利用枠は共有で、過去30日間が対象です。",
+  "sharedPlanCount_few": "あなたのプランはグループの他の{{count}}人も利用できます。利用枠は共有で、過去30日間が対象です。",
+  "sharedPlanCount_many": "あなたのプランはグループの他の{{count}}人も利用できます。利用枠は共有で、過去30日間が対象です。",
+  "sharedPlanCount_other": "あなたのプランはグループの他の{{count}}人も利用できます。利用枠は共有で、過去30日間が対象です。"
 }
