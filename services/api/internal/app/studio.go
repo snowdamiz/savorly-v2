@@ -650,13 +650,19 @@ func (a *App) processVoiceAction(ctx context.Context, id, project string, throug
 }
 
 // screenOnly ends a live call's turn after a round that only drove the screen, when the model
-// already wrote what to say alongside it: the voice model says it a model round sooner.
+// already said what to tell the user: in app_action's say, or alongside the calls (models that
+// write nothing beside a tool call still fill in its arguments). The voice model says it a model
+// round sooner.
 func screenOnly(run *agentRun) func(string) (string, bool) {
 	calls, screen := run.calls, run.screen
 	return func(content string) (string, bool) {
 		only := run.calls > calls && run.calls-calls == run.screen-screen
-		calls, screen = run.calls, run.screen
-		return content, run.voice && only && content != ""
+		reply := run.say
+		if reply == "" {
+			reply = content
+		}
+		calls, screen, run.say = run.calls, run.screen, ""
+		return reply, run.voice && only && reply != ""
 	}
 }
 
