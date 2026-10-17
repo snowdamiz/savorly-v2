@@ -23,7 +23,7 @@ export type NarratedStep = {
   /** The signed-in cook's id. */
   owner: string;
   recipe: string;
-  /** The recipe's language, '' when it doesn't say. */
+  /** The language it reads in: the recipe's, or its translation's; '' when it doesn't say. */
   language: string;
   step: number;
   /** The step's exact text. */
@@ -40,10 +40,15 @@ export type KeptNarration = NarratedStep & {
   used: number;
 };
 
-/** The API's key in a narration path, or null when `path` isn't one. */
+/**
+ * The API's key in a narration path, or null when `path` isn't one. The step of a recipe read
+ * translated ends with the translation's language (`?language=fr`).
+ */
 export function narrationKey(path: string): string | null {
   return (
-    /^\/recipes\/[^/?#]+\/steps\/\d+\/narration\/([A-Za-z0-9_-]{1,128})$/.exec(path)?.[1] ?? null
+    /^\/recipes\/[^/?#]+\/steps\/\d+\/narration\/([A-Za-z0-9_-]{1,128})(?:\?language=[a-z]{2})?$/.exec(
+      path,
+    )?.[1] ?? null
   );
 }
 
@@ -53,14 +58,20 @@ const sameStep = (a: NarratedStep, b: NarratedStep) =>
 /**
  * The copies still of use once the API has named `key` for `step`. Another key for the same
  * recipe, step and text means the server reads with another voice (or model) now, so every copy
- * made before is out of date; copies of the step's earlier text are of no more use either.
+ * made before is out of date; copies of the step's earlier text are of no more use either. A copy
+ * in another language (the recipe as written, or another translation of it) is another reading.
  */
 export function current(copies: KeptNarration[], step: NarratedStep, key: string) {
   const sameText = (c: KeptNarration) =>
     c.recipe === step.recipe && c.step === step.step && c.text === step.text;
   if (copies.some((c) => c.key !== key && sameText(c))) return copies.filter((c) => c.key === key);
   return copies.filter(
-    (c) => c.key === key || c.recipe !== step.recipe || c.step !== step.step || sameText(c),
+    (c) =>
+      c.key === key ||
+      c.recipe !== step.recipe ||
+      c.step !== step.step ||
+      c.language !== step.language ||
+      sameText(c),
   );
 }
 

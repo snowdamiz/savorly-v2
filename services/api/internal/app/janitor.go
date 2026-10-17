@@ -30,6 +30,8 @@ var janitorTasks = []struct{ name, sql string }{
  AND NOT EXISTS(SELECT 1 FROM voice_events e WHERE e.session_id=s.id) AND NOT EXISTS(SELECT 1 FROM voice_actions x WHERE x.session_id=s.id) LIMIT 500)`},
 	// A trigger queues each stored recording for removal from the private bucket.
 	{"recipe_narrations", `DELETE FROM recipe_narrations WHERE cache_key IN (SELECT cache_key FROM recipe_narrations WHERE last_used_at<now()-interval '60 days' LIMIT 500)`},
+	// Translations nobody read for 90 days (translations.go); the next reader has one made again.
+	{"recipe_translations", `DELETE FROM recipe_translations WHERE (recipe_id,language) IN (SELECT recipe_id,language FROM recipe_translations WHERE last_used_at<now()-interval '90 days' LIMIT 500)`},
 	// Product analytics are kept 90 days (events.go).
 	{"events", `DELETE FROM events WHERE id IN (SELECT id FROM events WHERE created_at<now()-interval '90 days' LIMIT 500)`},
 	// Push messages carry names and review text: a week, for support. Sent outbox rows keep no

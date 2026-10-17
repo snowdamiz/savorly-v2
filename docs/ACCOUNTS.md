@@ -101,6 +101,7 @@ OPENROUTER_RECIPE_MODEL=openai/gpt-6.1-sol
 OPENROUTER_AGENT_MODEL=openai/gpt-6-luna
 OPENROUTER_IMAGE_MODEL=openai/gpt-image-2.5-flare
 OPENROUTER_IMAGE_EDIT_MODEL=openai/gpt-image-2.5-sunburst
+OPENROUTER_TRANSLATION_MODEL=openai/gpt-6-luna
 OPENROUTER_TTS_VOICE=sarah
 ```
 

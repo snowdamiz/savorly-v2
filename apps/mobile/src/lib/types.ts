@@ -88,6 +88,8 @@ export type Preferences = {
   /** The app's language, which notifications are written in ('' until one is chosen). */
   language?: string;
   notifications?: Partial<NotificationPreferences>;
+  /** Recipes in other languages open translated into the app's. Older servers leave it out. */
+  translateRecipes?: boolean;
 };
 export type User = Creator & {
   email: string;
@@ -249,6 +251,9 @@ export type Capabilities = {
   videoProvider: string;
   videoModel: string;
   videoEstimateUSD: number;
+  /** Recipes can be translated into the reader's language (GET /recipes/:id/translation). */
+  recipeTranslation?: boolean;
+  translationModel?: string;
   /** Plans and allowances are live (PAID_PLANS); until then everyone has unlimited use. */
   plans?: boolean;
   billing?: boolean;
@@ -453,4 +458,19 @@ export type DeviceSession = {
   /** iPhone, iPad, iOS, Android, macOS, Windows, ChromeOS, Linux, or ''. */
   system: string;
   current: boolean;
+};
+/**
+ * A recipe's text in another language, GET /recipes/:id/translation: ingredients and steps in the
+ * recipe's order, amounts, units, tags and cuisine left out (they stay as written).
+ */
+export type RecipeTranslation = {
+  language: string;
+  /** The recipe's own language, '' when it doesn't say. */
+  sourceLanguage: string;
+  title: string;
+  description: string;
+  ingredients: { name: string }[];
+  steps: { title: string; text: string }[];
+  /** When it was translated; null when the recipe is written in `language` already. */
+  translatedAt: string | null;
 };
