@@ -49,7 +49,9 @@ Everything else (recipes, cookbooks, planner, groceries, pantry, community, devi
 | Pro monthly  |        $17.49 |         $7.65 |          44% |
 | Pro yearly   |        $11.84 |         $7.65 |          65% |
 
-So even a member who maxes out everything leaves at least 35% of net revenue. Yearly plans collect twelve months up front. Typical members use a fraction of their allowances, so the realistic margin is much higher.
+So even a member who maxes out everything leaves at least 35% of net revenue (15% once the creator fund, below, takes its share). Yearly plans collect twelve months up front. Typical members use a fraction of their allowances, so the realistic margin is much higher.
+
+**The creator fund** ([creator fund](CREATOR-FUND.md)), once `CREATOR_FUND=true`, pays creators `CREATOR_FUND_SHARE` (default and maximum 20%) of a paying member's monthly net above ($1.71 Plus monthly, $1.18 Plus yearly, $3.49 Pro monthly, $2.36 Pro yearly), split among the creators of the recipes that member verified-cooked that month; a member with no verified cooks that month contributes nothing. With the fund, a member who maxes out every allowance (up to 65% of net), the fund's 20% and the free members' 15% (below) add up to at most 100% of net, so even that member doesn't cost more than they bring in; `creator_fund_test.go` fails if a change breaks it, and the share is capped at 20% for that reason. Typical members leave far more, since few use every allowance and the fund only takes a share from members who cooked.
 
 **Shared translations.** A recipe's translation is made once per language and read by everyone after, so no member pays for it and it counts toward no plan: it comes out of the free members' daily budget below, reserved at a cent plus $1 per million characters and settled to the reported cost. Only signed-in members start one, 30 an hour each, so crawlers can't spend that budget ([API](API.md#recipe-translations)).
 
@@ -72,11 +74,12 @@ Plans are bought only on the web through Stripe Checkout. The apps never take pa
 - **Apple, elsewhere.** Linking out from the EU, Japan, or Brazil costs 15% (10% after a subscription's first year) and needs an entitlement, disclosure sheets, and monthly reports. Other storefronts forbid steering entirely. The app shows only plan status and usage there.
 - **Google Play.** Play's US external-links program charges 10% on subscriptions within 24 hours of a link tap, and EEA/UK programs charge similar fees. Instead, the Android app is consumption-only, which Play allows everywhere: nothing is sold in the app, and plans bought elsewhere unlock (support.google.com/googleplay/android-developer/answer/10281818).
 - **The assistant** is told never to quote prices or say where to buy, so it can't steer where the app may not.
+- **Creator payouts aren't a purchase.** My kitchen's Creator earnings (shown to cooks with published recipes while the creator fund is on) opens Stripe Connect onboarding in the browser on every platform: it pays creators and sells nothing. The card shows no prices, plans or checkout links, only what the creator earned and the fund's share ("Each month, 20% of what members pay goes to the cooks whose recipes they actually cooked."), so the iOS and Android apps still sell nothing. If App Review reads that sentence as steering on a non-US storefront, hide it there with `canSellHere()` like the plan prices.
 - Purchases someone makes on the website on their own, with no in-app link, carry no store fee on either platform.
 
 ### Risks to decide on
 
-1. **Apple's fee may return.** On August 13, 2026, Apple asked the district court for 15% (10% renewals, 5% Small Business) on US link-outs, and the Supreme Court is reviewing the contempt ruling (No. 25-1311). If a fee is approved, purchases started from the iOS link would owe it. The 35% margin floor absorbs it, but set `canSellHere()` (apps/mobile/src/lib/billing.ts) to `false` for iOS if you'd rather not pay.
+1. **Apple's fee may return.** On August 13, 2026, Apple asked the district court for 15% (10% renewals, 5% Small Business) on US link-outs, and the Supreme Court is reviewing the contempt ruling (No. 25-1311). If a fee is approved, purchases started from the iOS link would owe it. The 35% margin floor absorbs it (with the creator fund at 20%, lower `CREATOR_FUND_SHARE` to make room), but set `canSellHere()` (apps/mobile/src/lib/billing.ts) to `false` for iOS if you'd rather not pay.
 2. **Guideline 3.1.3(b).** Its text says apps may unlock features bought elsewhere "provided those items are also available as in-app purchases within the app". Some link-only US apps have passed review, but App Review may require IAP. If it does, add StoreKit IAP at a higher price that covers Apple's 15–30% (expo-iap or RevenueCat), and keep web checkout as the cheaper option where linking is allowed.
 3. **Provider routing and pricing.** The agent requests the lowest-latency provider. GPT-6 Luna's fast tier currently costs twice its standard per-token rate. Prices and token use can change; the spend ceiling still applies, and longer conversations can reach it sooner.
 
@@ -93,6 +96,10 @@ STRIPE_AUTOMATIC_TAX=true   # after registering for tax where required
 APP_URL=https://savorly.cooking # where checkout returns
 AI_FREE_DAILY_BUDGET_USD=5
 AI_DAILY_BUDGET_USD=25
+# The creator fund, once plans are on sale (docs/CREATOR-FUND.md, Stripe Connect in ACCOUNTS.md):
+CREATOR_FUND=true
+CREATOR_FUND_SHARE=0.20
+STRIPE_CONNECT_WEBHOOK_SECRET=whsec_...
 ```
 
 1. In Stripe, create products Plus and Pro with monthly and yearly recurring prices matching the table (the catalog in `internal/app/plans.go` is what the app displays).

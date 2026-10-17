@@ -18,6 +18,8 @@ import (
 // A single projection keeps discovery, detail, and cookbook responses consistent. Counts are
 // index lookups, like the reviews and saves ones. derivedFrom names the original only while
 // it's public, so a variation never shows the title of a draft, its own author's included.
+// cookedMinutes, the real cook time (cook_sessions.go), is kept up to date in recipe_cook_times
+// and shows once 3 verified cooks agree; null until then.
 const recipeJSON = `jsonb_build_object(
  'id',r.id,'title',r.title,'description',r.description,'cuisine',r.cuisine,
  'minutes',r.minutes,'servings',r.servings,'difficulty',r.difficulty,'image',r.image,'photos',r.photos,'video',r.video,
@@ -32,6 +34,8 @@ const recipeJSON = `jsonb_build_object(
  'variationCount',(SELECT count(*) FROM recipes v WHERE v.derived_from=r.id AND v.published),
  'commentCount',(SELECT count(*) FROM comments WHERE recipe_id=r.id),
  'cookedCount',(SELECT count(*) FROM cooks WHERE recipe_id=r.id),
+ 'verifiedCooks',COALESCE((SELECT t.cooks FROM recipe_cook_times t WHERE t.recipe_id=r.id),0),
+ 'cookedMinutes',(SELECT t.minutes FROM recipe_cook_times t WHERE t.recipe_id=r.id AND t.cooks>=3),
  'author',jsonb_build_object('id',u.id,'name',u.name,'handle',u.handle,'avatar',u.avatar,'bio',u.bio))`
 
 // Suspended members' recipes leave every public and sous-chef view; admin views join directly.

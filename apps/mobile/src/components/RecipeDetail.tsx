@@ -83,6 +83,7 @@ import { CookPhotos, CookSheets, useCooked } from './CookedIt';
 import { Lineage } from './Variations';
 import { TranslationBar } from './TranslationBar';
 import { useRecipeTranslation } from '../lib/useRecipeTranslation';
+import { CookTime } from './CookTime';
 import { DangerButton } from '../screens/Kitchen';
 import { RevealFocus, useKeyboardLift, useKeyboardScroll } from '../lib/keyboard';
 import { foodConflicts, joinNames, pantryLines, useFood } from '../lib/food';
@@ -1167,6 +1168,7 @@ export function RecipeDetail({
                 {byline}
                 {lineage}
                 {facts}
+                <CookTime recipe={recipe} />
                 <View style={{ gap: 20 }}>
                   <Button
                     title={tr('Start cooking')}
@@ -1268,6 +1270,7 @@ export function RecipeDetail({
               {/* The facts in one card and the things to do in one row, so the page goes
                   straight from the story to the cooking. */}
               <FadeIn delay={130}>{facts}</FadeIn>
+              <CookTime recipe={recipe} />
               <FadeIn delay={200}>{actionRow}</FadeIn>
               {wide ? (
                 <View style={{ flexDirection: 'row', gap: 32, alignItems: 'flex-start' }}>

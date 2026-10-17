@@ -173,23 +173,6 @@ func indexFoods(ctx context.Context, db *pgxpool.Pool) (indexed int, err error) 
 	return indexed, nil
 }
 
-func collectIDs(ctx context.Context, db *pgxpool.Pool, query string, args ...any) ([]string, error) {
-	rows, e := db.Query(ctx, query, args...)
-	if e != nil {
-		return nil, e
-	}
-	defer rows.Close()
-	var ids []string
-	for rows.Next() {
-		var id string
-		if e = rows.Scan(&id); e != nil {
-			return nil, e
-		}
-		ids = append(ids, id)
-	}
-	return ids, rows.Err()
-}
-
 // RunFoodIndex indexes what needs it at start-up (after migrations and the seed), then every
 // ten minutes, for any write that didn't index. Replicas may overlap; indexing is idempotent.
 func RunFoodIndex(ctx context.Context, db *pgxpool.Pool) {

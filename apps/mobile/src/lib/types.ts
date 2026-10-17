@@ -72,6 +72,10 @@ export type Recipe = Omit<RecipeInput, 'derivedFrom'> & {
   allergens?: string[];
   /** What each ingredient is, in the same order as `ingredients`. Missing on older servers. */
   ingredientFood?: IngredientFood[];
+  /** Finished cooking-mode sessions that count as real cooks. Missing on older servers. */
+  verifiedCooks?: number;
+  /** How long verified cooks usually take, in minutes; null until 3 agree. Missing on older servers. */
+  cookedMinutes?: number | null;
 };
 /**
  * What the server's ingredient lexicon reads in one ingredient line: what it is (`key`, which the
@@ -282,6 +286,8 @@ export type Capabilities = {
   /** Plans and allowances are live (PAID_PLANS); until then everyone has unlimited use. */
   plans?: boolean;
   billing?: boolean;
+  /** The creator fund pays creators for verified cooks of their recipes (CREATOR_FUND). */
+  creatorFund?: boolean;
   /** Password-reset email is configured, and with it email confirmation and email changes. */
   passwordRecovery?: boolean;
   /** Cloudflare Turnstile's public site key; '' (or missing) when sign-up has no check. */
