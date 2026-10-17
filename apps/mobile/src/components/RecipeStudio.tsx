@@ -898,7 +898,7 @@ export function RecipeStudio({
           borderRadius: 26,
           borderWidth: 1,
           // The composer is the message field's edge.
-          borderColor: color.outline,
+          borderColor: color.border,
         }}
       >
         {/* A tight pair, so they read as one set of photo tools. */}

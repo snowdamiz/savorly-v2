@@ -339,7 +339,7 @@ function MealSlot({
           borderRadius: radius.lg,
           borderWidth: 1.5,
           borderStyle: 'dashed',
-          borderColor: color.outline,
+          borderColor: color.line,
           opacity: pressed ? 0.6 : 1,
         },
       ]}

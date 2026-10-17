@@ -62,7 +62,7 @@ function SwitchRow({
           borderRadius: radius.pill,
           padding: 2,
           borderWidth: 1,
-          borderColor: value ? color.ink : color.outline,
+          borderColor: value ? color.ink : color.line,
           backgroundColor: value ? color.ink : color.subtle,
         }}
       >

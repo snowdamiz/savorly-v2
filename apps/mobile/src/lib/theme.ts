@@ -1,8 +1,7 @@
 import { StyleSheet } from 'react-native';
 // Monochrome surfaces; the only hues are semantic (success / warning / error).
 // Text and icons keep 4.5:1 on white and on the page (`bg`): `soft` is the lightest for them.
-// `outline` edges controls (fields, chips, secondary buttons, checkboxes) at 3:1 on both;
-// `border` and `line` are for decorative edges and hairlines only.
+// Controls keep the light `border` edge (`line` where one needs a little more).
 export const color = {
   ink: '#0D0D0D',
   muted: '#6B6B6B',
@@ -11,7 +10,6 @@ export const color = {
   white: '#FFFFFF',
   border: '#E6E6E6',
   line: '#D4D4D4',
-  outline: '#8D8D8D',
   subtle: '#ECECEC',
   onInk: '#9C9C9C',
   glass: 'rgba(255,255,255,0.16)',
@@ -93,7 +91,7 @@ export const s = StyleSheet.create({
     fontSize: 15,
     backgroundColor: color.white,
     borderWidth: 1,
-    borderColor: color.outline,
+    borderColor: color.border,
     borderRadius: 18,
     paddingHorizontal: 18,
     paddingVertical: 15,
