@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"time"
 )
 
 // The model only picks tools; the application validates every argument, enforces
@@ -58,11 +59,26 @@ type toolCall struct {
 	} `json:"function"`
 }
 
+// AgentHooks follow and steer a turn's tool loop. Both are optional.
+type AgentHooks struct {
+	// Round reports each model request once it has answered, before its tools run.
+	Round func(AgentRound)
+	// Settled runs after each round's tool calls and may end the turn with a reply, given what
+	// the model wrote alongside them.
+	Settled func(content string) (reply string, done bool)
+}
+
+// AgentRound is one model request of a turn: how long it took, what the provider reported it
+// cost, and the tools it called, in order.
+type AgentRound struct {
+	Took  time.Duration
+	Cost  float64
+	Calls []string
+}
+
 // Agent runs one user turn as a bounded tool loop. run executes a call and returns the
-// JSON the model sees. After each round of calls, settled (when set) may end the turn with a
-// reply, given what the model wrote alongside the calls. cost is what the provider reported,
-// 0 when it reported nothing.
-func (c *Client) Agent(ctx context.Context, state any, images []string, tools []Tool, run func(name string, args json.RawMessage) string, settled func(content string) (string, bool)) (reply string, cost float64, err error) {
+// JSON the model sees. cost is what the provider reported, 0 when it reported nothing.
+func (c *Client) Agent(ctx context.Context, state any, images []string, tools []Tool, run func(name string, args json.RawMessage) string, hooks AgentHooks) (reply string, cost float64, err error) {
 	content := []map[string]any{{"type": "text", "text": string(mustJSON(state))}}
 	for _, image := range images {
 		content = append(content, map[string]any{"type": "image_url", "image_url": map[string]string{"url": image}})
@@ -89,6 +105,7 @@ func (c *Client) Agent(ctx context.Context, state any, images []string, tools []
 		if step == AgentSteps-1 {
 			payload["tool_choice"] = "none"
 		}
+		started := time.Now()
 		if err = c.request(ctx, "POST", c.OpenRouterURL+"/chat/completions", c.OpenRouterKey, payload, &out); err != nil {
 			return "", cost, err
 		}
@@ -97,6 +114,13 @@ func (c *Client) Agent(ctx context.Context, state any, images []string, tools []
 			return "", cost, errors.New("provider returned no response")
 		}
 		m := out.Choices[0].Message
+		if hooks.Round != nil {
+			calls := make([]string, len(m.ToolCalls))
+			for i, call := range m.ToolCalls {
+				calls[i] = call.Function.Name
+			}
+			hooks.Round(AgentRound{Took: time.Since(started), Cost: out.Usage.Cost, Calls: calls})
+		}
 		if len(m.ToolCalls) == 0 {
 			return strings.TrimSpace(m.Content), cost, nil
 		}
@@ -114,8 +138,8 @@ func (c *Client) Agent(ctx context.Context, state any, images []string, tools []
 			}
 			messages = append(messages, map[string]any{"role": "tool", "tool_call_id": call.ID, "content": run(call.Function.Name, args)})
 		}
-		if settled != nil {
-			if reply, done := settled(strings.TrimSpace(m.Content)); done {
+		if hooks.Settled != nil {
+			if reply, done := hooks.Settled(strings.TrimSpace(m.Content)); done {
 				return reply, cost, nil
 			}
 		}

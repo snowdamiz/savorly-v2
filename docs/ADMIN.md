@@ -26,7 +26,7 @@ No one can mark an address in `ADMIN_EMAILS` as verified from the console, or ap
 | Members | Search and filter (admins, suspended, unverified, paid, reported, sample cooks); sort by newest, last sign-in, AI spend or recipes. A member's record shows their account, sign-in methods, plan and Stripe IDs, 30-day AI use against their plan, activity counts, recipes, reviews, AI jobs, reports they filed, and admin history. |
 | Recipes | Every recipe including drafts, filtered by published, drafts, reported, AI-generated or suspended author, and sorted by newest, recently edited, most reported, most saved or top rated. A recipe's record shows its full content, reports and admin history. |
 | Reviews | Search and filter by rating; delete reviews (the audit log keeps the text). |
-| AI & jobs | Live voice sessions (end one), top spenders, use and failures per tool, and every AI job with its prompt, result and error. Cancel queued or processing jobs. |
+| AI & jobs | Live voice sessions (end one), top spenders, use and failures per tool, and every AI job with its prompt, result and error. Cancel queued or processing jobs. Sous-chef turns, by status, channel (text or voice) and member, each with its trace (model rounds with their time and cost, and the tools each called, with any error) and its reply. |
 | Settings | Pause all AI, override the daily AI budgets, pause sign-ups, and publish a site-wide announcement. |
 | Audit log | Every console action, newest first, searchable. Entries can't be edited from the console and survive deletion of the admin, member or recipe. An entry marked **Needs attention** says what to finish by hand, such as a Stripe change Stripe didn't confirm. |
 
@@ -66,7 +66,7 @@ Every endpoint is under `/v1/admin`, requires a signed-in admin (`401` signed ou
 | Members | `GET /users?q=&filter=&sort=`, `GET /users/:id`, `PATCH /users/:id`, `POST` or `DELETE /users/:id/suspend`, `POST /users/:id/sign-out`, `POST /users/:id/verify`, `POST /users/:id/setup`, `PUT /users/:id/admin`, `PUT /users/:id/plan`, `DELETE /users/:id` (body `{ "confirm": "<their email>" }`) |
 | Recipes | `GET /recipes?q=&filter=&sort=`, `GET /recipes/:id`, `PUT /recipes/:id/published`, `POST /recipes/:id/reports` (`resolved` or `dismissed`), `DELETE /recipes/:id` |
 | Moderation | `GET /reports?status=open`, `GET /reviews?q=&rating=`, `DELETE /reviews/:id`, `DELETE /comments/:id` (with its replies) |
-| AI | `GET /ai`, `GET /jobs?status=&kind=&q=`, `GET /jobs/:id`, `POST /jobs/:id/cancel`, `POST /voice/:id/end` |
+| AI | `GET /ai`, `GET /jobs?status=&kind=&q=`, `GET /jobs/:id`, `POST /jobs/:id/cancel`, `POST /voice/:id/end`, `GET /turns?status=&channel=&q=`, `GET /turns/:id` |
 | Settings and audit | `GET` or `PUT /settings`, `GET /audit?q=&type=` |
 
 `GET /v1/me` includes `admin`, `adminOwner`, and `adminPending` (an owner address that isn't verified yet).

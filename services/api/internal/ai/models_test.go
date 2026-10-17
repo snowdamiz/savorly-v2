@@ -86,6 +86,7 @@ func TestAgentPreservesReasoningSignaturesAndUsesFastRouting(t *testing.T) {
 	t.Setenv("OPENROUTER_AGENT_MODEL", "configured/agent")
 	reasoning := json.RawMessage(`[{"type":"reasoning.encrypted","data":"opaque-signature","id":"call_1","format":"google-gemini-v1","index":0}]`)
 	turn, executed := 0, 0
+	var rounds []AgentRound
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			Model     string                       `json:"model"`
@@ -128,14 +129,18 @@ func TestAgentPreservesReasoningSignaturesAndUsesFastRouting(t *testing.T) {
 			t.Error("tool arguments changed")
 		}
 		return `{"pantry":["lentils"]}`
-	}, func(content string) (string, bool) {
+	}, AgentHooks{Round: func(r AgentRound) { rounds = append(rounds, r) }, Settled: func(content string) (string, bool) {
 		if content != "" {
 			t.Errorf("content with the calls: %q", content)
 		}
 		return "", false
-	})
+	}})
 	if e != nil || reply != "Your pantry has lentils." || cost != .002 || executed != 1 || turn != 2 {
 		t.Fatalf("agent result: %q cost=%v tools=%d turns=%d err=%v", reply, cost, executed, turn, e)
+	}
+	// Each round is reported with what it cost and the tools it called.
+	if len(rounds) != 2 || rounds[0].Cost != .001 || len(rounds[0].Calls) != 1 || rounds[0].Calls[0] != "get_kitchen" || len(rounds[1].Calls) != 0 {
+		t.Fatalf("rounds: %+v", rounds)
 	}
 }
 
@@ -149,9 +154,9 @@ func TestAgentEndsWhenTheAppSettlesARound(t *testing.T) {
 	defer server.Close()
 	c := New()
 	c.OpenRouterURL = server.URL
-	reply, cost, e := c.Agent(context.Background(), map[string]string{}, nil, []Tool{{Name: "app_action", Parameters: map[string]any{"type": "object"}}}, func(string, json.RawMessage) string { return `{"ok":true}` }, func(content string) (string, bool) {
+	reply, cost, e := c.Agent(context.Background(), map[string]string{}, nil, []Tool{{Name: "app_action", Parameters: map[string]any{"type": "object"}}}, func(string, json.RawMessage) string { return `{"ok":true}` }, AgentHooks{Settled: func(content string) (string, bool) {
 		return content, content != ""
-	})
+	}})
 	if e != nil || reply != "Opening it now." || cost != .001 || rounds != 1 {
 		t.Fatalf("settled round: %q cost=%v rounds=%d err=%v", reply, cost, rounds, e)
 	}

@@ -48,6 +48,8 @@ func (a *App) adminRoutes(v fiber.Router) {
 	g.Get("/jobs/:id", a.adminJob)
 	g.Post("/jobs/:id/cancel", a.adminCancelJob)
 	g.Post("/voice/:id/end", a.adminEndVoice)
+	g.Get("/turns", a.adminTurns)
+	g.Get("/turns/:id", a.adminTurn)
 	g.Get("/audit", a.adminAudit)
 	g.Get("/insights", a.adminInsights)
 	g.Get("/settings", a.adminSettings)

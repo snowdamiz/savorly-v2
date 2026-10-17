@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Linking, Text, View } from 'react-native';
 import { CircleStop, Mic, XCircle } from '../../components/icons';
 import { api } from '../../lib/api';
-import { AdminAI, AdminJob } from '../../lib/admin';
+import { AdminAI, AdminJob, AdminTurn } from '../../lib/admin';
 import { AIKind } from '../../lib/types';
 import { color, font, radius, s } from '../../lib/theme';
 import { Avatar, Button, Dialog } from '../../components/ui';
@@ -54,6 +54,28 @@ const statuses = [
   { value: 'failed', label: 'Failed' },
   { value: 'completed', label: 'Completed' },
 ] as const;
+const turnStatuses = [
+  { value: '', label: 'All' },
+  { value: 'running', label: 'Running' },
+  { value: 'failed', label: 'Failed' },
+  { value: 'completed', label: 'Completed' },
+] as const;
+const channels = [
+  { value: '', label: 'Text and voice' },
+  { value: 'text', label: 'Text' },
+  { value: 'voice', label: 'Voice' },
+] as const;
+const seconds = (ms: number | null | undefined) =>
+  ms == null ? '' : ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`;
+// What a turn did, as one line: how many model rounds, and the tools in the order it called them.
+const turnSummary = (t: AdminTurn) =>
+  [
+    `${t.rounds} ${t.rounds === 1 ? 'round' : 'rounds'}`,
+    t.tools.length ? t.tools.join(', ') : 'no tools',
+    t.toolErrors ? `${t.toolErrors} tool ${t.toolErrors === 1 ? 'error' : 'errors'}` : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
 const kinds = [
   { value: '', label: 'Every tool' },
   ...Object.entries(kindNames).map(([value, label]) => ({ value, label })),
@@ -68,6 +90,12 @@ export function Operations() {
   const [kind, setKind] = useState('');
   const jobs = usePaged<AdminJob>(
     `/admin/jobs?status=${status}&kind=${kind}&q=${encodeURIComponent(search.query)}`,
+  );
+  const turnSearch = useSearch();
+  const [turnStatus, setTurnStatus] = useState<(typeof turnStatuses)[number]['value']>('');
+  const [channel, setChannel] = useState<(typeof channels)[number]['value']>('');
+  const turns = usePaged<AdminTurn>(
+    `/admin/turns?status=${turnStatus}&channel=${channel}&q=${encodeURIComponent(turnSearch.query)}`,
   );
   const action = useRun();
   const [end, setEnd] = useState<AdminAI['voice'][number] | null>(null);
@@ -191,6 +219,40 @@ export function Operations() {
         </>
       )}
       <View style={{ gap: 12 }}>
+        <Text style={s.h2}>Sous-chef turns</Text>
+        <Search
+          value={turnSearch.text}
+          onChange={turnSearch.setText}
+          placeholder="Search member email, member ID or turn ID"
+        />
+        <Filters options={[...turnStatuses]} value={turnStatus} onChange={setTurnStatus} />
+        <Filters options={[...channels]} value={channel} onChange={setChannel} />
+        <View style={{ gap: 8, opacity: turns.loading && turns.items.length ? 0.6 : 1 }}>
+          {turns.items.map((t) => (
+            <Row
+              key={t.id}
+              title={`${t.channel === 'voice' ? 'Voice' : 'Chat'} turn · ${t.user.name}`}
+              badges={<Badge title={t.status} tone={statusTone(t.status)} />}
+              lines={[
+                [t.user.email, f.dateTime(t.createdAt), seconds(t.ms), f.money(t.cost)]
+                  .filter(Boolean)
+                  .join(' · '),
+                turnSummary(t),
+              ]}
+              onPress={() => nav.turn(t.id)}
+            />
+          ))}
+        </View>
+        <ListState
+          shown={turns.items.length}
+          total={turns.total}
+          loading={turns.loading}
+          error={turns.error}
+          empty="No turns match."
+          onMore={turns.more}
+        />
+      </View>
+      <View style={{ gap: 12 }}>
         <Text style={s.h2}>AI jobs</Text>
         <Search
           value={search.text}
@@ -247,6 +309,78 @@ export function Operations() {
         onClose={() => setEnd(null)}
       />
     </View>
+  );
+}
+
+/** One sous-chef turn: who asked and how, what it cost, each model round and tool, and its reply. */
+export function TurnDialog({ id, onClose }: { id: string; onClose: () => void }) {
+  const nav = useNav();
+  const f = useFormat();
+  const { data: t, error } = useLoad<AdminTurn>(`/admin/turns/${encodeURIComponent(id)}`);
+  const queued = t?.startedAt
+    ? new Date(t.startedAt).getTime() - new Date(t.createdAt).getTime()
+    : null;
+  return (
+    <Dialog
+      visible
+      onClose={onClose}
+      title={t ? `${t.channel === 'voice' ? 'Voice' : 'Chat'} turn` : 'Sous-chef turn'}
+    >
+      {!t ? (
+        <Loading error={error} />
+      ) : (
+        <>
+          <View style={[s.wrap, { gap: 6 }]}>
+            <Badge title={t.status} tone={statusTone(t.status)} />
+          </View>
+          {!!t.trace?.error && <Notice tone="error" text={t.trace.error} />}
+          <Row
+            title={t.user.name}
+            lines={[t.user.email]}
+            leading={<Avatar name={t.user.name} uri={t.user.avatar} size={36} />}
+            onPress={() => nav.member(t.user.id)}
+          />
+          <Facts
+            rows={[
+              ['Asked', f.dateTime(t.createdAt)],
+              ...(queued != null ? [['Waited', seconds(queued)] as [string, string]] : []),
+              ...(t.ms != null ? [['Took', seconds(t.ms)] as [string, string]] : []),
+              ['Cost', f.money(t.cost)],
+              ...(t.model ? [['Model', t.model] as [string, string]] : []),
+              ...(t.status === 'running' && t.step ? [['Doing', t.step] as [string, string]] : []),
+              ['Conversation', t.project],
+              ['Turn ID', t.id],
+            ]}
+          />
+          {!!t.trace?.rounds.length && (
+            <>
+              <SectionLabel>Rounds</SectionLabel>
+              {t.trace.rounds.map((r, i) => (
+                <View key={i} style={{ gap: 4 }}>
+                  <Text style={[s.h3, { fontSize: 14 }]}>
+                    {`Round ${i + 1} · ${seconds(r.ms)} · ${f.money(r.cost)}`}
+                  </Text>
+                  {(r.tools || []).map((tool, j) => (
+                    <Text key={j} style={[s.small, !!tool.error && { color: color.error }]}>
+                      {`${tool.name} · ${seconds(tool.ms)}${tool.error ? ` · ${tool.error}` : ''}`}
+                    </Text>
+                  ))}
+                  {!r.tools?.length && <Text style={s.small}>Answered in text.</Text>}
+                </View>
+              ))}
+            </>
+          )}
+          {!!t.reply && (
+            <>
+              <SectionLabel>Reply</SectionLabel>
+              <Text selectable style={s.muted}>
+                {t.reply}
+              </Text>
+            </>
+          )}
+        </>
+      )}
+    </Dialog>
   );
 }
 

@@ -9,7 +9,7 @@ import { Recipe } from '../../lib/types';
 import { Empty, IconButton, PageHeading } from '../../components/ui';
 import { MemberDialog, Members } from './Members';
 import { Reports, Reviews } from './Moderation';
-import { JobDialog, Operations } from './Operations';
+import { JobDialog, Operations, TurnDialog } from './Operations';
 import { Overview } from './Overview';
 import { Filters, Nav, AdminNav } from './parts';
 import { RecipeDialog, Recipes } from './Recipes';
@@ -31,7 +31,7 @@ const sections: { value: AdminSection; label: string }[] = [
   { value: 'audit', label: 'Audit log' },
 ];
 const isSection = (v: unknown): v is AdminSection => sections.some((x) => x.value === v);
-type Sheet = { kind: 'member' | 'recipe' | 'job'; id: string; key: number };
+type Sheet = { kind: 'member' | 'recipe' | 'job' | 'turn'; id: string; key: number };
 
 export function Admin({ onOpen }: { onOpen: (r: Recipe) => void }) {
   const app = useApp();
@@ -72,6 +72,7 @@ export function Admin({ onOpen }: { onOpen: (r: Recipe) => void }) {
             member: (id) => push('member', id),
             recipe: (id) => push('recipe', id),
             job: (id) => push('job', id),
+            turn: (id) => push('turn', id),
             go,
             changed: () => setVersion((v) => v + 1),
             version,
@@ -139,6 +140,8 @@ export function Admin({ onOpen }: { onOpen: (r: Recipe) => void }) {
           <MemberDialog key={sheet.key} id={sheet.id} onClose={close} />
         ) : sheet.kind === 'recipe' ? (
           <RecipeDialog key={sheet.key} id={sheet.id} onClose={close} onView={view} />
+        ) : sheet.kind === 'turn' ? (
+          <TurnDialog key={sheet.key} id={sheet.id} onClose={close} />
         ) : (
           <JobDialog key={sheet.key} id={sheet.id} onClose={close} />
         ),
