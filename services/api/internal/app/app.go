@@ -11,6 +11,7 @@ import (
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/gofiber/fiber/v3"
+	"github.com/gofiber/fiber/v3/middleware/compress"
 	"github.com/gofiber/fiber/v3/middleware/cors"
 	"github.com/gofiber/fiber/v3/middleware/helmet"
 	"github.com/gofiber/fiber/v3/middleware/limiter"
@@ -53,19 +54,26 @@ type App struct {
 	agentRouter      *fiber.App
 	oidcOnce         sync.Once
 	verifiers        map[string]*oidc.IDTokenVerifier
+	throttles        accountThrottles
 }
 
+// errorHandler answers in JSON. requestId lets support find the request's log lines.
 func errorHandler(c fiber.Ctx, err error) error {
 	code := 500
 	message := "Something went wrong. Please try again."
+	rid := requestid.FromContext(c)
 	var fe *fiber.Error
 	if errors.As(err, &fe) {
 		code = fe.Code
 		message = fe.Message
 	} else {
-		slog.Error("request failed", "error", err, "path", c.Path())
+		slog.Error("request failed", "error", err, "path", c.Path(), "requestId", rid)
 	}
-	return c.Status(code).JSON(fiber.Map{"error": message})
+	body := fiber.Map{"error": message}
+	if rid != "" {
+		body["requestId"] = rid
+	}
+	return c.Status(code).JSON(body)
 }
 
 // rateLimit answers in JSON like every other API error, so the app can show the message.
@@ -79,7 +87,7 @@ func New(db *pgxpool.Pool, config Config) *fiber.App {
 }
 func NewWithContext(ctx context.Context, db *pgxpool.Pool, config Config) *fiber.App {
 	a := &App{DB: db, Config: config, AI: ai.New(), Media: NewMediaStore(), Live: live.New(), Narrator: narration.New(), Context: ctx}
-	fc := fiber.Config{AppName: "Savorly API", BodyLimit: 55 * 1024 * 1024, ReadTimeout: 30 * time.Second, WriteTimeout: 30 * time.Second, ErrorHandler: errorHandler}
+	fc := fiber.Config{AppName: "Savorly API", BodyLimit: 55 * 1024 * 1024, ReadTimeout: mediaReadTimeout, WriteTimeout: 30 * time.Second, ErrorHandler: errorHandler}
 	if config.ProxyHeader != "" {
 		// Only configured where the gateway is the sole route in (Cloudflare Containers have no
 		// public address), so every peer is that gateway.
@@ -87,7 +95,7 @@ func NewWithContext(ctx context.Context, db *pgxpool.Pool, config Config) *fiber
 		fc.TrustProxyConfig = fiber.TrustProxyConfig{Proxies: []string{"0.0.0.0/0", "::/0"}}
 	}
 	f := fiber.New(fc)
-	f.Use(recover.New(), requestid.New(), helmet.New())
+	f.Use(requestid.New(), accessLog, recover.New(recover.Config{EnableStackTrace: true, StackTraceHandler: logPanic}), helmet.New(), compress.New(compress.Config{Next: skipCompression}))
 	f.Use(cors.New(cors.Config{AllowOrigins: config.Origins, AllowCredentials: true, AllowMethods: []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"}, AllowHeaders: []string{"Content-Type", "Authorization", "Idempotency-Key"}}))
 	f.Use(func(c fiber.Ctx) error {
 		// Cookies require an allowed Origin on mutation requests. Native clients use bearer tokens.
@@ -118,7 +126,7 @@ func NewWithContext(ctx context.Context, db *pgxpool.Pool, config Config) *fiber
 		ctx, cancel := context.WithTimeout(c.Context(), 2*time.Second)
 		defer cancel()
 		if err := db.Ping(ctx); err != nil {
-			return fiber.NewError(503, "Database unavailable")
+			return fiber.NewError(503, "Database unavailable.")
 		}
 		return c.JSON(fiber.Map{"status": "ok"})
 	})
@@ -143,25 +151,27 @@ func NewWithContext(ctx context.Context, db *pgxpool.Pool, config Config) *fiber
 			"imageAI": a.AI.TextEnabled(), "imageModel": a.AI.ImageModel, "imageEditModel": a.AI.ImageEditModel,
 			"videoAI": a.AI.VideoEnabled(), "videoProvider": "reAPI", "videoModel": a.AI.VideoModel, "videoEstimateUSD": 1.005,
 			"passwordRecovery": emailEnabled(),
+			"turnstileSiteKey": turnstileSiteKey(),
 			"plans":            paidPlans(), "billing": billingEnabled(), "appleSignIn": len(oauthAudiences("apple")) > 0, "googleSignIn": len(oauthAudiences("google")) > 0,
 			// Public client identifiers the sign-in SDKs need; none of these are secrets.
 			"auth": fiber.Map{"googleWebClientId": os.Getenv("GOOGLE_WEB_CLIENT_ID"), "googleIosClientId": os.Getenv("GOOGLE_IOS_CLIENT_ID"), "appleServicesId": os.Getenv("APPLE_SERVICES_ID"), "appleRedirectUri": os.Getenv("APPLE_REDIRECT_URI")},
 		})
 	})
-	authLimiter := rateLimit(15, 15*time.Minute)
-	v.Post("/auth/register", authLimiter, a.register)
-	v.Post("/auth/login", authLimiter, a.login)
-	v.Post("/auth/forgot", authLimiter, a.forgotPassword)
-	v.Post("/auth/reset", authLimiter, a.resetPassword)
+	// Each sign-in route has its own budget, so a few mistyped passwords don't also block a reset.
+	v.Post("/auth/register", rateLimit(20, time.Hour), a.register)
+	v.Post("/auth/login", rateLimit(20, 15*time.Minute), a.login)
+	v.Post("/auth/forgot", rateLimit(5, 15*time.Minute), a.forgotPassword)
+	v.Post("/auth/reset", rateLimit(10, 15*time.Minute), a.resetPassword)
 	// Google's web button takes a nonce each time it renders, so nonces don't share login's limit.
 	v.Post("/auth/nonce", rateLimit(60, 15*time.Minute), a.authNonce)
-	v.Post("/auth/oauth", authLimiter, a.oauthSignIn)
+	v.Post("/auth/oauth", rateLimit(30, 15*time.Minute), a.oauthSignIn)
 	v.Post("/auth/logout", a.requireAuth, a.logout)
 	v.Get("/me", a.requireAuth, a.me)
 	v.Patch("/me", a.requireAuth, a.updateMe)
 	v.Delete("/me", a.requireAuth, a.deleteMe)
 	v.Post("/me/onboarded", a.requireAuth, a.onboarded)
 	v.Get("/handles/:handle", a.requireAuth, a.handleAvailability)
+	a.accountRoutes(v)
 	v.Get("/recipes", a.listRecipes)
 	v.Get("/recipes/:id", a.getRecipe)
 	v.Post("/recipes/:id/steps/:step/narration", a.requireAuth, a.prepareNarration)
@@ -209,6 +219,9 @@ func NewWithContext(ctx context.Context, db *pgxpool.Pool, config Config) *fiber
 	v.Post("/recipe-studio/:id/images", a.requireAuth, a.studioImage)
 	v.Post("/recipe-studio/:id/voice", a.requireAuth, a.voiceCreate)
 	v.Delete("/recipe-studio/voice/:session", a.requireAuth, a.voiceClose)
+	a.recipeRoutes(v)
+	a.socialRoutes(v)
+	a.engagementRoutes(v)
 	a.adminRoutes(v)
 	return f
 }

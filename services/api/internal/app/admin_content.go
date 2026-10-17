@@ -36,6 +36,59 @@ var recipeOrders = map[string]string{
 	"rating":  `m.rating DESC,m.reviews DESC,r.created_at DESC`,
 }
 
+// maker is whoever made what an admin acts on: a recipe's author, a review's writer, or the
+// member a job or voice session belongs to.
+type maker struct {
+	ID, Email string
+	// An admin, or an address in ADMIN_EMAILS whether verified or not (as manage treats it).
+	Protected bool
+}
+
+// makerSQL selects a maker's fields from a users row u; $2 holds ownerEmails().
+const makerSQL = `u.id,u.email,(u.admin OR u.email=ANY($2::text[]))`
+
+func (m *maker) fields() []any { return []any{&m.ID, &m.Email, &m.Protected} }
+
+// mayModerate applies manage's rank rule to content: an appointed admin can't act on what an
+// owner or another admin made, and with self false not on their own either (restoring their
+// recipe, or closing its reports, is for someone else to decide). Owners act on anything.
+func mayModerate(c fiber.Ctx, by maker, self bool) error {
+	me := by.ID == userID(c)
+	switch {
+	case isOwner(c):
+		return nil
+	case me && !self:
+		return fiber.NewError(403, "Another admin has to decide this for your own recipe.")
+	case by.Protected && !me:
+		return fiber.NewError(403, "Only an owner can moderate an owner's or another admin's content.")
+	}
+	return nil
+}
+
+const moderationHoldMessage = "An admin took this recipe out of public view, so it stays private until an admin restores it. Contact Savorly support if you think this is a mistake."
+
+// moderationHold refuses an author's write that would publish a recipe an admin unpublished;
+// editing it as a draft stays open, and an admin's Restore lifts the hold. writeRecipe calls
+// it inside its transaction, before writing.
+func moderationHold(ctx context.Context, q querier, recipe, author string, publish bool) error {
+	if !publish {
+		return nil
+	}
+	var held bool
+	e := q.QueryRow(ctx, `SELECT unpublished_by_admin_at IS NOT NULL FROM recipes WHERE id=$1 AND author_id=$2 FOR UPDATE`, recipe, author).Scan(&held)
+	if errors.Is(e, pgx.ErrNoRows) {
+		// A new recipe, or someone else's, which the write itself refuses.
+		return nil
+	}
+	if e != nil {
+		return e
+	}
+	if held {
+		return fiber.NewError(403, moderationHoldMessage)
+	}
+	return nil
+}
+
 func (a *App) adminRecipes(c fiber.Ctx) error {
 	filter, ok := recipeFilters[c.Query("filter")]
 	if !ok {
@@ -46,16 +99,17 @@ func (a *App) adminRecipes(c fiber.Ctx) error {
 		order = recipeOrders["newest"]
 	}
 	return a.adminList(c, `SELECT jsonb_build_object('id',r.id,'title',r.title,'image',r.image,'cuisine',r.cuisine,'published',r.published,'aiGenerated',r.ai_generated,
- 'video',r.video<>'','createdAt',r.created_at,'updatedAt',r.updated_at,
+ 'video',r.video<>'','createdAt',r.created_at,'updatedAt',r.updated_at,'unpublishedByAdminAt',r.unpublished_by_admin_at,
  'author',jsonb_build_object('id',u.id,'name',u.name,'handle',u.handle,'email',u.email,'avatar',u.avatar,'suspended',u.suspended_at IS NOT NULL),
  'rating',m.rating,'reviewCount',m.reviews,'saveCount',m.saves,'openReports',m.open,'reportCount',m.reports),count(*) OVER()
  FROM recipes r JOIN users u ON u.id=r.author_id`+recipeStats+`
  WHERE ($1='' OR r.title ILIKE '%'||$1||'%' OR u.name ILIKE '%'||$1||'%' OR u.email ILIKE '%'||$1||'%' OR r.cuisine ILIKE $1 OR r.id=$1 OR r.author_id=$1) AND `+filter+`
- ORDER BY `+order, strings.TrimSpace(c.Query("q")))
+ ORDER BY `+order+`,r.id`, strings.TrimSpace(c.Query("q")))
 }
 
 func (a *App) adminRecipe(c fiber.Ctx) error {
 	b, e := a.jsonRow(c.Context(), `SELECT `+recipeJSON+` || jsonb_build_object('updatedAt',r.updated_at,
+ 'unpublishedByAdminAt',r.unpublished_by_admin_at,'unpublishedBy',r.unpublished_by,
  'authorEmail',u.email,'authorSuspended',u.suspended_at IS NOT NULL,
  'conversations',(SELECT count(*) FROM voice_projects WHERE recipe_id=r.id),
  'reports',COALESCE((SELECT jsonb_agg(`+reportJSON+` ORDER BY p.created_at DESC) FROM reports p JOIN users x ON x.id=p.user_id WHERE p.recipe_id=r.id),'[]'),
@@ -68,23 +122,41 @@ func (a *App) adminRecipe(c fiber.Ctx) error {
 	return c.Send(b)
 }
 
+// moderated is the recipe an admin acts on, locked for the change.
+type moderated struct {
+	Title       string
+	Held        bool // unpublished by an admin until an admin restores it
+	OpenReports int
+	Author      maker
+}
+
+func lockRecipe(ctx context.Context, tx pgx.Tx, id string) (moderated, error) {
+	var r moderated
+	e := tx.QueryRow(ctx, `SELECT r.title,r.unpublished_by_admin_at IS NOT NULL,(SELECT count(*) FROM reports WHERE recipe_id=r.id AND status='open'),`+makerSQL+`
+ FROM recipes r JOIN users u ON u.id=r.author_id WHERE r.id=$1 FOR UPDATE OF r`, id, ownerEmails()).Scan(append([]any{&r.Title, &r.Held, &r.OpenReports}, r.Author.fields()...)...)
+	if errors.Is(e, pgx.ErrNoRows) {
+		return r, fiber.NewError(404, "Recipe not found.")
+	}
+	return r, e
+}
+
 // recipeWrite runs fn on a recipe in a transaction and answers with the refreshed recipe.
-func (a *App) recipeWrite(c fiber.Ctx, fn func(ctx context.Context, tx pgx.Tx, title, author string) error) error {
+// With self false, an appointed admin can't run it on their own recipe.
+func (a *App) recipeWrite(c fiber.Ctx, self bool, fn func(ctx context.Context, tx pgx.Tx, r moderated) error) error {
 	ctx, id := c.Context(), c.Params("id")
 	tx, e := a.DB.Begin(ctx)
 	if e != nil {
 		return e
 	}
 	defer tx.Rollback(ctx)
-	var title, author string
-	e = tx.QueryRow(ctx, `SELECT r.title,u.email FROM recipes r JOIN users u ON u.id=r.author_id WHERE r.id=$1 FOR UPDATE OF r`, id).Scan(&title, &author)
-	if errors.Is(e, pgx.ErrNoRows) {
-		return fiber.NewError(404, "Recipe not found.")
-	}
+	r, e := lockRecipe(ctx, tx, id)
 	if e != nil {
 		return e
 	}
-	if e = fn(ctx, tx, title, author); e != nil {
+	if e = mayModerate(c, r.Author, self); e != nil {
+		return e
+	}
+	if e = fn(ctx, tx, r); e != nil {
 		return e
 	}
 	if e = tx.Commit(ctx); e != nil {
@@ -111,8 +183,9 @@ func moderationNote(c fiber.Ctx) (string, error) {
 	return in.Note, nil
 }
 
-// adminPublish takes a recipe out of public view, resolving its open reports. Publishing
-// again is only for undoing an admin's unpublish; drafts are the author's to publish.
+// adminPublish takes a recipe out of public view, resolving its open reports, and holds it
+// there until an admin restores it. Restoring is only for that hold; drafts are the author's
+// to publish.
 func (a *App) adminPublish(c fiber.Ctx) error {
 	var in struct {
 		Published bool
@@ -124,37 +197,33 @@ func (a *App) adminPublish(c fiber.Ctx) error {
 	if in.Note = strings.TrimSpace(in.Note); len(in.Note) > 1000 {
 		return fiber.NewError(400, "Keep the note under 1,000 characters.")
 	}
-	return a.recipeWrite(c, func(ctx context.Context, tx pgx.Tx, title, author string) error {
+	return a.recipeWrite(c, !in.Published, func(ctx context.Context, tx pgx.Tx, r moderated) error {
 		id := c.Params("id")
-		if in.Published {
-			var last string
-			_ = tx.QueryRow(ctx, `SELECT action FROM admin_actions WHERE target_type='recipe' AND target_id=$1 ORDER BY id DESC LIMIT 1`, id).Scan(&last)
-			if last != "recipe.unpublish" {
-				return fiber.NewError(409, "Only the author can publish a draft. Admins can restore recipes an admin unpublished.")
-			}
+		if in.Published && !r.Held {
+			return fiber.NewError(409, "Only the author can publish a draft. Admins can restore recipes an admin unpublished.")
 		}
 		// Same bookkeeping as an author's edit, so the sous-chef doesn't act on a stale draft.
 		if _, e := tx.Exec(ctx, `SELECT id FROM voice_projects WHERE recipe_id=$1 FOR UPDATE`, id); e != nil {
 			return e
 		}
-		r, e := tx.Exec(ctx, `UPDATE recipes SET published=$2,updated_at=now() WHERE id=$1 AND published<>$2`, id, in.Published)
+		res, e := tx.Exec(ctx, `UPDATE recipes SET published=$2,unpublished_by_admin_at=CASE WHEN $2 THEN NULL ELSE now() END,unpublished_by=CASE WHEN $2 THEN '' ELSE $3 END,updated_at=now() WHERE id=$1 AND published<>$2`, id, in.Published, adminEmail(c))
 		if e != nil {
 			return e
 		}
-		if r.RowsAffected() == 0 {
+		if res.RowsAffected() == 0 {
 			return fiber.NewError(409, "Nothing changed.")
 		}
 		if _, e = tx.Exec(ctx, `UPDATE voice_projects SET revision=revision+1,confirmed_revision=-1,auto_media=false,status=CASE WHEN $2 THEN 'published' ELSE 'draft' END,updated_at=now() WHERE recipe_id=$1`, id, in.Published); e != nil {
 			return e
 		}
 		if in.Published {
-			return audit(ctx, tx, c, "recipe.publish", "recipe", id, fmt.Sprintf("Restored “%s” by %s", title, author), fiber.Map{"note": in.Note})
+			return audit(ctx, tx, c, "recipe.publish", "recipe", id, fmt.Sprintf("Restored “%s” by %s", r.Title, r.Author.Email), fiber.Map{"note": in.Note})
 		}
 		n, e := resolveReports(ctx, tx, c, id, "resolved", in.Note)
 		if e != nil {
 			return e
 		}
-		return audit(ctx, tx, c, "recipe.unpublish", "recipe", id, fmt.Sprintf("Unpublished “%s” by %s", title, author), fiber.Map{"note": in.Note, "reportsResolved": n})
+		return audit(ctx, tx, c, "recipe.unpublish", "recipe", id, fmt.Sprintf("Unpublished “%s” by %s", r.Title, r.Author.Email), fiber.Map{"note": in.Note, "reportsResolved": n})
 	})
 }
 
@@ -169,7 +238,7 @@ func (a *App) adminResolveReports(c fiber.Ctx) error {
 	if in.Note = strings.TrimSpace(in.Note); len(in.Note) > 1000 {
 		return fiber.NewError(400, "Keep the note under 1,000 characters.")
 	}
-	return a.recipeWrite(c, func(ctx context.Context, tx pgx.Tx, title, author string) error {
+	return a.recipeWrite(c, false, func(ctx context.Context, tx pgx.Tx, r moderated) error {
 		n, e := resolveReports(ctx, tx, c, c.Params("id"), in.Status, in.Note)
 		if e != nil {
 			return e
@@ -178,7 +247,7 @@ func (a *App) adminResolveReports(c fiber.Ctx) error {
 			return fiber.NewError(409, "There are no open reports on this recipe.")
 		}
 		verb := map[string]string{"resolved": "Resolved", "dismissed": "Dismissed"}[in.Status]
-		return audit(ctx, tx, c, "reports."+in.Status, "recipe", c.Params("id"), fmt.Sprintf("%s %d report%s on “%s” by %s", verb, n, plural(n), title, author), fiber.Map{"note": in.Note, "count": n})
+		return audit(ctx, tx, c, "reports."+in.Status, "recipe", c.Params("id"), fmt.Sprintf("%s %d report%s on “%s” by %s", verb, n, plural(n), r.Title, r.Author.Email), fiber.Map{"note": in.Note, "count": n})
 	})
 }
 
@@ -200,16 +269,14 @@ func (a *App) adminDeleteRecipe(c fiber.Ctx) error {
 		return e
 	}
 	defer tx.Rollback(ctx)
-	var title, author string
-	var open int
-	e = tx.QueryRow(ctx, `SELECT r.title,u.email,(SELECT count(*) FROM reports WHERE recipe_id=r.id AND status='open') FROM recipes r JOIN users u ON u.id=r.author_id WHERE r.id=$1 FOR UPDATE OF r`, id).Scan(&title, &author, &open)
-	if errors.Is(e, pgx.ErrNoRows) {
-		return fiber.NewError(404, "Recipe not found.")
-	}
+	r, e := lockRecipe(ctx, tx, id)
 	if e != nil {
 		return e
 	}
-	if e = audit(ctx, tx, c, "recipe.delete", "recipe", id, fmt.Sprintf("Deleted “%s” by %s", title, author), fiber.Map{"note": note, "title": title, "author": author, "openReports": open}); e != nil {
+	if e = mayModerate(c, r.Author, true); e != nil {
+		return e
+	}
+	if e = audit(ctx, tx, c, "recipe.delete", "recipe", id, fmt.Sprintf("Deleted “%s” by %s", r.Title, r.Author.Email), fiber.Map{"note": note, "title": r.Title, "author": r.Author.Email, "openReports": r.OpenReports}); e != nil {
 		return e
 	}
 	if _, e = tx.Exec(ctx, `DELETE FROM recipes WHERE id=$1`, id); e != nil {
@@ -232,7 +299,7 @@ func (a *App) adminReports(c fiber.Ctx) error {
  'author',jsonb_build_object('id',u.id,'name',u.name,'email',u.email,'avatar',u.avatar,'suspended',u.suspended_at IS NOT NULL),
  'count',count(*),'latestAt',max(p.created_at),'reports',jsonb_agg(`+reportJSON+` ORDER BY p.created_at DESC)),count(*) OVER()
  FROM reports p JOIN recipes r ON r.id=p.recipe_id JOIN users u ON u.id=r.author_id JOIN users x ON x.id=p.user_id
- WHERE p.status=$1 GROUP BY r.id,u.id ORDER BY count(*) DESC,max(p.created_at) DESC`, status)
+ WHERE p.status=$1 GROUP BY r.id,u.id ORDER BY count(*) DESC,max(p.created_at) DESC,r.id`, status)
 }
 
 func (a *App) adminReviews(c fiber.Ctx) error {
@@ -242,7 +309,7 @@ func (a *App) adminReviews(c fiber.Ctx) error {
  'recipe',jsonb_build_object('id',r.id,'title',r.title,'image',r.image,'published',r.published)),count(*) OVER()
  FROM reviews v JOIN users u ON u.id=v.user_id JOIN recipes r ON r.id=v.recipe_id
  WHERE ($1='' OR v.body ILIKE '%'||$1||'%' OR u.name ILIKE '%'||$1||'%' OR u.email ILIKE '%'||$1||'%' OR r.title ILIKE '%'||$1||'%') AND ($2=0 OR v.rating=$2)
- ORDER BY v.created_at DESC`, strings.TrimSpace(c.Query("q")), rating)
+ ORDER BY v.created_at DESC,v.id`, strings.TrimSpace(c.Query("q")), rating)
 }
 
 func (a *App) adminDeleteReview(c fiber.Ctx) error {
@@ -252,16 +319,60 @@ func (a *App) adminDeleteReview(c fiber.Ctx) error {
 		return e
 	}
 	defer tx.Rollback(ctx)
-	var body, author, title, recipe string
+	var body, title, recipe string
 	var rating int
-	e = tx.QueryRow(ctx, `DELETE FROM reviews v USING users u,recipes r WHERE v.id=$1 AND u.id=v.user_id AND r.id=v.recipe_id RETURNING v.body,v.rating,u.email,r.title,r.id`, id).Scan(&body, &rating, &author, &title, &recipe)
+	var by maker
+	e = tx.QueryRow(ctx, `SELECT v.body,v.rating,r.title,r.id,`+makerSQL+` FROM reviews v JOIN users u ON u.id=v.user_id JOIN recipes r ON r.id=v.recipe_id WHERE v.id=$1 FOR UPDATE OF v`,
+		id, ownerEmails()).Scan(append([]any{&body, &rating, &title, &recipe}, by.fields()...)...)
 	if errors.Is(e, pgx.ErrNoRows) {
 		return fiber.NewError(404, "Review not found.")
 	}
 	if e != nil {
 		return e
 	}
-	if e = audit(ctx, tx, c, "review.delete", "review", id, fmt.Sprintf("Deleted %s's %d-star review of “%s”", author, rating, title), fiber.Map{"body": truncate(body, 300), "rating": rating, "recipeId": recipe}); e != nil {
+	if e = mayModerate(c, by, true); e != nil {
+		return e
+	}
+	if _, e = tx.Exec(ctx, `DELETE FROM reviews WHERE id=$1`, id); e != nil {
+		return e
+	}
+	if e = audit(ctx, tx, c, "review.delete", "review", id, fmt.Sprintf("Deleted %s's %d-star review of “%s”", by.Email, rating, title), fiber.Map{"body": truncate(body, 300), "rating": rating, "recipeId": recipe}); e != nil {
+		return e
+	}
+	if e = tx.Commit(ctx); e != nil {
+		return e
+	}
+	return c.SendStatus(204)
+}
+
+// adminDeleteComment removes a comment, and the replies to it, under the same rank rule as
+// reviews.
+func (a *App) adminDeleteComment(c fiber.Ctx) error {
+	ctx, id := c.Context(), c.Params("id")
+	tx, e := a.DB.Begin(ctx)
+	if e != nil {
+		return e
+	}
+	defer tx.Rollback(ctx)
+	var body, title, recipe string
+	var replies int
+	var by maker
+	e = tx.QueryRow(ctx, `SELECT m.body,r.title,r.id,(SELECT count(*) FROM comments WHERE parent_id=m.id),`+makerSQL+`
+ FROM comments m JOIN users u ON u.id=m.user_id JOIN recipes r ON r.id=m.recipe_id WHERE m.id=$1 FOR UPDATE OF m`,
+		id, ownerEmails()).Scan(append([]any{&body, &title, &recipe, &replies}, by.fields()...)...)
+	if errors.Is(e, pgx.ErrNoRows) {
+		return fiber.NewError(404, "Comment not found.")
+	}
+	if e != nil {
+		return e
+	}
+	if e = mayModerate(c, by, true); e != nil {
+		return e
+	}
+	if _, e = tx.Exec(ctx, `DELETE FROM comments WHERE id=$1`, id); e != nil {
+		return e
+	}
+	if e = audit(ctx, tx, c, "comment.delete", "comment", id, fmt.Sprintf("Deleted %s's comment on “%s”", by.Email, title), fiber.Map{"body": truncate(body, 300), "recipeId": recipe, "replies": replies}); e != nil {
 		return e
 	}
 	if e = tx.Commit(ctx); e != nil {
@@ -299,7 +410,7 @@ const jobRowJSON = `'id',j.id,'kind',j.kind,'status',j.status,'error',j.error,'c
 func (a *App) adminJobs(c fiber.Ctx) error {
 	return a.adminList(c, `SELECT jsonb_build_object(`+jobRowJSON+`),count(*) OVER() FROM ai_jobs j JOIN users u ON u.id=j.user_id
  WHERE ($1='' OR j.status=$1) AND ($2='' OR j.kind=$2) AND ($3='' OR u.email ILIKE '%'||$3||'%' OR j.id=$3 OR j.user_id=$3)
- ORDER BY j.created_at DESC`, c.Query("status"), c.Query("kind"), strings.TrimSpace(c.Query("q")))
+ ORDER BY j.created_at DESC,j.id`, c.Query("status"), c.Query("kind"), strings.TrimSpace(c.Query("q")))
 }
 
 // adminJob includes the prompt and result, for debugging a generation a member reports.
@@ -320,12 +431,16 @@ func (a *App) adminCancelJob(c fiber.Ctx) error {
 		return e
 	}
 	defer tx.Rollback(ctx)
-	var status, kind, email string
-	e = tx.QueryRow(ctx, `SELECT j.status,j.kind,u.email FROM ai_jobs j JOIN users u ON u.id=j.user_id WHERE j.id=$1 FOR UPDATE OF j`, id).Scan(&status, &kind, &email)
+	var status, kind string
+	var by maker
+	e = tx.QueryRow(ctx, `SELECT j.status,j.kind,`+makerSQL+` FROM ai_jobs j JOIN users u ON u.id=j.user_id WHERE j.id=$1 FOR UPDATE OF j`, id, ownerEmails()).Scan(append([]any{&status, &kind}, by.fields()...)...)
 	if errors.Is(e, pgx.ErrNoRows) {
 		return fiber.NewError(404, "Job not found.")
 	}
 	if e != nil {
+		return e
+	}
+	if e = mayModerate(c, by, true); e != nil {
 		return e
 	}
 	switch status {
@@ -343,7 +458,7 @@ func (a *App) adminCancelJob(c fiber.Ctx) error {
 	if e != nil {
 		return e
 	}
-	if e = audit(ctx, tx, c, "job.cancel", "job", id, fmt.Sprintf("Cancelled %s's %s job", email, kind), fiber.Map{"status": status}); e != nil {
+	if e = audit(ctx, tx, c, "job.cancel", "job", id, fmt.Sprintf("Cancelled %s's %s job", by.Email, kind), fiber.Map{"status": status}); e != nil {
 		return e
 	}
 	if e = tx.Commit(ctx); e != nil {
@@ -359,15 +474,21 @@ func (a *App) adminEndVoice(c fiber.Ctx) error {
 		return e
 	}
 	defer tx.Rollback(ctx)
-	var email string
-	e = tx.QueryRow(ctx, `UPDATE voice_sessions s SET close_requested=true FROM users u WHERE s.id=$1 AND u.id=s.user_id AND s.status IN ('connecting','active') RETURNING u.email`, id).Scan(&email)
+	var by maker
+	e = tx.QueryRow(ctx, `SELECT `+makerSQL+` FROM voice_sessions s JOIN users u ON u.id=s.user_id WHERE s.id=$1 AND s.status IN ('connecting','active') FOR UPDATE OF s`, id, ownerEmails()).Scan(by.fields()...)
 	if errors.Is(e, pgx.ErrNoRows) {
 		return fiber.NewError(404, "That voice session has already ended.")
 	}
 	if e != nil {
 		return e
 	}
-	if e = audit(ctx, tx, c, "voice.end", "voice", id, "Ended "+email+"'s live voice session", nil); e != nil {
+	if e = mayModerate(c, by, true); e != nil {
+		return e
+	}
+	if _, e = tx.Exec(ctx, `UPDATE voice_sessions SET close_requested=true WHERE id=$1`, id); e != nil {
+		return e
+	}
+	if e = audit(ctx, tx, c, "voice.end", "voice", id, "Ended "+by.Email+"'s live voice session", nil); e != nil {
 		return e
 	}
 	if e = tx.Commit(ctx); e != nil {

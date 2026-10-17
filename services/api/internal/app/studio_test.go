@@ -45,6 +45,10 @@ func studioServer(a *App) *fiber.App {
 	f.Delete("/studio/:id", a.studioDelete)
 	f.Put("/studio/:id/context", a.studioContext)
 	f.Post("/studio/:id/voice", a.voiceCreate)
+	f.Delete("/studio/voice/:session", a.voiceClose)
+	f.Get("/studio", a.studioList)
+	f.Post("/studio", a.studioCreate)
+	f.Post("/studio/:id/images", a.studioImage)
 	return f
 }
 func studioReq(t *testing.T, f *fiber.App, method, path, owner, key string, body any) (int, []byte) {
@@ -538,7 +542,10 @@ func TestAssistantEditsOwnRecipesAndConfirmsConsequentialActions(t *testing.T) {
 	if out = tool(run, "edit_recipe", map[string]any{"recipe_id": "mine", "published": true}); !strings.Contains(out, "needsConfirmation") || current().Published {
 		t.Fatalf("published without confirmation: %s", out)
 	}
-	if out = tool(run, "confirm_action", nil); !strings.Contains(out, "Wait for the user") || current().Published {
+	if out = tool(run, "confirm_action", nil); !strings.Contains(out, "first thing in a turn") || current().Published {
+		t.Fatalf("confirmed later in the turn: %s", out)
+	}
+	if out = tool(agentTurn(t, a, p), "confirm_action", nil); !strings.Contains(out, "Wait for the user") || current().Published {
 		t.Fatalf("confirmed without an answer: %s", out)
 	}
 	say(t, a, p, "Yes, publish it.")
@@ -546,10 +553,13 @@ func TestAssistantEditsOwnRecipesAndConfirmsConsequentialActions(t *testing.T) {
 	if out = tool(run, "confirm_action", nil); !current().Published || !strings.Contains(out, "publishes it") {
 		t.Fatalf("confirmed publish failed: %s", out)
 	}
-	if out = tool(run, "confirm_action", nil); !strings.Contains(out, "Nothing is waiting") {
+	if out = tool(run, "confirm_action", nil); !strings.Contains(out, "first thing in a turn") {
 		t.Fatalf("confirmation replayed: %s", out)
 	}
-	if out = tool(run, "review_recipe", map[string]any{"recipe_id": "mine", "rating": 5, "text": "So good"}); !strings.Contains(out, "another cook") {
+	if out = tool(agentTurn(t, a, p), "confirm_action", nil); !strings.Contains(out, "Nothing is waiting") {
+		t.Fatalf("confirmation replayed in a later turn: %s", out)
+	}
+	if out = tool(run, "review_recipe", map[string]any{"recipe_id": "mine", "rating": 5, "text": "So good"}); !strings.Contains(out, "other cooks' published recipes") {
 		t.Fatalf("reviewed own recipe: %s", out)
 	}
 	if out = tool(run, "review_recipe", map[string]any{"recipe_id": "toast", "rating": 4, "text": "Lovely and quick."}); !strings.Contains(out, "4-star review of “Lemon toast”") {
@@ -617,31 +627,68 @@ func TestAssistantMakesMediaForAnExistingRecipe(t *testing.T) {
 	ctx := context.Background()
 	mine := exampleVoiceRecipe()
 	mine.Published = true
+	mine.AIGenerated = false
 	mine.Image = "https://media.example/my-photo.jpg"
 	_ = persistRecipe(ctx, a.DB, "cook", "mine", mine, false)
 	run := agentTurn(t, a, p)
-	out := a.agentTool(ctx, run, "generate_recipe_media", jsonBytes(map[string]any{"recipe_id": "mine", "kinds": []string{"image"}}))
+	media := func() string {
+		return a.agentTool(ctx, run, "generate_recipe_media", jsonBytes(map[string]any{"recipe_id": "mine", "kinds": []string{"image"}}))
+	}
+	out := media()
 	if run.state.RecipeID != "mine" || !strings.Contains(out, `"image"`) || strings.Contains(out, `"video"`) {
 		t.Fatalf("media not queued for the recipe: %s", out)
+	}
+	// Asking again while it's being made neither orders nor reserves another.
+	out = media()
+	jobs := func() (n int) {
+		a.DB.QueryRow(ctx, `SELECT count(*) FROM ai_jobs WHERE user_id='cook'`).Scan(&n)
+		return n
+	}
+	if jobs() != 1 || !strings.Contains(out, `"queued"`) {
+		t.Fatalf("repeat request ordered again: %d jobs, %s", jobs(), out)
+	}
+	// "Change the servings to 6" must not take the live recipe offline or relabel the cook's
+	// own recipe as AI-made; the sous-chef is sent to edit_recipe, which asks first.
+	r := mine
+	r.Servings = 6
+	out = a.agentTool(ctx, run, "save_recipe_draft", jsonBytes(map[string]any{"recipe": r}))
+	current, _ := a.ownRecipe(ctx, "cook", "mine")
+	if !strings.Contains(out, "edit_recipe") || !current.Published || current.AIGenerated || current.Servings != 2 {
+		t.Fatalf("a draft write changed the published recipe: %s %#v", out, current)
+	}
+	if out = a.agentTool(ctx, run, "edit_recipe", jsonBytes(map[string]any{"recipe_id": "mine", "changes": map[string]any{"servings": 6}})); !strings.Contains(out, "needsConfirmation") {
+		t.Fatalf("published edit not held for confirmation: %s", out)
 	}
 	_, _ = a.DB.Exec(ctx, `UPDATE ai_jobs SET status='completed',result='{"url":"https://media.example/new-cover.jpg"}' WHERE id IN (SELECT job_id FROM voice_assets WHERE project_id=$1)`, p)
 	if e := a.syncStudioAssets(ctx); e != nil {
 		t.Fatal(e)
 	}
 	state, _ := a.studioState(ctx, p, 0)
-	if state.Recipe.Image != "https://media.example/new-cover.jpg" || !state.Recipe.Published || state.Status != "published" {
+	if state.Recipe.Image != "https://media.example/new-cover.jpg" || !state.Recipe.Published || state.Status != "published" || jobs() != 1 {
 		t.Fatalf("cover not attached: %#v", state)
 	}
-	// A later chat revision of an adopted recipe keeps its photos and starts no new media.
-	r := *state.Recipe
-	r.Servings = 6
-	if _, e := a.applyDraftAction(ctx, state, "build", &r, false); e != nil {
+}
+func TestAssistantRevisesAnAdoptedPrivateRecipeInPlace(t *testing.T) {
+	a, p := studioFixture(t)
+	ctx := context.Background()
+	mine := exampleVoiceRecipe()
+	mine.AIGenerated = false
+	mine.Image = "https://media.example/my-photo.jpg"
+	_ = persistRecipe(ctx, a.DB, "cook", "mine", mine, false)
+	run := agentTurn(t, a, p)
+	if e := a.adoptRecipe(ctx, run, "mine"); e != nil {
 		t.Fatal(e)
 	}
-	state, _ = a.studioState(ctx, p, 0)
+	// A chat revision of an adopted recipe keeps its photos and authorship and starts no media.
+	r := mine
+	r.Servings = 6
+	if out := a.agentTool(ctx, run, "save_recipe_draft", jsonBytes(map[string]any{"recipe": r})); !strings.Contains(out, "keeping its photos") {
+		t.Fatalf("revision refused: %s", out)
+	}
+	current, _ := a.ownRecipe(ctx, "cook", "mine")
 	var jobs int
 	a.DB.QueryRow(ctx, `SELECT count(*) FROM ai_jobs WHERE user_id='cook'`).Scan(&jobs)
-	if state.Recipe.Image != "https://media.example/new-cover.jpg" || jobs != 1 {
-		t.Fatalf("revision replaced photos or queued media: %s, %d jobs", state.Recipe.Image, jobs)
+	if current.Servings != 6 || current.Image != mine.Image || current.AIGenerated || current.Published || jobs != 0 {
+		t.Fatalf("revision relabelled the recipe, replaced photos or queued media: %#v, %d jobs", current, jobs)
 	}
 }

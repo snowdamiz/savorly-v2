@@ -91,9 +91,10 @@ func TestRecipeGroceriesConstantQueriesAndAtomicity(t *testing.T) {
 			if status != 200 || body["added"] != n {
 				t.Fatalf("status=%d body=%v", status, body)
 			}
-			// Count real SQL calls, including BEGIN/COMMIT, rather than wall-clock timing.
-			if len(queries) != 2 {
-				t.Errorf("%d ingredients used %d SQL calls; want 2", n, len(queries))
+			// Count real SQL calls, including BEGIN/COMMIT, rather than wall-clock timing: the
+			// recipe, then begin, list lock, household (none here), current list, one write and commit.
+			if len(queries) != 7 {
+				t.Errorf("%d ingredients used %d SQL calls; want 7", n, len(queries))
 			}
 			t.Logf("%d ingredients: %d SQL calls", n, len(queries))
 			rows, err := db.Query(ctx, `SELECT user_id,name,quantity,category,checked FROM groceries ORDER BY name`)
@@ -108,7 +109,7 @@ func TestRecipeGroceriesConstantQueriesAndAtomicity(t *testing.T) {
 				if err := rows.Scan(&owner, &name, &quantity, &category, &checked); err != nil {
 					t.Fatal(err)
 				}
-				if i >= n || owner != "cook" || name != r.Ingredients[i].Name || quantity != fmt.Sprintf("%g g", float64(i+1)*.75) || category != "Produce" || checked {
+				if i >= n || owner != "cook" || name != r.Ingredients[i].Name || quantity != formatQuantity(float64(i+1)*.75, "g") || category != "Produce" || checked {
 					t.Fatalf("incorrect grocery: %s %s %s %s %t", owner, name, quantity, category, checked)
 				}
 				i++

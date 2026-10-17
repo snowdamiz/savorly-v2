@@ -1,0 +1,108 @@
+package app
+
+import (
+	"strconv"
+	"strings"
+	"unicode"
+	"unicode/utf8"
+)
+
+// recipeQuery is GET /recipes. Search matches each word as a prefix of a word in the title,
+// cuisine and tags, ingredient names or description (weighted in that order), as written in
+// any language or English-stemmed, ignoring case and accents; a misspelt title or ingredient
+// still matches by trigram similarity. The vector, functions and indexes are in
+// 015_search_and_indexes.sql.
+type recipeQuery struct {
+	Text, Cuisine, Author, Tag, Sort string
+	// Follower limits the list to cooks this member follows.
+	Follower                  string
+	MaxMinutes, Limit, Offset int
+}
+
+// searchWords splits a query into words of letters and digits; nothing else reaches to_tsquery.
+func searchWords(q string) []string {
+	words := strings.FieldsFunc(q, func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r) && !unicode.Is(unicode.Mn, r)
+	})
+	if len(words) > 12 {
+		words = words[:12]
+	}
+	return words
+}
+
+// Bayesian average for "Top rated": each recipe's reviews plus five at the site-wide mean, so
+// one five-star review doesn't outrank a hundred 4.8s. The mean is computed once per query.
+const (
+	ratingPrior = `CROSS JOIN (SELECT COALESCE(avg(rating),0) AS mean FROM reviews) site `
+	bayesRating = `(SELECT (COALESCE(sum(v.rating),0)+5*site.mean)/(count(*)+5) FROM reviews v WHERE v.recipe_id=r.id)`
+)
+
+// build returns the statement and its arguments. Filters are added only when set, so each
+// stays indexable under a generic plan. ok is false when the text has nothing to search for.
+func (q recipeQuery) build() (sql string, args []any, ok bool) {
+	arg := func(v any) string {
+		args = append(args, v)
+		return "$" + strconv.Itoa(len(args))
+	}
+	where := []string{"r.published"}
+	var rank, matched string
+	if q.Text != "" {
+		text := q.Text
+		if utf8.RuneCountInString(text) > 200 {
+			text = string([]rune(text)[:200])
+		}
+		words := searchWords(text)
+		// The query terms are sub-selects so a cached generic plan computes them once, not per row.
+		var arms, scores []string
+		if len(words) > 0 {
+			tsq := "(SELECT search_query(" + arg(words) + "::text[]))"
+			matched = "r.search @@ " + tsq
+			arms = append(arms, matched)
+			scores = append(scores, "ts_rank(r.search,"+tsq+")")
+		}
+		// Trigram matching needs a few characters to be selective. A near miss in the title
+		// ranks; one in an ingredient only matches.
+		if utf8.RuneCountInString(strings.Join(words, "")) >= 3 {
+			folded := "(SELECT search_fold(" + arg(text) + "::text))"
+			arms = append(arms, "search_fold(r.title) %>> "+folded, "search_fold(recipe_ingredient_names(r.ingredients)) %>> "+folded)
+			scores = append(scores, "0.5*strict_word_similarity("+folded+",search_fold(r.title))")
+		}
+		if len(arms) == 0 {
+			return "", nil, false
+		}
+		where = append(where, "("+strings.Join(arms, " OR ")+")")
+		rank = strings.Join(scores, "+")
+	}
+	if q.Cuisine != "" {
+		where = append(where, "lower(r.cuisine)=lower("+arg(q.Cuisine)+")")
+	}
+	if q.Author != "" {
+		where = append(where, "r.author_id="+arg(q.Author))
+	}
+	if q.Tag != "" {
+		where = append(where, "r.tags@>ARRAY["+arg(q.Tag)+"::text]")
+	}
+	if q.MaxMinutes > 0 {
+		where = append(where, "r.minutes<="+arg(q.MaxMinutes))
+	}
+	if q.Follower != "" {
+		where = append(where, "r.author_id IN (SELECT creator_id FROM follows WHERE user_id="+arg(q.Follower)+")")
+	}
+	from := recipeFrom
+	order := "r.created_at DESC,r.id"
+	switch {
+	case q.Sort == "Quickest":
+		order = "r.minutes,r.id"
+	case q.Sort == "Top rated":
+		from += ratingPrior
+		order = bayesRating + " DESC,r.created_at DESC,r.id"
+	case rank != "":
+		order = rank + " DESC," + order
+	}
+	// An explicit sort still lists exact matches before near misses.
+	if matched != "" && (q.Sort == "Quickest" || q.Sort == "Top rated") {
+		order = "(" + matched + ") DESC," + order
+	}
+	sql = `SELECT ` + recipeJSON + from + `WHERE ` + strings.Join(where, " AND ") + ` ORDER BY ` + order + ` LIMIT ` + arg(q.Limit) + ` OFFSET ` + arg(q.Offset)
+	return sql, args, true
+}
