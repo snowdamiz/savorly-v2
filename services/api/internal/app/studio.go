@@ -840,7 +840,7 @@ func (a *App) agentInput(ctx context.Context, state studioState) (any, error) {
 		plan, e := planOf(ctx, a.DB, state.Owner)
 		used, e2 := usageOf(ctx, a.DB, state.Owner)
 		if e == nil && e2 == nil {
-			input["allowances"] = fiber.Map{"plan": plan.ID, "sousChefTurnsLeft": max(0, plan.Assistant-used.Assistant), "photosLeft": max(0, plan.Images-used.Images), "videosLeft": max(0, plan.Videos-used.Videos), "voiceMinutesLeft": max(0, plan.VoiceMinutes*60-used.VoiceSeconds) / 60}
+			input["allowances"] = fiber.Map{"plan": plan.ID, "sousChefTurnsLeft": max(0, plan.Assistant-used.Assistant), "photosLeft": max(0, plan.Images-used.Images), "videosLeft": max(0, plan.Videos-used.Videos), "photosPerMonth": plan.Images, "videosPerMonth": plan.Videos, "voiceMinutesLeft": max(0, plan.VoiceMinutes*60-used.VoiceSeconds) / 60}
 		}
 	}
 	var kitchen, shown []byte
@@ -868,14 +868,16 @@ func (a *App) agentInput(ctx context.Context, state studioState) (any, error) {
 }
 
 // kitchenGlanceSQL is the member's ($1) week from their day $2: meals planned for the next
-// seven days, groceries still to buy, and pantry items about to expire. get_kitchen has the
-// rest, with ids.
+// seven days, groceries still to buy, the pantry with its quantities and dates (so a change to
+// one item keeps the rest of it rather than guessing), and what is about to expire. get_kitchen
+// has the rest, with ids.
 var kitchenGlanceSQL = `SELECT jsonb_build_object(
  'planned',COALESCE((SELECT jsonb_agg(jsonb_build_object('day',p.day,'meal',p.meal,'recipe',r.title,'recipeId',r.id,'servings',p.servings) ORDER BY p.day,array_position(ARRAY['Breakfast','Lunch','Dinner'],p.meal))
    FROM meal_plans p JOIN recipes r ON r.id=p.recipe_id JOIN users u ON u.id=r.author_id AND u.suspended_at IS NULL WHERE p.user_id=$1 AND p.day BETWEEN $2::date AND $2::date+6),'[]'),
  'toBuyCount',(SELECT count(*) FROM groceries g WHERE NOT g.checked AND ` + groceryScope(1) + `),
  'toBuy',COALESCE((SELECT jsonb_agg(name ORDER BY created_at,id) FROM (SELECT g.name,g.created_at,g.id FROM groceries g WHERE NOT g.checked AND ` + groceryScope(1) + ` ORDER BY g.created_at,g.id LIMIT 30) x),'[]'),
  'pantryCount',(SELECT count(*) FROM pantry WHERE user_id=$1),
+ 'pantry',COALESCE((SELECT jsonb_agg(item ORDER BY n) FROM (SELECT row_number() OVER (ORDER BY expires_on NULLS LAST,name) n,name||COALESCE(' ('||NULLIF(concat_ws(', ',NULLIF(quantity,''),'expires '||to_char(expires_on,'YYYY-MM-DD')),'')||')','') item FROM pantry WHERE user_id=$1 ORDER BY expires_on NULLS LAST,name LIMIT 40) x),'[]'),
  'expiringSoon',COALESCE((SELECT jsonb_agg(name||' ('||to_char(expires_on,'YYYY-MM-DD')||')' ORDER BY expires_on,name) FROM (SELECT name,expires_on FROM pantry WHERE user_id=$1 AND expires_on BETWEEN $2::date AND $2::date+3 ORDER BY expires_on,name LIMIT 10) x),'[]'))`
 
 // shownRecipesSQL is the recipe cards conversation $1's replies through event $3 showed, newest
