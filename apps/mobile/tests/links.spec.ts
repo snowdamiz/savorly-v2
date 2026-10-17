@@ -171,7 +171,9 @@ test('recipe cards are real links, and the home has headings', async ({ page, co
       modifiers: ['ControlOrMeta'],
     }),
   ]);
-  await expect(tab).toHaveURL(/\/recipes\/green-salad$/);
+  // The tab has the recipe's address once its navigation commits; loading the whole app behind it
+  // can take longer than an assertion's five seconds on CI's development server.
+  await tab.waitForURL(/\/recipes\/green-salad$/, { waitUntil: 'commit', timeout: 30_000 });
   await tab.close();
   await expect(recipeOpen(page)).toHaveCount(0);
   expect(await stayed(page)).toBe(true);
