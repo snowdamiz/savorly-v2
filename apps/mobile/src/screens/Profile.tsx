@@ -40,6 +40,7 @@ import { RecipeGrid, RecipeRow } from '../components/RecipeCard';
 import { CreatorCookbooks } from '../components/CreatorCookbooks';
 import { SousChefHistory } from '../components/SousChef';
 import { PlanSettings } from '../components/PlanSettings';
+import { CreatorEarnings } from '../components/CreatorEarnings';
 import { SocialButtons } from '../components/SocialButtons';
 import { HandleField, useHandle } from '../components/Username';
 import { PhotoButton, ProfilePhoto } from '../components/ProfilePhoto';
@@ -385,6 +386,7 @@ export function Profile({
       <VerifyEmail />
       <AdminPending />
       {app.user && app.capabilities?.plans && <PlanSettings />}
+      {app.user && app.capabilities?.creatorFund && shared > 0 && <CreatorEarnings />}
       {app.user && (
         <View style={[s.card, { gap: 12 }]}>
           <Text style={s.h3}>{tr('Sign-in methods')}</Text>

@@ -30,6 +30,7 @@ var publicRoutes = map[string]bool{
 	"GET /v1/feed":                true, // personal shelf only when signed in
 	"GET /v1/sitemap":             true,
 	"POST /v1/billing/webhook":    true, // Stripe signs it
+	"POST /v1/payouts/webhook":    true, // Stripe signs it (Connect)
 	"GET /v1/export/:token":       true, // the single-use token is the credential
 	"POST /v1/client-errors":      true,
 

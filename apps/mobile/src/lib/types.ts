@@ -68,6 +68,10 @@ export type Recipe = Omit<RecipeInput, 'derivedFrom'> & {
   commentCount?: number;
   /** Cooks who marked it as cooked. Missing on older servers. */
   cookedCount?: number;
+  /** Finished cooking-mode sessions that count as real cooks. Missing on older servers. */
+  verifiedCooks?: number;
+  /** How long verified cooks usually take, in minutes; null until 3 agree. Missing on older servers. */
+  cookedMinutes?: number | null;
 };
 /** How recipe amounts show: as their cooks wrote them (''), or converted. */
 export type Units = '' | 'metric' | 'imperial';
@@ -252,6 +256,8 @@ export type Capabilities = {
   /** Plans and allowances are live (PAID_PLANS); until then everyone has unlimited use. */
   plans?: boolean;
   billing?: boolean;
+  /** The creator fund pays creators for verified cooks of their recipes (CREATOR_FUND). */
+  creatorFund?: boolean;
   /** Password-reset email is configured, and with it email confirmation and email changes. */
   passwordRecovery?: boolean;
   /** Cloudflare Turnstile's public site key; '' (or missing) when sign-up has no check. */

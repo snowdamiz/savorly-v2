@@ -155,6 +155,7 @@ func NewWithContext(ctx context.Context, db *pgxpool.Pool, config Config) *fiber
 			"passwordRecovery": emailEnabled(),
 			"turnstileSiteKey": turnstileSiteKey(),
 			"plans":            paidPlans(), "billing": billingEnabled(), "appleSignIn": len(oauthAudiences("apple")) > 0, "googleSignIn": len(oauthAudiences("google")) > 0,
+			"creatorFund": creatorFundEnabled(),
 			// Public client identifiers the sign-in SDKs need; none of these are secrets.
 			"auth": fiber.Map{"googleWebClientId": os.Getenv("GOOGLE_WEB_CLIENT_ID"), "googleIosClientId": os.Getenv("GOOGLE_IOS_CLIENT_ID"), "appleServicesId": os.Getenv("APPLE_SERVICES_ID"), "appleRedirectUri": os.Getenv("APPLE_REDIRECT_URI")},
 		})
@@ -226,5 +227,6 @@ func NewWithContext(ctx context.Context, db *pgxpool.Pool, config Config) *fiber
 	a.socialRoutes(v)
 	a.engagementRoutes(v)
 	a.adminRoutes(v)
+	a.creatorFundRoutes(v)
 	return f
 }

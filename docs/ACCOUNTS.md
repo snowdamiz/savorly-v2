@@ -209,6 +209,24 @@ Use the signing secret printed by that CLI session while testing locally, and ke
 
 **Done when:** Checkout returns to the app, the plan updates through the webhook, and Manage plan works. Prices and allowances are defined in `services/api/internal/app/plans.go`; keep them aligned with Stripe. See [billing details](PRICING.md).
 
+### Stripe Connect — creator payouts
+
+Only needed for the [creator fund](CREATOR-FUND.md), which also needs subscriptions working (above). The fund pays creators with Stripe Connect **Express** accounts and **transfers** from Savorly's own Stripe balance; it assumes a US Stripe account, since cross-border payouts are offered to US platforms. Do this in the sandbox first.
+
+1. In **Connect → Get started**, set Savorly up as a platform whose connected accounts receive payouts, with **Express** accounts. Fill in the platform profile and, in **Settings → Connect → Branding**, the name, icon and color creators see during onboarding.
+2. In **Settings → Connect → Onboarding options**, allow the countries in `payoutCountries` (`services/api/internal/app/creator_fund.go`). Creators outside the US are onboarded with the **recipient** service agreement, which needs cross-border payouts: enable them under Connect settings if Stripe asks. Creators can only receive transfers; they never take payments.
+3. In **Workbench → Webhooks**, create a **second** destination for events from **Connected accounts** (not "Your account"), subscribed to `account.updated`, at `https://savorly.cooking/api/v1/payouts/webhook` (or the API origin you use, as for the billing webhook). Reveal its signing secret and set `STRIPE_CONNECT_WEBHOOK_SECRET=whsec_...`; it's not the billing webhook's secret. Locally:
+
+```sh
+stripe listen --forward-connect-to localhost:8080/v1/payouts/webhook
+```
+
+4. Set `CREATOR_FUND=true` (and optionally `CREATOR_FUND_SHARE`, at most `0.20`) with `PAID_PLANS=true` and the Stripe keys. `/v1/capabilities` then reports `creatorFund`, and My kitchen shows **Creator earnings** to cooks with published recipes.
+5. Transfers draw on the platform's **available** USD balance. If the account pays its balance out to the bank automatically, keep enough there for creator payouts (**Settings → Payouts**: a payout schedule or minimum balance), or transfers fail and are retried a day later. In the sandbox, add available funds with the test card `4000 0000 0000 0077`.
+6. From the web app as a creator with a published recipe, choose **Set up payouts**, finish the Express onboarding with Stripe's test data, and come back: **Payouts are on** shows once `account.updated` arrives. To test a payout, close a month for a test creator with at least $10 of earnings (the API's creator-fund loop does it on the 1st, UTC) and check the transfer under **Connect → Transfers**.
+
+**Done when:** a sandbox creator finishes onboarding, the Connect webhook deliveries return 2xx, and a test transfer reaches their Express account. Replace the Connect webhook secret with the live destination's when moving to live mode.
+
 ## 7. Expo / EAS — native builds
 
 1. Create an [Expo account](https://expo.dev/signup). From the app directory, link this repository to an EAS project:

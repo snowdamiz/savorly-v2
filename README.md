@@ -30,6 +30,7 @@ To run the API in Docker: `docker compose --profile full up --build`. Run Expo s
 - A first-launch welcome on phones (language, then join, sign in or look around) and a skippable kitchen setup for every new account: photo, name and username, food preferences, cooks to follow, and a last step that introduces the sous-chef as the way to get help with, or simply do, anything in the app.
 - Profile photos taken with the camera or chosen from the library (cropped square and resized on the device), changed by tapping the photo in My kitchen, and an optional AI touch-up (GPT Image 2.5 Sunburst) that improves light, color and focus while keeping the person the same, with a before/after comparison. Uploaded recipe photos get the same touch-up, keeping the dish, plating and portions.
 - Free, Plus and Pro plans sold through Stripe on the web, with per-member allowances and AI spend ceilings that keep every plan cash-flow positive, and no app-store commission. See [pricing](docs/PRICING.md).
+- A creator fund: cooking mode records verified cooks (finished, long enough, once a day, never the author's own), recipes show how long cooks really take, and each month a share of every paying member's net revenue goes to the creators of the recipes that member cooked, with earnings in My kitchen and payouts through Stripe Connect Express. See [creator fund](docs/CREATOR-FUND.md).
 - Recipe creation, editing, private drafts, device draft autosave with restore, ingredient and instruction editors, step photos and short step clips, a recipe language, direct-to-storage photo/video uploads with progress, import from a recipe link, attribution for imports and adaptations, and AI disclosure.
 - Serving scaling, metric/imperial conversion with fractions, ingredient checklists, guided cooking that keeps the screen awake, step timers that alert in the background, spoken instructions in the recipe's language, video playback, printing on the web, offline access to recently opened and saved recipes, and recipe sharing.
 - ElevenLabs v4 Turbo cooking narration through OpenRouter with streamed audio, shared caching, next-step preloading, the last recipes' recordings kept on the device for cooking offline, and device-speech fallback. See [setup and playback details](docs/COOKING-NARRATION.md).
@@ -113,6 +114,7 @@ The [verification record](docs/VERIFICATION.md) has the latest results and the r
 - [Step-by-step provider and account setup](docs/ACCOUNTS.md)
 - [R2 and local SeaweedFS storage](docs/STORAGE.md)
 - [Plans, pricing and store rules](docs/PRICING.md)
+- [Creator fund, verified cooks and payouts](docs/CREATOR-FUND.md)
 - [Admin console and who can open it](docs/ADMIN.md)
 - [Push notifications](docs/NOTIFICATIONS.md)
 - [Sign in with Apple and Google](docs/SIGN-IN.md)

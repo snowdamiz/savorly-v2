@@ -12,9 +12,10 @@ import (
 
 // exportSQL is everything an account owns, as one JSON document ($1 is the member). Version 2 added
 // comments, cooked recipes, cookbook sharing, recipe sources, the household, signed-in and
-// notification devices (never their tokens) and the usage events kept for 90 days. json, not
-// jsonb, keeps keys in the order written. The password hash, provider tokens and billing IDs stay
-// out; studio conversations keep only their text.
+// notification devices (never their tokens) and the usage events kept for 90 days; cooking
+// sessions and creator earnings, payouts and payout account (never its Stripe id) came after, as
+// new keys. json, not jsonb, keeps keys in the order written. The password hash, provider tokens
+// and billing IDs stay out; studio conversations keep only their text.
 const exportSQL = `SELECT json_build_object(
  'format','savorly-export','version',2,'exportedAt',now(),
  'profile',json_build_object('id',u.id,'name',u.name,'email',u.email,'emailVerified',u.email_verified,'handle',u.handle,'bio',u.bio,'avatar',u.avatar,
@@ -51,7 +52,14 @@ const exportSQL = `SELECT json_build_object(
  'household',(SELECT json_build_object('name',h.name,'role',m.role,'joinedAt',m.joined_at) FROM household_members m JOIN households h ON h.id=m.household_id WHERE m.user_id=u.id),
  'devices',COALESCE((SELECT json_agg(json_build_object('signedInAt',created_at,'lastUsedAt',last_used_at,'expiresAt',expires_at,'userAgent',user_agent) ORDER BY created_at) FROM sessions WHERE user_id=u.id),'[]'),
  'notificationDevices',COALESCE((SELECT json_agg(json_build_object('platform',platform,'registeredAt',created_at,'lastSeenAt',last_seen_at) ORDER BY created_at) FROM push_tokens WHERE user_id=u.id),'[]'),
- 'usageEvents',COALESCE((SELECT json_agg(json_build_object('name',name,'details',props,'at',created_at) ORDER BY created_at) FROM events WHERE user_id=u.id),'[]')
+ 'usageEvents',COALESCE((SELECT json_agg(json_build_object('name',name,'details',props,'at',created_at) ORDER BY created_at) FROM events WHERE user_id=u.id),'[]'),
+ 'cookSessions',COALESCE((SELECT json_agg(json_build_object('recipeId',k.recipe_id,'recipeTitle',r.title,'startedAt',k.started_at,'finishedAt',k.finished_at,
+   'stepReached',k.step_reached,'steps',k.steps,'verifiedCook',k.verified) ORDER BY k.started_at) FROM cook_sessions k JOIN recipes r ON r.id=k.recipe_id WHERE k.user_id=u.id),'[]'),
+ 'creatorEarnings',COALESCE((SELECT json_agg(json_build_object('month',e.month,'amountCents',e.amount_cents,'cooks',e.cooks,'status',e.status,'paidAt',e.paid_at) ORDER BY e.month)
+   FROM creator_earnings e WHERE e.creator_id=u.id),'[]'),
+ 'creatorPayouts',COALESCE((SELECT json_agg(json_build_object('amountCents',p.amount_cents,'status',p.status,'createdAt',p.created_at) ORDER BY p.created_at)
+   FROM creator_payouts p WHERE p.creator_id=u.id),'[]'),
+ 'payoutAccount',(SELECT json_build_object('country',a.country,'payoutsEnabled',a.payouts_enabled,'connectedAt',a.created_at) FROM creator_accounts a WHERE a.user_id=u.id AND a.stripe_account_id IS NOT NULL)
 ) FROM users u WHERE u.id=$1`
 
 // sendExport answers with the member's export as a download.

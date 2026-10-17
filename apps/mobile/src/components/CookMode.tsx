@@ -25,6 +25,7 @@ import {
 } from './icons';
 import * as Speech from 'expo-speech';
 import { useCookingNarration } from '../lib/narration/useCookingNarration';
+import { useCookSession } from '../lib/cookSessions';
 import { useScreenAwake } from '../lib/screenAwake';
 import { announced, cancelTimerAlert, scheduleTimerAlert } from '../lib/timerAlerts';
 import { CookCommand, Recipe } from '../lib/types';
@@ -62,6 +63,7 @@ export function CookMode({
   const [endAt, setEndAt] = useState<number | null>(null);
   const { state: narrationState, speaking, read, stop } = useCookingNarration(recipe, step);
   const [done, setDone] = useState(false);
+  useCookSession(recipe, step, done);
   // The end time is the timer, and the countdown is redrawn from it. JavaScript timers stand still
   // while the app is in the background and slow down in a hidden browser tab, so the countdown is
   // redrawn on return too, and a system alert covers an end that comes while the cook is away.
