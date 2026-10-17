@@ -215,11 +215,14 @@ export function RecipeStudio({
   const cursor = useRef(0);
   const list = useRef<ScrollView>(null);
   const panel = useRef<View>(null);
-  const pending = useRef<{ key: string; text: string; images: string[] } | null>(null);
+  const pending = useRef<{ key: string; text: string; images: string[]; answer: string } | null>(
+    null,
+  );
   const voiceAsked = useRef(0);
   const renewal = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   // Screen actions run only for replies that arrive while open, never for old history.
   const loaded = useRef(false);
+  const changedMeanwhile = useRef(false);
   const contextSent = useRef<Promise<void> | null>(null);
   const handlers = useRef<{ changed: () => void; act: (action: AppAction) => void }>({
     changed: () => {},
@@ -269,11 +272,20 @@ export function RecipeStudio({
       cursor.current = incoming[incoming.length - 1].seq;
       setEvents((old) => [...old, ...incoming.filter((e) => !old.some((p) => p.seq === e.seq))]);
       const replies = incoming.filter((e) => e.role === 'assistant');
-      if (replies.length) handlers.current.changed();
+      // Only a reply whose turn changed something refreshes the app's lists (an older server
+      // doesn't say, so all of its replies do), and history counts once it has loaded.
+      if (replies.some((e) => e.changed ?? true)) {
+        if (loaded.current) handlers.current.changed();
+        else changedMeanwhile.current = true;
+      }
       if (loaded.current) replies.forEach((e) => e.actions?.forEach(handlers.current.act));
     }
     // A full page means older history is still draining.
-    if (incoming.length < 1000) loaded.current = true;
+    if (incoming.length < 1000 && !loaded.current) {
+      loaded.current = true;
+      if (changedMeanwhile.current) handlers.current.changed();
+      changedMeanwhile.current = false;
+    }
   }, []);
   const selectProject = useCallback(
     async (next: StudioProject) => {
@@ -292,6 +304,7 @@ export function RecipeStudio({
       setBrowsing(false);
       pending.current = null;
       loaded.current = false;
+      changedMeanwhile.current = false;
       projectRef.current = next;
       setProject(next);
       await refresh(next.id);
@@ -535,7 +548,13 @@ export function RecipeStudio({
     // One automatic start per explicit Speak action; switching conversations doesn't restart it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [start, project?.id, placed]);
-  const send = async (message = text, image = attachment, fromUpload = false) => {
+  // answer is a tap on Yes or No for the question waiting on the sous-chef.
+  const send = async (
+    message = text,
+    image = attachment,
+    fromUpload = false,
+    answer?: { answer: 'yes' | 'no'; question: number },
+  ) => {
     if (!project || (busy && !fromUpload) || project.busy || (!message.trim() && !image)) return;
     const value =
       message.trim() ||
@@ -543,18 +562,20 @@ export function RecipeStudio({
         'Here’s a photo. If it’s a recipe, make it into a complete recipe and ask about anything unclear. Otherwise, tell me what I could cook with it.',
       );
     const images = image ? [image.id] : [];
+    const answered = answer ? `${answer.answer}:${answer.question}` : '';
     if (
       pending.current?.text !== value ||
-      JSON.stringify(pending.current.images) !== JSON.stringify(images)
+      JSON.stringify(pending.current.images) !== JSON.stringify(images) ||
+      pending.current.answer !== answered
     )
-      pending.current = { key: requestKey(), text: value, images };
+      pending.current = { key: requestKey(), text: value, images, answer: answered };
     setBusy(true);
     setError('');
     try {
       await contextSent.current;
       await api(`/recipe-studio/${project.id}/messages`, {
         method: 'POST',
-        body: { text: value, images },
+        body: { text: value, images, ...answer },
         headers: { 'Idempotency-Key': pending.current.key },
       });
       setText('');
@@ -661,6 +682,7 @@ export function RecipeStudio({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [start, ready, placed]);
   const groups = mergeEvents(events);
+  const question = project?.question;
   // The reply that arrives as the thinking bubble goes grows out of it.
   const thinking = !!project?.busy;
   const newest = groups[groups.length - 1];
@@ -901,6 +923,31 @@ export function RecipeStudio({
           </Reply>
         );
       })}
+      {/* The question the sous-chef waits on can be answered with a tap; the server does what it
+          described on yes, whatever the model makes of it. */}
+      {!!question && ready && groups[groups.length - 1]?.role === 'assistant' && (
+        <View style={[s.row, { gap: 8, alignSelf: 'flex-start' }]}>
+          {(['yes', 'no'] as const).map((answer) => {
+            const title =
+              question.kind === 'publish'
+                ? answer === 'yes'
+                  ? tr('Publish')
+                  : tr('Not now')
+                : answer === 'yes'
+                  ? tr('Yes')
+                  : tr('No');
+            return (
+              <Button
+                key={answer}
+                title={title}
+                small
+                variant={answer === 'yes' ? 'primary' : 'secondary'}
+                onPress={() => void send(title, null, false, { answer, question: question.seq })}
+              />
+            );
+          })}
+        </View>
+      )}
       {thinking && <Thinking />}
       {runningVoice && (
         <Text style={[s.small, { textAlign: 'center' }]}>

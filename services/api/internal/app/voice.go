@@ -379,7 +379,15 @@ func (a *App) monitorVoice(parent context.Context, conn *websocket.Conn, id, pro
 			e = a.DB.QueryRow(ctx, `SELECT status FROM voice_projects WHERE id=$1`, project).Scan(&status)
 			if e == nil && status != lastProgress {
 				if status == "ready" {
-					_ = live.Append(ctx, conn, "commentary", "", "Your recipe's cover photo and video are ready and attached to the saved draft. You can review, change, or publish it.")
+					// Only what was made: a plan without video gets a photo, and says so.
+					var kinds []string
+					if a.DB.QueryRow(ctx, `SELECT COALESCE(array_agg(v.kind ORDER BY v.kind),'{}') FROM voice_assets v JOIN voice_projects p ON p.id=v.project_id AND p.revision=v.revision WHERE v.project_id=$1 AND v.applied`, project).Scan(&kinds) == nil && len(kinds) > 0 {
+						what := map[string]string{"image": "cover photo is", "video": "short video is"}[kinds[0]]
+						if len(kinds) == 2 {
+							what = "cover photo and short video are"
+						}
+						_ = live.Append(ctx, conn, "commentary", "", "Your recipe's "+what+" ready and attached to the saved draft. You can review, change, or publish it.")
+					}
 				}
 				if status == "needs_attention" {
 					_ = live.Append(ctx, conn, "commentary", "", "Your recipe is saved. Some media couldn't finish. You can keep the draft, publish it as it is, or ask to retry the media.")

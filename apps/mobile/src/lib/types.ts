@@ -311,6 +311,8 @@ export type StudioEvent = {
   recipes?: { id: string; title: string; image: string; minutes: number; cuisine: string }[];
   /** Things the sous-chef does on screen when this reply arrives. */
   actions?: AppAction[];
+  /** The reply's turn changed the member's data. Older servers leave it out. */
+  changed?: boolean;
 };
 export type AppAction =
   | { type: 'open_recipe'; recipeId: string }
@@ -338,6 +340,11 @@ export type StudioProject = {
   title?: string | null;
   /** What the app last opened it for: "recipe" from Create a recipe. Older servers leave it out. */
   purpose?: string;
+  /**
+   * What the sous-chef waits for a yes to: an action it proposed, or publishing the draft it just
+   * read back. Answering with a tap sends `answer` and this `seq`. Older servers leave it out.
+   */
+  question?: { kind: 'action' | 'publish'; seq: number; description?: string } | null;
   recipeId: string | null;
   recipe: Recipe | null;
   revision: number;

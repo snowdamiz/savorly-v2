@@ -66,14 +66,14 @@ var agentTools = []ai.Tool{
 	tool("add_recipe_groceries", "Add every ingredient of a published recipe to the grocery list, scaled to servings.", object([]string{"recipe_id", "servings"}, props{"recipe_id": recipeID(), "servings": field("integer", "")})),
 	tool("check_grocery", "Check off or uncheck a grocery item.", object([]string{"grocery_id", "checked"}, props{"grocery_id": field("string", ""), "checked": field("boolean", "")})),
 	tool("set_pantry_item", "Add a pantry item, or update its quantity and expiry.", object([]string{"name"}, props{"name": field("string", ""), "quantity": field("string", ""), "expires_on": field("string", "YYYY-MM-DD, optional")})),
-	tool("remove", "Delete meal plan entries, grocery items, pantry items or cookbooks by id.", object([]string{"kind", "ids"}, props{"kind": choice("", "plan", "grocery", "pantry", "cookbook"), "ids": list(field("string", ""), 40)})),
+	tool("remove", "Delete meal plan entries, grocery items, pantry items or cookbooks by id. Deleting a cookbook, or more than 3 items at once, needs confirmation.", object([]string{"kind", "ids"}, props{"kind": choice("", "plan", "grocery", "pantry", "cookbook"), "ids": list(field("string", ""), 40)})),
 	tool("follow_cook", "Follow or unfollow a cook.", object([]string{"cook_id"}, props{"cook_id": field("string", ""), "unfollow": field("boolean", "")})),
 	tool("review_recipe", "Post or replace the user's review of another cook's published recipe, with their own rating and words. Needs confirmation.", object([]string{"recipe_id", "rating", "text"}, props{"recipe_id": recipeID(), "rating": field("integer", "1–5"), "text": field("string", "3–2000 characters")})),
 	tool("report_recipe", "Report a published recipe for moderation, with the user's reason. Needs confirmation.", object([]string{"recipe_id", "reason"}, props{"recipe_id": recipeID(), "reason": field("string", "5–1000 characters")})),
 	tool("edit_recipe", "Change one of the user's own existing recipes, keeping its photos. Send only the fields that change; ingredients, steps and tags replace the whole list, so include every item. Publishing it, or changing a published recipe, needs confirmation.", object([]string{"recipe_id"}, props{"recipe_id": recipeID(), "changes": editableRecipe, "published": field("boolean", "true publishes, false makes it private")})),
 	tool("delete_recipe", "Permanently delete one of the user's own recipes. Needs confirmation.", object([]string{"recipe_id"}, props{"recipe_id": recipeID()})),
 	tool("generate_recipe_media", "Make a new AI cover photo and/or short video for one of the user's own recipes; it replaces the current one when ready. Each costs a generation.", object([]string{"recipe_id", "kinds"}, props{"recipe_id": recipeID(), "kinds": list(choice("", "image", "video"), 2)})),
-	tool("update_profile", "Change the user's display name, bio, diets or allergies. diets and allergies replace the whole list.", object(nil, props{"name": field("string", ""), "bio": field("string", ""), "diets": list(field("string", ""), 12), "allergies": list(field("string", ""), 20)})),
+	tool("update_profile", "Change the user's display name, bio, diets or allergies. diets and allergies replace the whole list. Needs confirmation.", object(nil, props{"name": field("string", ""), "bio": field("string", ""), "diets": list(field("string", ""), 12), "allergies": list(field("string", ""), 20)})),
 	tool("confirm_action", "Carry out the action the user was asked to confirm, once their latest message clearly says yes. Only as the turn's first tool call.", none),
 	tool("app_action", "Do something on the user's screen when your reply arrives: open a recipe, start cooking mode (optionally at a step), go to a step or start that step's timer in cooking mode, open a page, or change the interface language.", object([]string{"action"}, props{"action": choice("", "open_recipe", "start_cooking", "cooking_step", "start_timer", "go_to", "set_language"), "recipe_id": field("string", "For open_recipe and start_cooking"), "step": field("integer", "1-based, for start_cooking or cooking_step"), "page": choice("For go_to", pages...), "language": choice("For set_language", languages...)})),
 	tool("save_recipe_draft", "Create a new recipe, or revise an unpublished one created in this conversation, with the complete recipe; saves it privately and generates its AI cover photo and short video. Never include media URLs. Use edit_recipe for published and other existing recipes.", object([]string{"recipe"}, props{"recipe": draftRecipe, "new_recipe": field("boolean", "Start a different recipe instead of revising the current draft")})),
@@ -347,6 +347,14 @@ func (a *App) agentTool(ctx context.Context, run *agentRun, name string, raw jso
 		if paths[in.Kind] == "" || len(in.IDs) == 0 || len(in.IDs) > 40 {
 			return toolError("Choose plan, grocery, pantry or cookbook, and 1–40 ids.")
 		}
+		// A cookbook, or a batch, goes only once the user has seen what it is.
+		if (in.Kind == "cookbook" || len(in.IDs) > 3) && !run.approving {
+			what, e := a.removalDescription(ctx, owner, in.Kind, in.IDs)
+			if e != nil {
+				return toolError(publicError(e))
+			}
+			return a.propose(ctx, run, name, raw, what)
+		}
 		removed := 0
 		for _, x := range in.IDs {
 			status, b := call("DELETE", paths[in.Kind]+id(x), nil)
@@ -487,17 +495,30 @@ func (a *App) agentTool(ctx context.Context, run *agentRun, name string, raw jso
 			return toolError("Couldn't load your profile.")
 		}
 		_ = json.Unmarshal(prefs, &me.Preferences)
-		if p.Name != nil {
-			me.Name = *p.Name
+		// Diets and allergies decide what's safe to suggest, and the name and bio are public, so
+		// each change waits for the user's yes to exactly what it says.
+		changes := []string{}
+		if p.Name != nil && strings.TrimSpace(*p.Name) != me.Name {
+			me.Name = strings.TrimSpace(*p.Name)
+			changes = append(changes, fmt.Sprintf("your name to “%s”", me.Name))
 		}
-		if p.Bio != nil {
-			me.Bio = *p.Bio
+		if p.Bio != nil && strings.TrimSpace(*p.Bio) != me.Bio {
+			me.Bio = strings.TrimSpace(*p.Bio)
+			changes = append(changes, "your bio")
 		}
-		if p.Diets != nil {
+		if p.Diets != nil && !slices.Equal(*p.Diets, me.Preferences.Diets) {
 			me.Preferences.Diets = *p.Diets
+			changes = append(changes, "your diets to "+listOrNone(me.Preferences.Diets))
 		}
-		if p.Allergies != nil {
+		if p.Allergies != nil && !slices.Equal(*p.Allergies, me.Preferences.Allergies) {
 			me.Preferences.Allergies = *p.Allergies
+			changes = append(changes, "your allergies to "+listOrNone(me.Preferences.Allergies))
+		}
+		if len(changes) == 0 {
+			return toolError("That wouldn't change anything.")
+		}
+		if !run.approving {
+			return a.propose(ctx, run, name, raw, "Change "+strings.Join(changes, ", ")+".")
 		}
 		status, b := call("PATCH", "/me", me)
 		if status >= 300 {
@@ -511,8 +532,8 @@ func (a *App) agentTool(ctx context.Context, run *agentRun, name string, raw jso
 		if e := a.DB.QueryRow(ctx, `SELECT pending,pending_seq FROM voice_projects WHERE id=$1`, run.state.ID).Scan(&pending, &seq); e != nil || pending == nil {
 			return toolError("Nothing is waiting for confirmation. Ask what the user would like to do.")
 		}
-		var answered bool
-		if e := a.DB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM voice_events WHERE project_id=$1 AND role='user' AND seq>$2 AND seq<=$3)`, run.state.ID, seq, run.state.Through).Scan(&answered); e != nil || !answered || run.approving {
+		answered, e := answeredAfter(ctx, a.DB, run.state.ID, seq, run.state.Through)
+		if e != nil || !answered || run.approving {
 			return toolError("Wait for the user's answer before confirming.")
 		}
 		var p struct {
@@ -599,6 +620,52 @@ func (a *App) propose(ctx context.Context, run *agentRun, name string, args json
 	}
 	run.proposed = true
 	return string(jsonBytes(fiber.Map{"needsConfirmation": description, "next": "Tell the user exactly this and ask for a yes. Only if their next message clearly agrees, call confirm_action, before any other tool."}))
+}
+
+func listOrNone(items []string) string {
+	if len(items) == 0 {
+		return "none"
+	}
+	return strings.Join(items, ", ")
+}
+
+// removalDescription names what a removal would delete, so the user answers about the actual
+// items rather than ids.
+func (a *App) removalDescription(ctx context.Context, owner, kind string, ids []string) (string, error) {
+	query := map[string]string{
+		"plan":     `SELECT to_char(m.day,'Dy DD Mon')||' '||lower(m.meal)||', '||r.title FROM meal_plans m JOIN recipes r ON r.id=m.recipe_id WHERE m.id=ANY($1) AND m.user_id=$2 ORDER BY m.day`,
+		"grocery":  `SELECT g.name FROM groceries g WHERE g.id=ANY($1) AND ` + groceryScope(2) + ` ORDER BY g.name`,
+		"pantry":   `SELECT name FROM pantry WHERE id=ANY($1) AND user_id=$2 ORDER BY name`,
+		"cookbook": `SELECT name FROM collections WHERE id=ANY($1) AND user_id=$2 ORDER BY name`,
+	}[kind]
+	rows, e := a.DB.Query(ctx, query, ids, owner)
+	if e != nil {
+		return "", e
+	}
+	defer rows.Close()
+	names := []string{}
+	for rows.Next() {
+		var n string
+		if e = rows.Scan(&n); e != nil {
+			return "", e
+		}
+		names = append(names, n)
+	}
+	if e = rows.Err(); e != nil {
+		return "", e
+	}
+	if len(names) == 0 {
+		return "", fiber.NewError(404, "Those items weren't found.")
+	}
+	if kind == "cookbook" {
+		return fmt.Sprintf("Delete %s %s. The recipes in it stay saved.", map[bool]string{true: "your cookbook", false: "your cookbooks"}[len(names) == 1], "“"+strings.Join(names, "”, “")+"”"), nil
+	}
+	shown := names
+	if len(shown) > 12 {
+		shown = append(slices.Clone(names[:12]), fmt.Sprintf("and %d more", len(names)-12))
+	}
+	what := map[string]string{"plan": "meals from your plan", "grocery": "items from your grocery list", "pantry": "items from your pantry"}[kind]
+	return fmt.Sprintf("Remove %d %s: %s.", len(names), what, strings.Join(shown, "; ")), nil
 }
 
 // refreshRun reloads the draft after a tool changed it; the turn's view of the history stays.

@@ -188,6 +188,7 @@ func TestStudioClarificationBuildMediaAndPublish(t *testing.T) {
 	}
 	// A fresh user response is required after the saved review; replaying the
 	// original publish action cannot satisfy confirmation.
+	asked(t, a, p, "Here's the draft. Shall I publish this version?")
 	_, e = a.DB.Exec(ctx, `INSERT INTO voice_events(project_id,session_id,event_id,role,content) VALUES($1,$2,'confirmation','user','Yes, publish this recipe.')`, p, "chat_"+p)
 	if e != nil {
 		t.Fatal(e)
@@ -472,6 +473,19 @@ func say(t *testing.T, a *App, p, text string) {
 		t.Fatal(e)
 	}
 }
+
+// asked records the reply that put a question to the user, as a settled turn would; an answer
+// counts only after it.
+func asked(t *testing.T, a *App, p, text string) {
+	t.Helper()
+	_, e := a.DB.Exec(context.Background(), `INSERT INTO voice_sessions(id,project_id,user_id,status,reserved_seconds,seconds,finalized,expires_at) VALUES('chat_'||$1,$1,'cook','closed',0,0,true,now()) ON CONFLICT DO NOTHING; `, p)
+	if e == nil {
+		_, e = a.DB.Exec(context.Background(), `INSERT INTO voice_events(project_id,session_id,event_id,role,content) VALUES($1,'chat_'||$1,'result_'||$2,'assistant',$3)`, p, uuid.NewString(), text)
+	}
+	if e != nil {
+		t.Fatal(e)
+	}
+}
 func TestAssistantSeesScreenAndLocalTime(t *testing.T) {
 	a, p := studioFixture(t)
 	f := studioServer(a)
@@ -558,6 +572,7 @@ func TestAssistantEditsOwnRecipesAndConfirmsConsequentialActions(t *testing.T) {
 	if out = tool(agentTurn(t, a, p), "confirm_action", nil); !strings.Contains(out, "Wait for the user") || current().Published {
 		t.Fatalf("confirmed without an answer: %s", out)
 	}
+	asked(t, a, p, "Publish “Lemon toast” so everyone can see it?")
 	say(t, a, p, "Yes, publish it.")
 	run = agentTurn(t, a, p)
 	if out = tool(run, "confirm_action", nil); !current().Published || !strings.Contains(out, "publishes it") {
@@ -575,10 +590,20 @@ func TestAssistantEditsOwnRecipesAndConfirmsConsequentialActions(t *testing.T) {
 	if out = tool(run, "review_recipe", map[string]any{"recipe_id": "toast", "rating": 4, "text": "Lovely and quick."}); !strings.Contains(out, "4-star review of “Lemon toast”") {
 		t.Fatalf("review not held for confirmation: %s", out)
 	}
-	if out = tool(run, "update_profile", map[string]any{"diets": []string{"vegetarian"}}); strings.Contains(out, "@") || !strings.Contains(out, "vegetarian") {
-		t.Fatalf("profile update: %s", out)
+	// Diets decide what's safe to suggest, so a change waits for the user's yes to exactly it.
+	if out = tool(run, "update_profile", map[string]any{"diets": []string{"vegetarian"}}); !strings.Contains(out, "needsConfirmation") || !strings.Contains(out, "your diets to vegetarian") {
+		t.Fatalf("profile change not held for confirmation: %s", out)
 	}
 	var name, diets string
+	a.DB.QueryRow(ctx, `SELECT name,preferences->>'diets' FROM users WHERE id='cook'`).Scan(&name, &diets)
+	if diets == `["vegetarian"]` {
+		t.Fatal("diets changed before the user's yes")
+	}
+	asked(t, a, p, "Change your diets to vegetarian?")
+	say(t, a, p, "Yes.")
+	if out = tool(agentTurn(t, a, p), "confirm_action", nil); strings.Contains(out, "@") || !strings.Contains(out, "vegetarian") {
+		t.Fatalf("profile update: %s", out)
+	}
 	a.DB.QueryRow(ctx, `SELECT name,preferences->>'diets' FROM users WHERE id='cook'`).Scan(&name, &diets)
 	if name != "Test cook" || diets != `["vegetarian"]` {
 		t.Fatalf("profile overwritten: %s %s", name, diets)
