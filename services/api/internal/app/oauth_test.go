@@ -107,7 +107,7 @@ func TestSignInWithGoogleAndApple(t *testing.T) {
 		return out["nonce"].(string)
 	}
 	googleToken := func(sub, email, aud, n string) string {
-		return google.token(t, map[string]any{"sub": sub, "email": email, "email_verified": true, "aud": aud, "nonce": n, "name": "Gina Cook"})
+		return google.token(t, map[string]any{"sub": sub, "email": email, "email_verified": true, "aud": aud, "nonce": n, "name": "Gina Cook", "picture": "https://lh3.googleusercontent.com/a/gina=s96-c"})
 	}
 
 	status, out := call("POST", "/oauth", map[string]string{"provider": "google", "token": googleToken("g-1", "gina@example.test", "web-client", nonce())}, "")
@@ -115,11 +115,12 @@ func TestSignInWithGoogleAndApple(t *testing.T) {
 	if status != 200 || session == "" {
 		t.Fatalf("new Google account: %d %v", status, out)
 	}
-	var name string
-	var verified bool
-	db.QueryRow(ctx, `SELECT name,email_verified FROM users WHERE email='gina@example.test'`).Scan(&name, &verified)
-	if name != "Gina Cook" || !verified {
-		t.Fatalf("account fields: %q %v", name, verified)
+	// A new kitchen starts with its Google photo, at a size fit for a profile, and its setup ahead.
+	var name, avatar string
+	var verified, onboarded bool
+	db.QueryRow(ctx, `SELECT name,avatar,email_verified,onboarded_at IS NOT NULL FROM users WHERE email='gina@example.test'`).Scan(&name, &avatar, &verified, &onboarded)
+	if name != "Gina Cook" || !verified || avatar != "https://lh3.googleusercontent.com/a/gina=s512-c" || onboarded {
+		t.Fatalf("account fields: %q %q %v %v", name, avatar, verified, onboarded)
 	}
 	if status, _ = call("POST", "/login", map[string]string{"email": "gina@example.test", "password": "!"}, ""); status != 401 {
 		t.Fatal("password-less account accepted a password")
@@ -162,7 +163,7 @@ func TestSignInWithGoogleAndApple(t *testing.T) {
 	}
 
 	// Deleting a password-less kitchen takes a fresh sign-in with one of its own providers.
-	if status, _ = call("DELETE", "/me", map[string]string{"provider": "google", "token": googleToken("g-1", "gina@example.test", "web-client", nonce())}, appleSession); status != 401 {
+	if status, _ = call("DELETE", "/me", map[string]string{"provider": "google", "token": googleToken("g-1", "gina@example.test", "web-client", nonce())}, appleSession); status != 403 {
 		t.Fatalf("deleted with another kitchen's identity: %d", status)
 	}
 	if status, _ = call("DELETE", "/me", map[string]string{"provider": "apple", "token": appleToken("a-1", nonce())}, appleSession); status != 204 {

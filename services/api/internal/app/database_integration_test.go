@@ -15,10 +15,16 @@ import (
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/bcrypt"
 	"savorly/api/internal/ai"
 	"savorly/api/internal/database"
+)
+
+var (
+	extensionsOnce sync.Once
+	extensionsErr  error
 )
 
 // These tests never enqueue work into the application's public schema or contact a provider.
@@ -33,6 +39,24 @@ func isolatedDB(t *testing.T) *pgxpool.Pool {
 	if e != nil {
 		t.Fatal(e)
 	}
+	// Extensions are database-wide: install them once in public, which every test schema
+	// sees through its search_path, rather than in a schema that is dropped afterwards.
+	extensionsOnce.Do(func() {
+		extensionsErr = pgx.BeginFunc(ctx, admin, func(tx pgx.Tx) error {
+			_, e := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(7182309)`)
+			if e == nil {
+				_, e = tx.Exec(ctx, `CREATE EXTENSION IF NOT EXISTS pg_trgm SCHEMA public`)
+			}
+			if e == nil {
+				_, e = tx.Exec(ctx, `CREATE EXTENSION IF NOT EXISTS unaccent SCHEMA public`)
+			}
+			return e
+		})
+	})
+	if extensionsErr != nil {
+		admin.Close()
+		t.Fatal(extensionsErr)
+	}
 	schema := "test_" + strings.ReplaceAll(uuid.NewString(), "-", "")
 	if _, e = admin.Exec(ctx, "CREATE SCHEMA "+schema); e != nil {
 		admin.Close()
@@ -43,7 +67,7 @@ func isolatedDB(t *testing.T) *pgxpool.Pool {
 		t.Fatal(e)
 	}
 	q := parsed.Query()
-	q.Set("search_path", schema)
+	q.Set("search_path", schema+",public")
 	parsed.RawQuery = q.Encode()
 	db, e := database.Open(ctx, parsed.String())
 	if e != nil {

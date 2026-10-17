@@ -8,11 +8,14 @@
     "db:up": "npm run services:up",
     "services:up": "docker compose up -d --wait db storage",
     "db:down": "docker compose down",
-    "typecheck": "npm --prefix apps/mobile run typecheck",
-    "build": "npm --prefix apps/mobile run build",
+    "typecheck": "npm --prefix apps/mobile run typecheck && npm --prefix infra/cloudflare run typecheck",
+    "build": "npm --prefix apps/mobile run build && node scripts/web-postbuild.mjs",
+    "brand": "node scripts/render-brand.mjs",
     "test": "cd services/api && go test ./...",
     "test:integration": "python3 scripts/integration.py",
     "deploy:staging": "sh scripts/deploy.sh staging",
-    "deploy:production": "sh scripts/deploy.sh production"
+    "deploy:production": "sh scripts/deploy.sh production",
+    "ship-app:staging": "node scripts/ship-app.mjs staging",
+    "ship-app:production": "node scripts/ship-app.mjs production"
   }
 }

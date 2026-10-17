@@ -1,5 +1,6 @@
 import { test, expect, Page } from '@playwright/test';
 import type { AppAction, Recipe, StudioEvent, StudioProject } from '../src/lib/types';
+import { stopsMoving } from './waits';
 
 const user = {
   id: 'studio-cook',
@@ -32,7 +33,91 @@ const recipe: Recipe = {
   saveCount: 0,
   createdAt: new Date().toISOString(),
 };
+
+test('a late search response cannot replace the current results', async ({ page }) => {
+  await mockStudio(page);
+  let release!: () => void;
+  const delayed = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route('**/v1/recipes?**', async (route) => {
+    const query = new URL(route.request().url()).searchParams.get('q');
+    if (query === 'lemon') await delayed;
+    await route.fulfill({
+      json:
+        query === 'lemon' ? [{ ...recipe, id: 'stale', title: 'Stale lemon result' }] : [recipe],
+    });
+  });
+  await page.goto('/');
+  const search = page.getByRole('textbox', { name: 'Search recipes', exact: true });
+  const first = page.waitForRequest((r) => new URL(r.url()).searchParams.get('q') === 'lemon');
+  await search.fill('lemon');
+  await first;
+  await search.fill('toast');
+  await expect(page.getByRole('link', { name: 'View Lemon toast', exact: true })).toBeVisible();
+  const late = page.waitForResponse((r) => new URL(r.url()).searchParams.get('q') === 'lemon');
+  release();
+  await late;
+  await page.evaluate(() => new Promise(requestAnimationFrame));
+  await expect(
+    page.getByRole('link', { name: 'View Stale lemon result', exact: true }),
+  ).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'View Lemon toast', exact: true })).toBeVisible();
+});
+
+test('an automatic ingredient swap submits once and can be followed by another request', async ({
+  page,
+}) => {
+  await mockStudio(page);
+  const submissions: string[] = [];
+  const job = {
+    id: 'swap',
+    kind: 'substitute',
+    status: 'completed',
+    result: { text: 'Use a tortilla.' },
+    error: '',
+  };
+  await page.route('**/v1/ai/jobs', async (route) => {
+    if (route.request().method() === 'POST') {
+      submissions.push(route.request().headers()['idempotency-key']);
+      return route.fulfill({ json: { ...job, status: 'queued', result: {} } });
+    }
+    return route.fulfill({ json: [job] });
+  });
+  await page.goto('/');
+  await page.getByRole('link', { name: 'Let’s get cooking: Lemon toast', exact: true }).click();
+  await page.getByRole('button', { name: 'Swap Bread', exact: true }).click();
+  await expect(page.getByText('Use a tortilla.', { exact: true })).toBeVisible();
+  expect(submissions).toHaveLength(1);
+  expect(submissions[0]).toBeTruthy();
+  await page.getByRole('button', { name: 'Ask something else', exact: true }).click();
+  await page
+    .getByRole('textbox', { name: 'Your request', exact: true })
+    .fill('Another bread substitute');
+  await page.getByRole('button', { name: 'Ask the sous-chef', exact: true }).last().click();
+  await expect(page.getByText('Use a tortilla.', { exact: true })).toBeVisible();
+  expect(submissions).toHaveLength(2);
+  expect(submissions[1]).not.toBe(submissions[0]);
+});
+
 // Recipes start from the Add a recipe sheet (the + tab on phones, Create recipe on desktop).
+test('an automatic ingredient swap asks guests to sign in before submitting', async ({ page }) => {
+  await mockStudio(page);
+  await page.route('**/v1/me', (route) =>
+    route.fulfill({ status: 401, json: { error: 'Sign in' } }),
+  );
+  const submissions: string[] = [];
+  page.on('request', (request) => {
+    if (request.url().endsWith('/ai/jobs') && request.method() === 'POST')
+      submissions.push(request.url());
+  });
+  await page.goto('/');
+  await page.getByRole('link', { name: 'Let’s get cooking: Lemon toast', exact: true }).click();
+  await page.getByRole('button', { name: 'Swap Bread', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: 'Email address', exact: true })).toBeVisible();
+  expect(submissions).toEqual([]);
+});
+
 async function startRecipe(page: Page, option: string) {
   await page.getByRole('button', { name: 'Create recipe', exact: true }).click();
   await page.getByRole('button', { name: option, exact: true }).click();
@@ -234,7 +319,7 @@ async function fakeVoice(page: Page) {
 
 test('chat clarifies, saves a complete recipe with both media jobs, and resumes', async ({
   page,
-}) => {
+}, testInfo) => {
   const state = await mockStudio(page);
   await page.goto('/');
   await startRecipe(page, 'Chat to create a recipe');
@@ -250,14 +335,20 @@ test('chat clarifies, saves a complete recipe with both media jobs, and resumes'
   await expect(page.getByText('AI cover photo', { exact: true })).toBeVisible();
   await expect(page.getByText('AI recipe video', { exact: true })).toBeVisible();
   expect(state.messages).toHaveLength(2);
-  await page.screenshot({ path: '../../docs/recipe-studio-chat.png' });
-  await page.getByRole('button', { name: 'Close dialog', exact: true }).click();
+  await page.screenshot({ path: testInfo.outputPath('recipe-studio-chat.png') });
+  await page.getByRole('button', { name: 'Close the sous-chef', exact: true }).click();
   await startRecipe(page, 'Chat to create a recipe');
   await expect(page.getByText('Two slices, for two people.', { exact: true })).toBeVisible();
   await page.setViewportSize({ width: 390, height: 844 });
-  // Allow the shared React Native modal spring to finish after changing viewport.
-  await page.waitForTimeout(450);
-  await page.screenshot({ path: '../../docs/recipe-studio-mobile.png', animations: 'disabled' });
+  // On a phone the conversation moves into the shared sheet, which springs into place; the
+  // screenshot waits until it has come to rest.
+  const sheet = page.getByRole('dialog', { name: 'Sous-chef' }).last();
+  await expect(sheet).toBeVisible();
+  await stopsMoving(sheet);
+  await page.screenshot({
+    path: testInfo.outputPath('recipe-studio-mobile.png'),
+    animations: 'disabled',
+  });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
@@ -285,6 +376,18 @@ test('voice starts on one tap, supports mute, releases microphone, and retains c
   await page.goto('/');
   await startRecipe(page, 'Speak a recipe');
   await expect(page.getByText('I’m listening. Take your time.', { exact: true })).toBeVisible();
+  await expect(page.getByText('Tell me your recipe', { exact: true })).toBeVisible();
+  // The caption follows whoever spoke last, rather than running both voices together.
+  await page.evaluate(() => {
+    const channel = (window as unknown as { __voiceChannel: EventTarget }).__voiceChannel;
+    for (const [type, delta] of [
+      ['session.input_transcript.delta', 'Two slices of sourdough.'],
+      ['session.output_transcript.delta', 'Do you butter it first?'],
+    ])
+      channel.dispatchEvent(new MessageEvent('message', { data: JSON.stringify({ type, delta }) }));
+  });
+  await expect(page.getByText('Do you butter it first?', { exact: true })).toBeVisible();
+  await expect(page.getByText(/sourdough/)).toHaveCount(0);
   await page.evaluate(() => {
     (window as unknown as { __voiceChannel: EventTarget }).__voiceChannel.dispatchEvent(
       new MessageEvent('message', {
@@ -343,6 +446,18 @@ test('in-app camera captures, retakes, and submits an actual image', async ({ pa
   if (await allow.isVisible()) await allow.click();
   const capture = page.getByRole('button', { name: 'Take photo', exact: true });
   await expect(capture).toBeEnabled();
+  // The preview fills a portrait frame the full width of the panel. Measured in one go, since the
+  // panel may still be scaling in.
+  const frame = await page.evaluate(() => {
+    const preview = document.querySelector('video')!.getBoundingClientRect();
+    const hint = [...document.querySelectorAll('div')]
+      .filter((node) => node.textContent?.startsWith('Fit the whole recipe in the frame'))
+      .at(-1)!
+      .getBoundingClientRect();
+    return { width: preview.width, height: preview.height, room: hint.width };
+  });
+  expect(Math.abs(frame.width - frame.room)).toBeLessThan(1);
+  expect(frame.height).toBeGreaterThan(frame.width);
   await capture.click();
   await page.getByRole('button', { name: 'Retake recipe photo', exact: true }).click();
   await expect(capture).toBeEnabled();
@@ -370,7 +485,13 @@ test('the sous-chef is one tap away, shows recipe cards, and refreshes the kitch
   await expect(page.getByText('Toast the bread until golden.').first()).toBeVisible();
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/?page=planner');
-  await expect(page.getByRole('button', { name: 'Ask your sous-chef' })).toBeInViewport();
+  const launcher = page.getByRole('button', { name: 'Ask your sous-chef' });
+  await expect(launcher).toBeInViewport();
+  // On a phone the sheet covers the launcher rather than removing it, so it doesn't pop back in
+  // after the sheet slides away.
+  await launcher.click();
+  await expect(page.getByRole('textbox', { name: 'Message your sous-chef' })).toBeVisible();
+  await expect(launcher).toHaveCount(1);
 });
 
 test('the sous-chef knows the open recipe and cooking step, and acts on screen', async ({
@@ -396,8 +517,7 @@ test('the sous-chef knows the open recipe and cooking step, and acts on screen',
   await composer.fill('Start cooking it with me');
   await page.getByRole('button', { name: 'Send message' }).click();
   await expect(page.getByRole('button', { name: 'Close cooking mode' })).toBeVisible();
-  // A typed chat steps aside for cooking mode; reopening it reports the step.
-  await page.getByRole('button', { name: 'Ask the sous-chef' }).last().click();
+  // On a desktop the sous-chef stays beside cooking mode and follows the step.
   await expect(page.getByText('Cooking Lemon toast · step 1', { exact: true })).toBeVisible();
   await expect.poll(() => state.contexts.at(-1)).toMatchObject({ cookingStep: 1 });
   await expect(page.getByRole('button', { name: 'I don’t have the right pan' })).toBeVisible();
@@ -423,9 +543,45 @@ test('live voice keeps going from a minimized pill while the user browses', asyn
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await page.getByRole('button', { name: 'End voice' }).click();
   await expect.poll(() => state.sessionCloses.length).toBe(1);
-  await expect(page.getByRole('button', { name: 'Back to conversation' })).toContainText(
-    'Sous-chef',
+  // Once the voice ends, the pill folds back into the launcher, which reopens the same chat.
+  await expect(page.getByRole('button', { name: 'Back to conversation' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Ask your sous-chef' }).click();
+  await expect(page.getByRole('button', { name: 'Start live conversation' })).toBeVisible();
+  expect(state.starts()).toBe(1);
+});
+
+test('in a desktop browser the sous-chef floats beside the page, which stays usable', async ({
+  page,
+}) => {
+  const state = await mockStudio(page);
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Ask your sous-chef' }).click();
+  // The floating panel isn't modal; on a phone the conversation is in the shared sheet, which is.
+  const panel = page.locator('[role="dialog"][aria-label="Sous-chef"]:not([aria-modal="true"])');
+  const composer = page.getByRole('textbox', { name: 'Message your sous-chef' });
+  await expect(composer).toBeFocused();
+  await composer.fill('A draft question');
+  // The page beside it still works, and the conversation follows it there.
+  await page.getByRole('button', { name: 'Meal planner', exact: true }).click();
+  await expect(page.getByText('A little plan for the week, and a list to match.')).toBeVisible();
+  await expect(panel.getByText('Viewing Meal planner', { exact: true })).toBeVisible();
+  await expect.poll(() => state.contexts.at(-1)).toMatchObject({ screen: 'planner' });
+  // Minimizing folds it into the launcher and keeps the draft; Escape inside it does the same.
+  await page.getByRole('button', { name: 'Minimize the sous-chef', exact: true }).click();
+  await expect(panel).toHaveCount(0);
+  await page.getByRole('button', { name: 'Ask your sous-chef' }).click();
+  await expect(composer).toHaveValue('A draft question');
+  await composer.press('Escape');
+  await expect(panel).toHaveCount(0);
+  // A phone-sized window opens the same conversation as a bottom sheet instead.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole('button', { name: 'Back to conversation', exact: true }).click();
+  await expect(composer).toHaveValue('A draft question');
+  await expect(panel).toHaveCount(0);
+  await expect(page.getByRole('dialog', { name: 'Sous-chef' })).toHaveAttribute(
+    'aria-modal',
+    'true',
   );
-  await page.getByRole('button', { name: 'Close the sous-chef' }).click();
-  await expect(page.getByRole('button', { name: 'Ask your sous-chef' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Close dialog', exact: true })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });

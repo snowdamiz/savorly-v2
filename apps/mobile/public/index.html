@@ -1,0 +1,62 @@
+<!doctype html>
+<!--
+  The web app's page for every route. `expo export` and `expo start` fill in the language and the
+  title (app.json web.name) placeholders and add the bundle and favicon; Expo replaces only the
+  first of each, so don't repeat them. Paths are absolute because the same page serves
+  /recipes/<id>. In production the Worker (infra/cloudflare/worker.ts) replaces the title,
+  description, canonical, og: and twitter: tags on recipe pages, and scripts/web-postbuild.mjs
+  adds font preloads after the export. The colours are theme.ts's bg.
+-->
+<html lang="%LANG_ISO_CODE%">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
+    <title>%WEB_TITLE%</title>
+    <meta
+      name="description"
+      content="Savorly is a cooking community: good recipes, everyday inspiration and a little AI help. Find dishes, cook step by step, plan your week and share your own."
+    />
+    <meta name="theme-color" content="#F4F4F4" />
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-title" content="Savorly" />
+    <meta property="og:site_name" content="Savorly" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Savorly — A little inspiration for your kitchen" />
+    <meta
+      property="og:description"
+      content="Good recipes, everyday inspiration and a little AI help."
+    />
+    <meta property="og:image" content="https://savorly.cooking/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="The Savorly chef and wordmark" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <!-- The `react-native-web` recommended style reset: https://necolas.github.io/react-native-web/docs/setup/#root-element -->
+    <style id="expo-reset">
+      /* These styles make the body full-height */
+      html,
+      body {
+        height: 100%;
+      }
+      /* These styles disable body scrolling if you are using <ScrollView> */
+      body {
+        overflow: hidden;
+      }
+      /* These styles make the root element full-height */
+      #root {
+        display: flex;
+        height: 100%;
+        flex: 1;
+      }
+    </style>
+  </head>
+
+  <body>
+    <noscript>
+      Savorly needs JavaScript. You can still read the <a href="/privacy">privacy policy</a>, the
+      <a href="/terms">terms</a> and <a href="/account-deletion">how to delete your account</a>.
+    </noscript>
+    <div id="root"></div>
+  </body>
+</html>

@@ -6,13 +6,32 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
+    "runtimeVersion": { "policy": "fingerprint" },
+    "updates": { "url": "https://u.expo.dev/c0e4c4a0-bfbf-4b82-9701-0e46c9463c6c" },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "app.savorly.mobile",
-      "usesAppleSignIn": true
+      "usesAppleSignIn": true,
+      "associatedDomains": ["applinks:savorly.cooking"]
     },
     "android": {
-      "package": "app.savorly.mobile"
+      "package": "app.savorly.mobile",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png",
+        "backgroundColor": "#F7F8F5"
+      },
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            { "scheme": "https", "host": "savorly.cooking", "pathPrefix": "/recipes/" },
+            { "scheme": "https", "host": "savorly.cooking", "pathPrefix": "/cookbooks/" }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ]
     },
     "web": {
       "bundler": "metro",
@@ -22,10 +41,19 @@
     },
     "plugins": [
       [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#F4F4F4",
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 160,
+          "resizeMode": "contain"
+        }
+      ],
+      [
         "expo-image-picker",
         {
-          "photosPermission": "Let Savorly access your photos to add images and videos to your recipes.",
-          "cameraPermission": "Let Savorly photograph a recipe so your sous-chef can read it.",
+          "photosPermission": "Let Savorly access your photos to add images and videos to your recipes and a picture to your profile.",
+          "cameraPermission": "Let Savorly use the camera to photograph recipes for your cooking assistant and to take your profile photo.",
           "microphonePermission": "Let Savorly listen while you describe your recipe."
         }
       ],
@@ -36,7 +64,7 @@
         "@config-plugins/react-native-webrtc",
         {
           "microphonePermission": "Let Savorly listen and talk with you to create recipes.",
-          "cameraPermission": "Let Savorly photograph recipes."
+          "cameraPermission": "Let Savorly use the camera to photograph recipes for your cooking assistant and to take your profile photo."
         }
       ],
       [
@@ -50,12 +78,20 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Let Savorly photograph a recipe for your sous-chef to read.",
+          "cameraPermission": "Let Savorly use the camera to photograph recipes for your cooking assistant and to take your profile photo.",
           "recordAudioAndroid": false,
           "barcodeScannerEnabled": false
         }
       ],
       "expo-asset",
+      "expo-image",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/android-icon-monochrome.png",
+          "color": "#0D0D0D"
+        }
+      ],
       [
         "expo-localization",
         {

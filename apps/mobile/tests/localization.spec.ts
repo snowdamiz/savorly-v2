@@ -96,6 +96,10 @@ test('all catalogs cover the same messages, retain placeholders, and include eve
     'How do I know this step is done?',
     'I don’t have the right pan',
     'Something went wrong — can I fix it?',
+    'What can I make with what’s in my fridge?',
+    'Make it vegetarian, for six.',
+    'Plan my week and add the groceries.',
+    'Turn this photo into a recipe.',
     'Free',
     'Plus',
     'Pro',
@@ -153,6 +157,92 @@ test('all catalogs cover the same messages, retain placeholders, and include eve
     visit(source);
   }
 });
+
+// The API answers in English sentences that the app shows through tr(), so each one a member can
+// see must be a catalog key. The admin console is English only, so its handlers are left out,
+// except for messages they send to members.
+test('every message the API shows members is in the catalogs', () => {
+  const api = path.resolve('../../services/api/internal/app');
+  const literal = String.raw`"((?:[^"\\]|\\.)*)"`;
+  const unquote = (raw: string) => JSON.parse(`"${raw}"`) as string;
+  const sources = readdirSync(api)
+    .filter((file) => file.endsWith('.go') && !file.endsWith('_test.go'))
+    .map((file) => ({ file, text: readFileSync(path.join(api, file), 'utf8') }));
+  const constants = new Map<string, string>();
+  for (const { text } of sources)
+    for (const m of text.matchAll(
+      new RegExp(
+        String.raw`^\s*(?:const\s+)?(\w+)\s*(?:string\s*)?=\s*` + literal + String.raw`\s*$`,
+        'gm',
+      ),
+    ))
+      constants.set(m[1], unquote(m[2]));
+  // The text of a call from its opening parenthesis to the matching one, skipping strings.
+  const call = (text: string, open: number) => {
+    let depth = 0;
+    for (let i = open; i < text.length; i++) {
+      const ch = text[i];
+      if (ch === '"') {
+        for (i++; i < text.length && text[i] !== '"'; i++) if (text[i] === '\\') i++;
+      } else if (ch === '(') depth++;
+      else if (ch === ')' && --depth === 0) return text.slice(open, i + 1);
+    }
+    return '';
+  };
+  const shown = new Set<string>();
+  for (const { file, text } of sources) {
+    const found: string[] = [];
+    // Every sentence inside fiber.NewError(...), including ones a helper picks between, and the
+    // constants it names.
+    for (
+      let at = text.indexOf('fiber.NewError(');
+      at >= 0;
+      at = text.indexOf('fiber.NewError(', at + 1)
+    ) {
+      const args = call(text, at + 'fiber.NewError'.length);
+      for (const m of args.matchAll(new RegExp(literal, 'g'))) found.push(unquote(m[1]));
+      const named = /^\(\s*\d+\s*,\s*(\w+)\s*\)$/.exec(args);
+      if (named && constants.has(named[1])) found.push(constants.get(named[1])!);
+    }
+    // Tables of sentences chosen at run time carry this marker.
+    for (
+      let at = text.indexOf('// l10n: shown to members');
+      at >= 0;
+      at = text.indexOf('// l10n: shown to members', at + 1)
+    ) {
+      const declaration = text.slice(at, text.indexOf('\n}', at));
+      for (const m of declaration.matchAll(new RegExp(literal, 'g'))) found.push(unquote(m[1]));
+    }
+    const admin = file.startsWith('admin');
+    for (const message of found)
+      if (/[.?!]$/.test(message) && (!admin || memberFacingFromAdmin.includes(message)))
+        shown.add(message);
+  }
+  // Shown to members without going through fiber.NewError: stored job and sous-chef errors, and
+  // the Worker's answers while the API container starts.
+  for (const message of storedMessages) shown.add(message);
+  expect(shown.size).toBeGreaterThan(100);
+  const missing = [...shown].filter((message) => !(message in en));
+  expect(missing, 'add these to all nine catalogs').toEqual([]);
+});
+const memberFacingFromAdmin = [
+  'An admin took this recipe out of public view, so it stays private until an admin restores it. Contact Savorly support if you think this is a mistake.',
+];
+const storedMessages = [
+  'Generation was interrupted. Check provider usage before starting a new request.',
+  'The generation did not complete. Check your provider connection or balance, then try again.',
+  'Video is taking longer than expected. Check the provider task before generating again.',
+  'The provider returned no usable video.',
+  'The video was generated, but could not be saved. Contact support with this job ID before retrying.',
+  'The video provider could not complete this generation. Review your prompt and try again.',
+  'Video generation needs a reAPI connection. The recipe is saved.',
+  'Image generation needs an OpenRouter connection.',
+  'Connect R2 or local SeaweedFS to generate recipe media.',
+  "Your sous-chef couldn't finish that step. Your conversation is saved. Please try again.",
+  "Your sous-chef couldn't finish that step, but some changes were already saved. Check them before asking again.",
+  'Savorly is starting up. Please try again in a moment.',
+  'Savorly is restarting. Please try again in a moment.',
+];
 
 test('Russian plural forms, interpolation and English fallback', () => {
   const t = translator('ru', 'ru-RU', ru, en);
@@ -245,8 +335,8 @@ test.describe('French browser', () => {
       'aria-pressed',
       'true',
     );
-    await page.getByRole('button', { name: 'Voir 1 recettes', exact: true }).click();
-    await page.getByRole('button', { name: 'Voir Breakfast', exact: true }).click();
+    await page.getByRole('button', { name: 'Voir 1 recette', exact: true }).click();
+    await page.getByRole('link', { name: 'Voir Breakfast', exact: true }).click();
     await expect(page.getByText('Original recipe content.', { exact: true })).toBeVisible();
     await expect(page.getByText('0,5 g', { exact: true })).toBeVisible();
     await expect(

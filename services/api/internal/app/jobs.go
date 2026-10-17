@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gofiber/fiber/v3"
@@ -15,10 +16,13 @@ import (
 	"savorly/api/internal/ai"
 )
 
-const jobJSON = `jsonb_build_object('id',id,'kind',kind,'prompt',prompt,'status',status,'result',result,'error',error,'createdAt',created_at)`
+const jobJSON = `jsonb_build_object('id',id,'kind',kind,'prompt',prompt,'source',source,'status',status,'result',result,'error',error,'createdAt',created_at)`
 
 func (a *App) jobs(c fiber.Ctx) error {
 	return a.queryMany(c, `SELECT `+jobJSON+` FROM ai_jobs WHERE user_id=$1 ORDER BY created_at DESC LIMIT 30`, userID(c))
+}
+func (a *App) job(c fiber.Ctx) error {
+	return a.queryOne(c, `SELECT `+jobJSON+` FROM ai_jobs WHERE id=$1 AND user_id=$2`, c.Params("id"), userID(c))
 }
 func (a *App) createJob(c fiber.Ctx) error {
 	var in struct{ Kind, Prompt string }
@@ -35,89 +39,157 @@ func (a *App) createJob(c fiber.Ctx) error {
 	if in.Kind != "video" && !a.AI.TextEnabled() {
 		return fiber.NewError(503, "The sous-chef is not connected yet. Add an OpenRouter key on the server.")
 	}
-	key := c.Get("Idempotency-Key")
+	return a.queueJob(c, in.Kind, in.Prompt, "")
+}
+
+// Touch-ups keep the subject exactly as it is: they polish a photo rather than invent one.
+var touchUps = map[string]string{
+	"avatar": "Retouch this photo into a polished profile picture. Keep the same person or subject exactly as they are: identical face, features, skin tone, age, expression, hair, clothing and pose, so it is unmistakably them. Improve exposure, white balance, color and sharpness, gently soften harsh shadows and noise, and calm a distracting background with a soft natural blur. Keep the subject centered and the framing the same. Photorealistic and natural: no filters, illustration, beauty smoothing, text, borders or added objects.",
+	"dish":   "Retouch this food photo so the dish looks its best. Keep the same dish, plating, ingredients, portions and tableware exactly as they are, in the same framing. Improve light, white balance, color and sharpness, reduce noise and glare, and tidy small smudges or crumbs on the plate and table. Photorealistic editorial food photography: no text, watermarks, filters, or added food or props.",
+}
+
+// touchUp queues an AI retouch of a photo the member already has: one they uploaded or
+// generated, or the profile photo they use now (such as one from their Google account).
+func (a *App) touchUp(c fiber.Ctx) error {
+	var in struct{ URL, Kind string }
+	if e := decode(c, &in); e != nil {
+		return e
+	}
+	prompt, known := touchUps[in.Kind]
+	if !known || !validMedia(in.URL) || in.URL == "" {
+		return fiber.NewError(400, "Choose a photo to touch up.")
+	}
+	if !a.AI.TextEnabled() {
+		return fiber.NewError(503, "AI photos are not connected yet. Add an OpenRouter key on the server.")
+	}
+	if !a.Media.Own(userID(c), in.URL) {
+		var avatar string
+		if e := a.DB.QueryRow(c.Context(), `SELECT avatar FROM users WHERE id=$1`, userID(c)).Scan(&avatar); e != nil {
+			return e
+		}
+		if avatar != in.URL || !strings.HasPrefix(in.URL, "https://") {
+			return fiber.NewError(400, "Touch up a photo you’ve added to Savorly.")
+		}
+	}
+	return a.queueJob(c, "image", prompt, in.URL)
+}
+
+// queueJob reserves the member's allowance and budget for one generation and queues it, once
+// per Idempotency-Key.
+func (a *App) queueJob(c fiber.Ctx, kind, prompt, source string) error {
+	job, queued, e := a.enqueueJob(c, c.Get("Idempotency-Key"), kind, prompt, source)
+	if e != nil {
+		return e
+	}
+	if queued {
+		c.Status(202)
+	}
+	return c.Type("json").Send(job)
+}
+
+// enqueueJob is queueJob with its key given: the job, and whether this request queued it
+// (rather than finding it from an earlier one).
+func (a *App) enqueueJob(c fiber.Ctx, key, kind, prompt, source string) ([]byte, bool, error) {
 	if len(key) < 8 || len(key) > 100 {
-		return fiber.NewError(400, "A valid Idempotency-Key is required.")
+		return nil, false, fiber.NewError(400, "A valid Idempotency-Key is required.")
 	}
 	tx, e := a.DB.Begin(c.Context())
 	if e != nil {
-		return e
+		return nil, false, e
 	}
 	defer tx.Rollback(c.Context())
 	// Serialize each user's limit check and insert, preventing concurrent overspending.
 	if _, e = tx.Exec(c.Context(), `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, userID(c)); e != nil {
-		return e
+		return nil, false, e
 	}
 	var existing []byte
 	e = tx.QueryRow(c.Context(), `SELECT `+jobJSON+` FROM ai_jobs WHERE user_id=$1 AND request_key=$2`, userID(c), key).Scan(&existing)
 	if e == nil {
-		var old struct{ Kind, Prompt string }
+		var old struct{ Kind, Prompt, Source string }
 		json.Unmarshal(existing, &old)
-		if old.Kind != in.Kind || old.Prompt != in.Prompt {
-			return fiber.NewError(409, "This request key was used for a different generation.")
+		if old.Kind != kind || old.Prompt != prompt || old.Source != source {
+			return nil, false, fiber.NewError(409, "This request key was used for a different generation.")
 		}
-		return c.Type("json").Send(existing)
+		return existing, false, nil
 	}
 	if !errors.Is(e, pgx.ErrNoRows) {
-		return e
+		return nil, false, e
 	}
 
-	estimate := ai.GenerationEstimate(in.Kind)
-	if e = allowance(c.Context(), tx, userID(c), in.Kind); e != nil {
-		return e
+	estimate := ai.GenerationEstimate(kind)
+	if e = allowance(c.Context(), tx, userID(c), kind); e != nil {
+		return nil, false, e
 	}
 	if e = reserveGeneration(c.Context(), tx, userID(c), estimate); e != nil {
-		return e
+		return nil, false, e
 	}
 	var result []byte
-	e = tx.QueryRow(c.Context(), `INSERT INTO ai_jobs(id,user_id,kind,prompt,request_key,estimated_cost) VALUES($1,$2,$3,$4,$5,$6) RETURNING `+jobJSON, uuid.NewString(), userID(c), in.Kind, in.Prompt, key, estimate).Scan(&result)
+	e = tx.QueryRow(c.Context(), `INSERT INTO ai_jobs(id,user_id,kind,prompt,source,request_key,estimated_cost) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING `+jobJSON, uuid.NewString(), userID(c), kind, prompt, source, key, estimate).Scan(&result)
 	if e != nil {
-		return e
+		return nil, false, e
+	}
+	if e = announce(c.Context(), tx, "jobs"); e != nil {
+		return nil, false, e
 	}
 	if e = tx.Commit(c.Context()); e != nil {
-		return e
+		return nil, false, e
 	}
-	return c.Status(202).Type("json").Send(result)
+	a.wake("jobs")
+	return result, true, nil
 }
 
-// RunWorker persists every transition. Ambiguous interrupted submissions are never automatically re-sent.
+// RunWorker persists every transition. Ambiguous interrupted submissions are never automatically
+// re-sent. It returns once everything it started has stopped.
 func RunWorker(ctx context.Context, db *pgxpool.Pool, config Config) {
 	a := &App{DB: db, Config: config, AI: ai.New(), Media: NewMediaStore()}
-	go a.runStudioWorker(ctx)
+	// The API's voice monitors end their sessions and record what they bill before it returns.
+	defer a.waitForVoice(15 * time.Second)
+	var wg sync.WaitGroup
+	defer wg.Wait()
+	wg.Go(func() { a.listenForWork(ctx) })
+	wg.Go(func() { a.runStudioWorker(ctx) })
+	wg.Go(func() { every(ctx, sweepEvery, func() { a.failStalledJobs(ctx) }) })
+	w := a.wakeups()
 	slots := make(chan struct{}, 2)
-	tick := time.NewTicker(2 * time.Second)
-	defer tick.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-tick.C:
-			_, e := db.Exec(ctx, `UPDATE ai_jobs SET status='failed',error='Generation was interrupted. Check provider usage before starting a new request.',updated_at=now() WHERE status='running' AND updated_at<now()-interval '10 minutes'`)
-			if e != nil {
-				slog.Error("job recovery", "error", e)
-			}
-			a.pollVideos(ctx)
+	pace(ctx, w.jobs, jobPace, func() bool {
+		found := a.pollVideos(ctx)
+		for {
 			select {
 			case slots <- struct{}{}:
 			default:
-				continue
+				return found // A finishing job wakes the loop.
 			}
-			var id, owner, kind, prompt string
-			e = db.QueryRow(ctx, `UPDATE ai_jobs SET status='running',updated_at=now() WHERE id=(SELECT id FROM ai_jobs WHERE status='queued' ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1) RETURNING id,user_id,kind,prompt`).Scan(&id, &owner, &kind, &prompt)
-			if errors.Is(e, pgx.ErrNoRows) {
+			id, owner, kind, prompt, source, ok := a.claimJob(ctx)
+			if !ok {
 				<-slots
-				continue
+				return found
 			}
-			if e != nil {
-				slog.Error("claim job", "error", e)
-				<-slots
-				continue
-			}
-			go func() { defer func() { <-slots }(); a.processJob(ctx, id, owner, kind, prompt) }()
+			found = true
+			wg.Go(func() {
+				defer func() { <-slots; poke(w.jobs) }()
+				a.processJob(ctx, id, owner, kind, prompt, source)
+			})
 		}
+	})
+}
+func (a *App) claimJob(ctx context.Context) (id, owner, kind, prompt, source string, ok bool) {
+	e := a.DB.QueryRow(ctx, `UPDATE ai_jobs SET status='running',updated_at=now() WHERE id=(SELECT id FROM ai_jobs WHERE status='queued' ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1) RETURNING id,user_id,kind,prompt,source`).Scan(&id, &owner, &kind, &prompt, &source)
+	if e != nil && !errors.Is(e, pgx.ErrNoRows) && ctx.Err() == nil {
+		slog.Error("claim job", "error", e)
+	}
+	return id, owner, kind, prompt, source, e == nil
+}
+
+// A job cut off mid-request may still have been done, and billed, by the provider.
+const jobInterrupted = "Generation was interrupted. Check provider usage before starting a new request."
+
+func (a *App) failStalledJobs(ctx context.Context) {
+	_, e := a.DB.Exec(ctx, `UPDATE ai_jobs SET status='failed',error=$1,updated_at=now() WHERE status='running' AND updated_at<now()-interval '10 minutes'`, jobInterrupted)
+	if e != nil && ctx.Err() == nil {
+		slog.Error("job recovery", "error", e)
 	}
 }
-func (a *App) processJob(parent context.Context, id, owner, kind, prompt string) {
+func (a *App) processJob(parent context.Context, id, owner, kind, prompt, source string) {
 	ctx, cancel := context.WithTimeout(parent, 4*time.Minute)
 	defer cancel()
 	var result json.RawMessage
@@ -125,7 +197,11 @@ func (a *App) processJob(parent context.Context, id, owner, kind, prompt string)
 	switch kind {
 	case "image":
 		var b []byte
-		b, _, err = a.AI.Image(ctx, prompt)
+		if source != "" {
+			b, err = a.retouch(ctx, owner, prompt, source)
+		} else {
+			b, _, err = a.AI.Image(ctx, prompt)
+		}
 		if err == nil {
 			var url string
 			url, err = a.Media.Put(ctx, owner, b)
@@ -135,7 +211,8 @@ func (a *App) processJob(parent context.Context, id, owner, kind, prompt string)
 		var task ai.VideoTask
 		task, err = a.AI.Video(ctx, prompt)
 		if err == nil {
-			_, err = a.DB.Exec(ctx, `UPDATE ai_jobs SET status='processing',provider_id=$2,updated_at=now() WHERE id=$1`, id, task.ID)
+			// A job cancelled or timed out meanwhile stays that way.
+			_, err = a.DB.Exec(ctx, `UPDATE ai_jobs SET status='processing',provider_id=$2,updated_at=now() WHERE id=$1 AND status IN ('queued','running')`, id, task.ID)
 			if err == nil {
 				return
 			}
@@ -151,8 +228,13 @@ func (a *App) processJob(parent context.Context, id, owner, kind, prompt string)
 				if err == nil {
 					out.Recipe.AIGenerated = true
 					out.Recipe.Published = false
+					// An import credits its page; nothing else a model writes sets a source or an original.
+					out.Recipe.SourceURL, out.Recipe.DerivedFrom = importedFrom(prompt), RecipeRef{}
 					err = out.Recipe.Validate()
 					result = jsonBytes(out)
+				}
+				if err != nil && importedFrom(prompt) != nil {
+					err = errors.Join(errNoRecipe, err)
 				}
 			} else {
 				var out struct {
@@ -167,39 +249,82 @@ func (a *App) processJob(parent context.Context, id, owner, kind, prompt string)
 	}
 	if err != nil {
 		slog.Error("generation failed", "job", id, "error", err)
-		a.finishJob(parent, id, nil, "The generation did not complete. Check your provider connection or balance, then try again.")
+		message := "The generation did not complete. Check your provider connection or balance, then try again."
+		if errors.Is(err, errNoRecipe) {
+			message = noRecipeOnPage
+		}
+		if parent.Err() != nil {
+			message = jobInterrupted // The worker is stopping.
+		}
+		a.finishJob(parent, id, nil, message)
 		return
 	}
 	a.finishJob(parent, id, result, "")
 }
+func (a *App) retouch(ctx context.Context, owner, prompt, source string) ([]byte, error) {
+	photo, e := a.Media.Read(ctx, owner, source, 20*1024*1024)
+	if e != nil {
+		return nil, e
+	}
+	mime, _ := mediaType(photo)
+	if !strings.HasPrefix(mime, "image/") {
+		return nil, errors.New("touch-up source is not a supported photo")
+	}
+	b, _, e := a.AI.EditImage(ctx, prompt, photo, mime)
+	return b, e
+}
+
+// finishJob records a job's outcome, even while the worker stops. Only a job not yet finished
+// changes: an admin's cancellation, or the stalled-job sweep, stands.
 func (a *App) finishJob(ctx context.Context, id string, result []byte, message string) {
 	status := "completed"
 	if message != "" {
 		status = "failed"
 		result = []byte(`{}`)
 	}
-	if _, e := a.DB.Exec(ctx, `UPDATE ai_jobs SET status=$2,result=$3,error=$4,updated_at=now() WHERE id=$1`, id, status, result, message); e != nil {
-		slog.Error("save generation result", "job", id, "error", e)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
+	var key string
+	e := a.DB.QueryRow(ctx, `UPDATE ai_jobs SET status=$2,result=$3,error=$4,updated_at=now() WHERE id=$1 AND status IN ('queued','running','processing') RETURNING request_key`, id, status, result, message).Scan(&key)
+	if e != nil {
+		if !errors.Is(e, pgx.ErrNoRows) {
+			slog.Error("save generation result", "job", id, "error", e)
+		}
+		return
+	}
+	if strings.HasPrefix(key, "studio-") {
+		// A conversation's draft picks up its media on the studio loop's next pass.
+		if _, e = a.DB.Exec(ctx, `SELECT pg_notify($1,'studio')`, workChannel); e != nil {
+			slog.Warn("announce studio media", "error", e)
+		}
+		a.wake("studio")
 	}
 }
-func (a *App) pollVideos(ctx context.Context) {
-	rows, e := a.DB.Query(ctx, `SELECT id,user_id,provider_id,created_at FROM ai_jobs WHERE status='processing' AND updated_at<now()-interval '10 seconds' LIMIT 10`)
+
+// pollVideos checks provider tasks still processing, each at most every 10 seconds, and
+// reports whether any remain, so the loop keeps its pace until they finish.
+func (a *App) pollVideos(ctx context.Context) bool {
+	rows, e := a.DB.Query(ctx, `SELECT id,user_id,provider_id,created_at,updated_at<now()-interval '10 seconds' FROM ai_jobs WHERE status='processing' ORDER BY updated_at LIMIT 20`)
 	if e != nil {
-		return
+		return false
 	}
 	type pending struct {
 		id, owner, provider string
 		created             time.Time
+		due                 bool
 	}
 	jobs := []pending{}
 	for rows.Next() {
 		var j pending
-		if e = rows.Scan(&j.id, &j.owner, &j.provider, &j.created); e == nil {
+		if e = rows.Scan(&j.id, &j.owner, &j.provider, &j.created, &j.due); e == nil {
 			jobs = append(jobs, j)
 		}
 	}
 	rows.Close()
 	for _, j := range jobs {
+		if !j.due {
+			continue
+		}
 		if time.Since(j.created) > 60*time.Minute {
 			a.finishJob(ctx, j.id, nil, "Video is taking longer than expected. Check the provider task before generating again.")
 			continue
@@ -225,9 +350,10 @@ func (a *App) pollVideos(ctx context.Context) {
 		} else if task.Status == "failed" {
 			a.finishJob(ctx, j.id, nil, "The video provider could not complete this generation. Review your prompt and try again.")
 		} else {
-			if _, e = a.DB.Exec(ctx, `UPDATE ai_jobs SET updated_at=now() WHERE id=$1`, j.id); e != nil {
+			if _, e = a.DB.Exec(ctx, `UPDATE ai_jobs SET updated_at=now() WHERE id=$1 AND status='processing'`, j.id); e != nil {
 				slog.Error("video poll update", "error", e)
 			}
 		}
 	}
+	return len(jobs) > 0
 }

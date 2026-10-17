@@ -3,7 +3,9 @@ import React, {
   useCallback,
   useContext,
   useEffect,
+  useEffectEvent,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -14,12 +16,12 @@ import {
   Animated,
   BackHandler,
   Easing,
-  Image,
-  KeyboardAvoidingView,
+  Keyboard,
   Modal,
   Platform,
   Pressable,
   PressableProps,
+  ScrollView,
   StyleProp,
   StyleSheet,
   Text,
@@ -31,10 +33,30 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Image } from 'expo-image';
 import { GlassView, isGlassEffectAPIAvailable, isLiquidGlassAvailable } from 'expo-glass-effect';
-import { ArrowRight, Check, ChefHat, LucideIcon, Search, X } from 'lucide-react-native';
-import { color, font, radius, s, shadow } from '../lib/theme';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
+import {
+  ArrowRight,
+  Check,
+  ChefHat,
+  ChevronLeft,
+  ChevronRight,
+  LucideIcon,
+  Search,
+  UserRound,
+  X,
+} from './icons';
+import { color, font, maxFontScale, radius, s, shadow } from '../lib/theme';
+import { haptic } from '../lib/haptics';
+import { DEFAULT_IMAGE_WIDTH, blurred, sized } from '../lib/images';
+import { RevealFocus, useKeyboardLift, useKeyboardScroll, useRevealFocus } from '../lib/keyboard';
+import { onSheetBack, sheetShown, sheetsGone } from '../lib/webHistory';
 export const native = Platform.OS !== 'web';
+// Browsers frost whatever sits behind translucent chrome; native keeps its own materials.
+export const frost = (px: number) =>
+  (Platform.OS === 'web' ? { backdropFilter: `blur(${px}px) saturate(130%)` } : {}) as ViewStyle;
 // Liquid Glass on iPhones running iOS 26+; Android, web and older iOS keep the flat styles.
 export const liquidGlass =
   Platform.OS === 'ios' && isLiquidGlassAvailable() && isGlassEffectAPIAvailable();
@@ -148,6 +170,7 @@ export function FadeIn({
   );
 }
 // Layout facts every screen agrees on: phone/tablet get app chrome, desktop gets the sidebar.
+// On phones the page scrolls below the status bar, so `top` is the room under it.
 export function useChrome() {
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
@@ -158,9 +181,16 @@ export function useChrome() {
     insets,
     desktop,
     compact: !desktop,
+    // A desktop browser shows recipes as pages inside the sidebar and header, like a website,
+    // where phones and tablets slide a sheet over everything.
+    webPage: Platform.OS === 'web' && desktop,
     gutter: desktop ? 40 : width > 650 ? 28 : 20,
-    top: desktop ? 32 : insets.top + 12,
+    top: desktop ? 32 : 12,
   };
+}
+/** Web-only CSS positions that React Native's style types leave out; nothing on native. */
+export function webPosition(position: 'sticky' | 'fixed', style?: ViewStyle) {
+  return Platform.OS === 'web' ? ({ position, ...style } as unknown as ViewStyle) : undefined;
 }
 export function Button({
   title,
@@ -213,7 +243,7 @@ export function Button({
           borderRadius: radius.pill,
           backgroundColor: bg,
           borderWidth: variant === 'secondary' || variant === 'glass' ? 1 : 0,
-          borderColor: variant === 'glass' ? color.glassBorder : color.border,
+          borderColor: variant === 'glass' ? color.glassBorder : color.outline,
         },
         style,
       ]}
@@ -284,18 +314,23 @@ export function IconButton({
                 ? color.ink
                 : plain
                   ? 'transparent'
-                  : color.white,
+                  : glass && !native
+                    ? 'rgba(255,255,255,0.86)'
+                    : color.white,
           borderColor: dark
             ? color.glassBorder
             : selected
               ? color.ink
               : plain
                 ? 'transparent'
-                : color.border,
+                : glass
+                  ? 'rgba(255,255,255,0.5)'
+                  : color.outline,
           borderWidth: glassy ? 0 : 1,
           alignItems: 'center',
           justifyContent: 'center',
         },
+        (glass || dark) && !selected && frost(14),
       ]}
     >
       {glassy && (
@@ -349,7 +384,7 @@ export function Chip({
           alignItems: 'center',
           gap: 7,
           borderWidth: 1,
-          borderColor: active ? color.ink : dark ? color.glassBorder : color.border,
+          borderColor: active ? color.ink : dark ? color.glassBorder : color.outline,
           backgroundColor: active ? color.ink : dark ? color.glass : color.white,
         },
       ]}
@@ -375,7 +410,7 @@ export function Pill({
   const [bg, fg] = {
     light: [color.white, color.ink],
     dark: [color.ink, color.white],
-    glass: ['rgba(0,0,0,0.38)', color.white],
+    glass: ['rgba(0,0,0,0.44)', color.white],
     success: [color.successBg, color.success],
     warning: [color.warningBg, color.warning],
     error: [color.errorBg, color.error],
@@ -385,7 +420,8 @@ export function Pill({
     {
       gap: 5,
       paddingHorizontal: 10,
-      height: 28,
+      paddingVertical: 3,
+      minHeight: 28,
       borderRadius: radius.pill,
       alignSelf: 'flex-start' as const,
     },
@@ -393,12 +429,28 @@ export function Pill({
   const body = (
     <>
       {leading || (Icon && <Icon size={13} color={fg} fill={fill ? fg : 'none'} strokeWidth={2} />)}
-      <Text style={{ fontFamily: font.bold, fontSize: 12, color: fg }}>{title}</Text>
+      <Text
+        maxFontSizeMultiplier={maxFontScale}
+        style={{ fontFamily: font.bold, fontSize: 12, color: fg }}
+      >
+        {title}
+      </Text>
     </>
   );
   // Glass badges sit on photos.
   return tone === 'glass' ? (
-    <GlassSurface dark flat={{ backgroundColor: bg }} style={pill}>
+    <GlassSurface
+      dark
+      flat={[
+        {
+          backgroundColor: bg,
+          borderWidth: StyleSheet.hairlineWidth,
+          borderColor: 'rgba(255,255,255,0.24)',
+        },
+        frost(12),
+      ]}
+      style={pill}
+    >
       {body}
     </GlassSurface>
   ) : (
@@ -406,6 +458,7 @@ export function Pill({
   );
 }
 export function Field({ label, style, ...props }: TextInputProps & { label?: string }) {
+  const reveal = useRevealFocus();
   return (
     <View style={{ gap: 8, flexGrow: 1, flexShrink: 1, flexBasis: 'auto' }}>
       {label && (
@@ -415,6 +468,10 @@ export function Field({ label, style, ...props }: TextInputProps & { label?: str
         accessibilityLabel={label || props.placeholder}
         placeholderTextColor={color.soft}
         {...props}
+        onFocus={(e) => {
+          reveal();
+          props.onFocus?.(e);
+        }}
         style={[s.input, props.multiline && { minHeight: 110, textAlignVertical: 'top' }, style]}
       />
     </View>
@@ -425,11 +482,14 @@ export function SearchBar({
   onChangeText,
   placeholder = 'Search recipes, ingredients…',
   bare,
+  accessory,
 }: {
   value: string;
   onChangeText: (v: string) => void;
   placeholder?: string;
   bare?: boolean;
+  /** A control at the end of the bar, such as filters. */
+  accessory?: React.ReactNode;
 }) {
   const { t: tr } = useI18n();
   return (
@@ -438,13 +498,13 @@ export function SearchBar({
         flexDirection: 'row',
         alignItems: 'center',
         gap: 10,
-        height: 52,
+        minHeight: 52,
         paddingLeft: 18,
         paddingRight: 8,
         borderRadius: radius.pill,
         backgroundColor: color.white,
         borderWidth: bare ? 0 : 1,
-        borderColor: color.border,
+        borderColor: color.outline,
         flex: 1,
       }}
     >
@@ -456,7 +516,8 @@ export function SearchBar({
         value={value}
         onChangeText={onChangeText}
         returnKeyType="search"
-        style={{ flex: 1, color: color.ink, fontFamily: font.medium, fontSize: 15, height: 48 }}
+        maxFontSizeMultiplier={maxFontScale}
+        style={{ flex: 1, color: color.ink, fontFamily: font.medium, fontSize: 15, minHeight: 48 }}
       />
       {value.length > 0 && (
         <IconButton
@@ -467,15 +528,31 @@ export function SearchBar({
           onPress={() => onChangeText('')}
         />
       )}
+      {accessory}
     </View>
   );
 }
+// Photos load through expo-image: cached in memory and on disk, eased in briefly (at once when
+// motion is reduced), and fetched near the size they're shown. An address that fails shows the
+// placeholder until the address changes.
+const imageFade = () => (reduceMotion ? null : 200);
 export function Avatar({ name, uri, size = 36 }: { name: string; uri?: string; size?: number }) {
-  const [failed, setFailed] = useState(false);
-  return uri && !failed ? (
+  const [failed, setFailed] = useState('');
+  const source = uri ? sized(uri, size * 2) : '';
+  const initials = name
+    .split(' ')
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((n) => n[0])
+    .join('')
+    .toUpperCase();
+  return source && failed !== source ? (
     <Image
-      source={{ uri }}
-      onError={() => setFailed(true)}
+      source={{ uri: source }}
+      cachePolicy="memory-disk"
+      transition={imageFade()}
+      accessibilityLabel=""
+      onError={() => setFailed(source)}
       style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: color.subtle }}
     />
   ) : (
@@ -489,26 +566,61 @@ export function Avatar({ name, uri, size = 36 }: { name: string; uri?: string; s
         backgroundColor: color.ink,
       }}
     >
-      <Text style={{ fontFamily: font.bold, color: color.white, fontSize: size / 2.8 }}>
-        {name
-          .split(' ')
-          .slice(0, 2)
-          .map((n) => n[0])
-          .join('')
-          .toUpperCase()}
-      </Text>
+      {initials ? (
+        <Text style={{ fontFamily: font.bold, color: color.white, fontSize: size / 2.8 }}>
+          {initials}
+        </Text>
+      ) : (
+        <UserRound size={Math.round(size * 0.46)} color={color.white} strokeWidth={1.9} />
+      )}
     </View>
   );
 }
-export function FoodImage({ uri, style }: { uri: string; style?: ViewStyle }) {
-  const [failed, setFailed] = useState(false);
+export function FoodImage({
+  uri,
+  style,
+  label,
+  width,
+  priority,
+}: {
+  uri: string;
+  style?: ViewStyle;
+  /** What the photo shows, for screen readers and the web's alt text. Without one it's decorative. */
+  label?: string;
+  /** The width it's shown at, in points, when the style doesn't give one. */
+  width?: number;
+  /** 'high' for the photo a page is about, such as a recipe's cover. */
+  priority?: 'low' | 'normal' | 'high';
+}) {
+  const [failed, setFailed] = useState('');
+  const shownWidth = width ?? StyleSheet.flatten(style)?.width;
+  // Twice the width for sharp screens, up to a size that's plenty for any of them.
+  const pixels =
+    typeof shownWidth === 'number' && shownWidth > 0
+      ? Math.min(shownWidth * 2, 1600)
+      : DEFAULT_IMAGE_WIDTH;
+  const source = uri ? sized(uri, pixels) : '';
+  const preview = blurred(uri);
   return (
-    <View style={[{ backgroundColor: color.subtle, overflow: 'hidden' }, style]}>
-      {uri && !failed ? (
+    <View
+      accessible={!!label}
+      accessibilityRole={label ? 'image' : undefined}
+      accessibilityLabel={label}
+      style={[{ backgroundColor: color.subtle, overflow: 'hidden' }, style]}
+    >
+      {source && failed !== source ? (
         <Image
-          source={{ uri }}
-          resizeMode="cover"
-          onError={() => setFailed(true)}
+          source={{ uri: source }}
+          // The photo's colours, blurred, until it arrives (where its host can make the preview).
+          placeholder={preview ? { uri: preview } : undefined}
+          placeholderContentFit="cover"
+          contentFit="cover"
+          cachePolicy="memory-disk"
+          priority={priority}
+          loading={priority === 'high' ? 'eager' : undefined}
+          transition={imageFade()}
+          accessibilityLabel={label ?? ''}
+          onError={() => setFailed(source)}
           style={{ width: '100%', height: '100%' }}
         />
       ) : (
@@ -576,9 +688,12 @@ export function SectionTitle({
 }) {
   const { t: tr } = useI18n();
   return (
-    <View style={[s.between, { marginBottom: 14, gap: 12 }]}>
+    <View style={[s.row, { marginBottom: 14, gap: 12, alignItems: 'flex-start' }]}>
       <View style={{ flex: 1, gap: 3 }}>
-        <Text style={s.h2}>{title}</Text>
+        {/* A section of a page: a heading for screen readers, and an <h2> on the web. */}
+        <Text role="heading" aria-level={2} style={s.h2}>
+          {title}
+        </Text>
         {subtitle && <Text style={s.muted}>{subtitle}</Text>}
       </View>
       {action && (
@@ -587,12 +702,99 @@ export function SectionTitle({
           accessibilityLabel={tr(actionTitle)}
           onPress={action}
           hitSlop={10}
+          style={[s.row, { height: 26, gap: 2 }]}
         >
           <Text style={{ fontFamily: font.semibold, fontSize: 14, color: color.muted }}>
             {tr(actionTitle)}
           </Text>
+          <ChevronRight size={15} color={color.muted} strokeWidth={2.2} />
         </Press>
       )}
+    </View>
+  );
+}
+// A horizontal row. Phones run it edge to edge so it reads as swipeable; wider screens keep it in
+// the column, fade the clipped side and offer arrows, since a mouse wheel can't scroll sideways.
+export function Rail({
+  children,
+  gap = 10,
+  snap,
+  pad = 0,
+}: {
+  children: React.ReactNode;
+  gap?: number;
+  /** Card width plus gap, for carousels that rest on a card edge. */
+  snap?: number;
+  /** Vertical room so card shadows aren't clipped by the scroller. */
+  pad?: number;
+}) {
+  const { t: tr } = useI18n();
+  const { compact, gutter } = useChrome();
+  const ref = useRef<ScrollView>(null);
+  const [m, setM] = useState({ x: 0, view: 0, content: 0 });
+  const left = !compact && m.x > 2;
+  const right = !compact && m.x + m.view < m.content - 2;
+  const page = (dir: 1 | -1) =>
+    ref.current?.scrollTo({ x: Math.max(0, m.x + dir * m.view * 0.8), animated: true });
+  const edge = (side: 'left' | 'right') => (
+    <View
+      style={[
+        passThrough,
+        {
+          position: 'absolute',
+          top: pad,
+          bottom: pad,
+          [side]: 0,
+          width: 88,
+          justifyContent: 'center',
+          alignItems: side === 'left' ? 'flex-start' : 'flex-end',
+        },
+      ]}
+    >
+      <LinearGradient
+        colors={['rgba(244,244,244,0)', color.bg]}
+        start={{ x: side === 'left' ? 1 : 0, y: 0 }}
+        end={{ x: side === 'left' ? 0 : 1, y: 0 }}
+        style={[StyleSheet.absoluteFill, { pointerEvents: 'none' }]}
+      />
+      <IconButton
+        icon={side === 'left' ? ChevronLeft : ChevronRight}
+        label={side === 'left' ? tr('Scroll back') : tr('Scroll for more')}
+        size={36}
+        onPress={() => page(side === 'left' ? -1 : 1)}
+      />
+    </View>
+  );
+  return (
+    <View style={{ marginVertical: -pad }}>
+      <ScrollView
+        ref={ref}
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        snapToInterval={snap}
+        decelerationRate={snap ? 'fast' : 'normal'}
+        scrollEventThrottle={32}
+        onScroll={
+          compact
+            ? undefined
+            : (e) => {
+                const x = e.nativeEvent.contentOffset.x;
+                setM((v) => ({ ...v, x }));
+              }
+        }
+        onLayout={(e) => setM((v) => ({ ...v, view: e.nativeEvent.layout.width }))}
+        onContentSizeChange={(w) => setM((v) => ({ ...v, content: w }))}
+        style={[{ flexGrow: 0 }, compact && { marginHorizontal: -gutter }]}
+        contentContainerStyle={{
+          gap,
+          paddingHorizontal: compact ? gutter : 0,
+          paddingVertical: pad,
+        }}
+      >
+        <FlatGlass>{children}</FlatGlass>
+      </ScrollView>
+      {left && edge('left')}
+      {right && edge('right')}
     </View>
   );
 }
@@ -619,7 +821,14 @@ export function PageHeading({
     >
       <View style={{ gap: 6, flex: 1 }}>
         {eyebrow && <Text style={s.label}>{eyebrow}</Text>}
-        <Text style={desktop ? s.display : [s.h1, { fontSize: 30, lineHeight: 36 }]}>{title}</Text>
+        {/* The page's title: its <h1> on the web. */}
+        <Text
+          role="heading"
+          aria-level={1}
+          style={desktop ? s.display : [s.h1, { fontSize: 30, lineHeight: 36 }]}
+        >
+          {title}
+        </Text>
         {subtitle && <Text style={[s.muted, { maxWidth: 560 }]}>{subtitle}</Text>}
       </View>
       {children && <View style={[s.row, { gap: 10 }]}>{children}</View>}
@@ -630,12 +839,17 @@ export function Segmented<T extends string>({
   options,
   value,
   onChange,
+  floating,
 }: {
   options: { value: T; label: string }[];
   value: T;
   onChange: (v: T) => void;
+  /** Rides over a photo: a raised white track as wide as its labels, not the space it's in. */
+  floating?: boolean;
 }) {
   const [width, setWidth] = useState(0);
+  // A floating track gives every segment the width of its longest label.
+  const [labels, setLabels] = useState<number[]>([]);
   const index = Math.max(
     0,
     options.findIndex((o) => o.value === value),
@@ -650,55 +864,88 @@ export function Segmented<T extends string>({
       useNativeDriver: native,
     }).start();
   }, [index, x]);
-  const segment = (width - 8) / options.length;
+  const inset = floating ? 3 : 4;
+  const pad = floating ? 14 : 12;
+  const widest =
+    floating && options.every((_, i) => labels[i])
+      ? Math.ceil(Math.max(...options.map((_, i) => labels[i]))) + pad * 2
+      : 0;
+  const segment = (width - inset * 2) / options.length;
+  const pill = floating ? color.ink : color.white;
   return (
     <View
       accessibilityRole="tablist"
       onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
       style={{
         flexDirection: 'row',
-        backgroundColor: color.subtle,
+        backgroundColor: floating ? color.white : color.subtle,
         borderRadius: radius.pill,
-        padding: 4,
+        padding: inset,
+        ...(floating && {
+          alignSelf: 'center',
+          boxShadow: '0px 1px 2px rgba(0,0,0,0.08), 0px 8px 22px rgba(0,0,0,0.18)',
+          // Hidden for the frame it takes to measure the labels, so the segments never jump.
+          opacity: widest ? 1 : 0,
+        }),
       }}
     >
       {width > 0 && (
         <Animated.View
           style={{
             position: 'absolute',
-            top: 4,
-            bottom: 4,
-            left: 4,
+            top: inset,
+            bottom: inset,
+            left: inset,
             width: segment,
             borderRadius: radius.pill,
-            backgroundColor: color.white,
-            boxShadow: '0px 1px 3px rgba(0,0,0,0.12)',
+            backgroundColor: pill,
+            boxShadow: floating ? undefined : '0px 1px 3px rgba(0,0,0,0.12)',
             transform: [{ translateX: Animated.multiply(x, segment) }],
           }}
         />
       )}
-      {options.map((o) => {
+      {options.map((o, i) => {
         const on = o.value === value;
         return (
           <Pressable
             key={o.value}
             accessibilityRole="tab"
             accessibilityState={{ selected: on }}
-            onPress={() => onChange(o.value)}
+            onPress={() => {
+              if (!on) haptic.select();
+              onChange(o.value);
+            }}
             style={{
-              flex: 1,
-              minHeight: 40,
-              paddingHorizontal: 12,
+              ...(floating ? { minWidth: widest } : { flex: 1 }),
+              minHeight: floating ? 34 : 40,
+              paddingHorizontal: pad,
               borderRadius: radius.pill,
               alignItems: 'center',
               justifyContent: 'center',
               // Until the track is measured the pill can't slide, so the active segment paints itself.
-              backgroundColor: on && !width ? color.white : 'transparent',
+              backgroundColor: on && !width ? pill : 'transparent',
             }}
           >
             <Text
               numberOfLines={1}
-              style={{ fontFamily: font.bold, fontSize: 14, color: on ? color.ink : color.muted }}
+              onLayout={
+                floating
+                  ? (e) => {
+                      const w = e.nativeEvent.layout.width;
+                      setLabels((l) => {
+                        if (l[i] === w) return l;
+                        const next = [...l];
+                        next[i] = w;
+                        return next;
+                      });
+                    }
+                  : undefined
+              }
+              style={{
+                fontFamily: font.bold,
+                fontSize: floating ? 13 : 14,
+                color: on ? (floating ? color.white : color.ink) : color.muted,
+              }}
             >
               {o.label}
             </Text>
@@ -710,11 +957,17 @@ export function Segmented<T extends string>({
 }
 // Every Dialog renders into one shared sheet (SheetHost). When one sheet hands off to another, the
 // container stays put: the old page fades out, the sheet eases to the new height, the new page
-// fades in. A sheet opened over another returns to it when closed.
+// fades in. A sheet opened over another returns to it when closed. The title, anything pinned under
+// it or at the bottom, and the close button stay put while the rest scrolls between them.
 type Sheet = {
   id: number;
   order: number;
   title?: string;
+  leading?: React.ReactNode;
+  actions?: React.ReactNode;
+  header?: React.ReactNode;
+  footer?: React.ReactNode;
+  stickToEnd?: boolean;
   children?: React.ReactNode;
   onClose: () => void;
 };
@@ -732,16 +985,36 @@ const subscribeSheets = (l: () => void) => {
   };
 };
 const getSheets = () => sheets;
+const topOf = (list: Sheet[]) =>
+  list.length ? list.reduce((a, b) => (b.order > a.order ? b : a)) : undefined;
 const pageOf = (e: Sheet) => `${e.id}:${e.title ?? ''}`;
+const anySheet = () => sheets.length > 0;
+/** Whether any sheet is open. */
+export const useSheetOpen = () => useSyncExternalStore(subscribeSheets, anySheet, anySheet);
 export function Dialog({
   visible,
   onClose,
   title,
+  leading,
+  actions,
+  header,
+  footer,
+  stickToEnd,
   children,
 }: {
   visible: boolean;
   onClose: () => void;
   title?: string;
+  /** Sits before the title, such as an avatar. */
+  leading?: React.ReactNode;
+  /** Buttons beside the close button. */
+  actions?: React.ReactNode;
+  /** Stays pinned under the title while the content scrolls, such as a search field. */
+  header?: React.ReactNode;
+  /** Stays pinned at the bottom, such as a chat's composer. */
+  footer?: React.ReactNode;
+  /** Keeps the newest content in view as it grows, as a conversation does. */
+  stickToEnd?: boolean;
   children: React.ReactNode;
 }) {
   const [id] = useState(() => ++sheetSeq);
@@ -753,17 +1026,259 @@ export function Dialog({
   // Runs after every render so the sheet always shows the owner's latest content.
   useLayoutEffect(() => {
     if (visible)
-      setSheets(sheets.map((e) => (e.id === id ? { ...e, title, children, onClose } : e)));
+      setSheets(
+        sheets.map((e) =>
+          e.id === id
+            ? { ...e, title, leading, actions, header, footer, stickToEnd, children, onClose }
+            : e,
+        ),
+      );
   });
   return null;
+}
+// Phones drag the sheet like a native one. The grabber and title strip move it either way (with
+// rubber-band resistance upward). A downward pull in the content moves it once the content is at its
+// top: straight away if it already was, or from the moment a scroll back up reaches it, so one
+// gesture can scroll to the top and carry on pulling the sheet down. On release the sheet springs
+// back, or carries on at the finger's speed and closes.
+type SheetDragHost = {
+  compact: boolean;
+  height: number;
+  close: () => void;
+  busy: () => boolean;
+  lockScroll: (locked: boolean) => void;
+};
+// The grabber and the header under it, for a single-line title.
+const HEADER = 70;
+function sheetDrag(y: Animated.Value, backdrop: Animated.Value) {
+  let host: SheetDragHost = {
+    compact: false,
+    height: 0,
+    close: () => {},
+    busy: () => true,
+    lockScroll: () => {},
+  };
+  let size = 0;
+  let scrollY = 0;
+  let pulled = 0;
+  // Whether the current touch moves the sheet, and the finger's travel when it started to.
+  let claimed = false;
+  let from = 0;
+  // Set while a sheet the finger sent away waits for its owner to close it.
+  let flung = false;
+  const off = () => !host.compact || host.busy() || flung;
+  const spring = (velocity = 0) =>
+    Animated.spring(y, {
+      toValue: 0,
+      velocity,
+      damping: 28,
+      stiffness: 320,
+      mass: 0.9,
+      useNativeDriver: native,
+    }).start();
+  const follow = (dy: number) => {
+    // UIKit's rubber band: the further you pull past the edge, the less it gives.
+    pulled = dy >= 0 ? dy : -(1 - 1 / ((-dy * 0.55) / 80 + 1)) * 80;
+    y.setValue(pulled);
+    backdrop.setValue(1 - Math.max(0, Math.min(1, pulled / (size || host.height))));
+  };
+  const settle = (vy: number) => {
+    const dy = pulled;
+    pulled = 0;
+    const sheet = size || host.height;
+    const away = (dy > Math.min(sheet * 0.3, 180) && vy > -0.2) || (vy > 0.9 && dy > 12);
+    if (!away) {
+      spring(vy);
+      animate(backdrop, 1, 220).start();
+      return;
+    }
+    // Leave at the finger's speed: an ease-out whose opening velocity matches the flick.
+    const rest = host.height - Math.max(0, dy);
+    const duration = Math.min(320, Math.max(160, (3 * rest) / Math.max(vy, 0.8)));
+    flung = true;
+    Animated.parallel([
+      Animated.timing(y, {
+        toValue: host.height,
+        duration,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: native,
+      }),
+      animate(backdrop, 0, duration),
+    ]).start(() => {
+      host.close();
+      // An owner that keeps its sheet open gets it back rather than an invisible, blocking one.
+      setTimeout(() => {
+        if (!flung) return;
+        flung = false;
+        spring();
+        animate(backdrop, 1, 200).start();
+      }, 160);
+    });
+  };
+  const begin = (at = 0) => {
+    claimed = true;
+    from = at;
+    // A sheet on its way down takes the keyboard with it.
+    Keyboard.dismiss();
+    y.stopAnimation();
+    backdrop.stopAnimation();
+    pulled = 0;
+  };
+  const move = (dy: number) => claimed && follow(dy - from);
+  const release = (vy: number) => {
+    if (claimed) settle(vy);
+    claimed = false;
+  };
+  const header = () =>
+    Gesture.Pan()
+      .runOnJS(true)
+      .hitSlop({ top: 0, height: HEADER })
+      .activeOffsetY([-6, 6])
+      .failOffsetX([-24, 24])
+      .onStart(() => {
+        if (!off()) begin();
+      })
+      .onUpdate((e) => move(e.translationY))
+      .onEnd((e) => release(e.velocityY / 1000))
+      .onFinalize(() => (claimed = false));
+  const scroll = Gesture.Native();
+  const claim = (at: number) => {
+    // The same line as the host's `scrolled`, which enables this pan.
+    if (off() || scrollY > 1) return;
+    begin(at);
+    // The content holds still while the sheet follows a pull that began in it.
+    host.lockScroll(true);
+  };
+  // A pull in the content moves the sheet only while the content is at its top, so the pan is
+  // only enabled then (see `gestureAt`). An enabled pan claims a downward touch before the scroll
+  // view can, and on iOS that takes the touch from it even when the sheet stays put: a list
+  // scrolled down, or a conversation opened at its end, then couldn't be scrolled back up.
+  const content = (enabled: boolean) =>
+    Gesture.Pan()
+      .runOnJS(true)
+      .enabled(enabled)
+      .hitSlop({ top: -HEADER })
+      .activeOffsetY(6)
+      .failOffsetY(-6)
+      .failOffsetX([-24, 24])
+      .simultaneousWithExternalGesture(scroll)
+      .onStart(() => claim(0))
+      .onUpdate((e) => {
+        if (!claimed) claim(e.translationY);
+        move(Math.max(from, e.translationY));
+      })
+      .onEnd((e) => release(e.velocityY / 1000))
+      .onFinalize(() => {
+        claimed = false;
+        host.lockScroll(false);
+      });
+  return {
+    scroll,
+    sync: (next: SheetDragHost) => {
+      host = next;
+    },
+    measured: (height: number) => {
+      size = height;
+    },
+    scrolled: (offset: number) => {
+      scrollY = offset;
+    },
+    /**
+     * The sheet's drag, for content at its top (a pull moves the sheet) or scrolled down. A new
+     * gesture each time: the detector keeps the gestures it attached first and copies each new
+     * one's settings onto them, so one handed back later would no longer have its own.
+     */
+    gestureAt: (contentAtTop: boolean) => Gesture.Race(header(), content(contentAtTop)),
+    reset: () => {
+      scrollY = 0;
+    },
+    /** Whether a drag just sent the sheet away; answers true only once. */
+    takeFlung: () => {
+      const was = flung;
+      flung = false;
+      return was;
+    },
+  };
+}
+// Android draws modal windows edge to edge, so they no longer shrink for the keyboard and its events
+// never reach the app. There the sheet is a plain layer over the app's own window instead, with the
+// back button wired up as a modal's would be.
+const inWindow = Platform.OS === 'android';
+function SheetLayer({
+  visible,
+  label,
+  onRequestClose,
+  children,
+}: {
+  visible: boolean;
+  /** The sheet's title, which names the dialog for screen readers on the web. */
+  label?: string;
+  onRequestClose: () => void;
+  children: React.ReactNode;
+}) {
+  const close = useRef(onRequestClose);
+  useEffect(() => {
+    close.current = onRequestClose;
+  });
+  useEffect(() => {
+    if (!inWindow || !visible) return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      close.current();
+      return true;
+    });
+    return () => sub.remove();
+  }, [visible]);
+  if (inWindow)
+    return visible ? (
+      <View style={[StyleSheet.absoluteFill, { zIndex: 1000 }]}>{children}</View>
+    ) : null;
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="none"
+      onRequestClose={onRequestClose}
+      statusBarTranslucent
+      // React Native Web gives the modal the dialog role; this names it.
+      aria-label={native ? undefined : label}
+    >
+      {children}
+    </Modal>
+  );
+}
+/**
+ * Holds the app beneath the shared sheet. On Android the sheet is a layer in the app's own window
+ * rather than a modal window (see above), so while one is open this hides everything under it
+ * from TalkBack, as a modal would. iOS and the web get that from the sheet's native modal.
+ */
+export function UnderSheets({
+  style,
+  children,
+}: {
+  style?: StyleProp<ViewStyle>;
+  children: React.ReactNode;
+}) {
+  const covered = useSheetOpen() && inWindow;
+  return (
+    <View style={style} importantForAccessibility={covered ? 'no-hide-descendants' : 'auto'}>
+      {children}
+    </View>
+  );
 }
 // Centered card on desktop; a bottom sheet with a grabber on phones and tablets.
 export function SheetHost() {
   const { t: tr } = useI18n();
   const { compact, height, insets, width } = useChrome();
   const entries = useSyncExternalStore(subscribeSheets, getSheets, getSheets);
-  const top = entries.length ? entries.reduce((a, b) => (b.order > a.order ? b : a)) : undefined;
+  const top = topOf(entries);
   const topPage = top && pageOf(top);
+  // On the web an open sheet has its own history entry: Back closes it rather than the page.
+  const topId = top?.id;
+  useEffect(() => {
+    if (topId === undefined) sheetsGone();
+    else sheetShown();
+  }, [topId]);
+  useEffect(() => onSheetBack(() => topOf(getSheets())?.onClose()), []);
   const [open, setOpen] = useState(false);
   const [page, setPage] = useState<string>();
   // While the old page fades out it is frozen; once closed, its last version rides the sheet down.
@@ -785,10 +1300,40 @@ export function SheetHost() {
   });
   const chrome = compact ? 21 + insets.bottom + 6 : 0;
   const maxHeight = compact ? height - insets.top - 20 : height - 60;
+  // The sheet rises above the keyboard and gives up height to it, so its content scrolls instead
+  // of hiding behind it; the focused field scrolls into view.
+  const lift = useKeyboardLift();
+  const rise = open && compact ? lift : 0;
+  const scroller = useRef<ScrollView>(null);
+  const keyboard = useKeyboardScroll(scroller, rise);
+  // Once content has scrolled under the header, a hairline separates them.
+  const [scrolled, setScrolled] = useState(false);
+  // The sheet fits its header, content and footer; each can change size on its own.
+  const sizes = useRef({ header: compact ? 48 : 70, content: -1, footer: -1 });
   const show = (next: string) => {
     m.current.page = next;
+    sizes.current.content = -1;
+    sizes.current.footer = -1;
+    dragger.reset();
+    setScrolled(false);
     setPage(next);
   };
+  const [dragger] = useState(() => sheetDrag(y, backdrop));
+  // Pulls in the content move the sheet only while the content is at its top.
+  const sheetGesture = useMemo(() => dragger.gestureAt(!scrolled), [dragger, scrolled]);
+  // While the sheet follows a pull that began in the content, the content holds still.
+  const [scrollLocked, setScrollLocked] = useState(false);
+  useLayoutEffect(
+    () =>
+      dragger.sync({
+        compact,
+        height,
+        close: () => top?.onClose(),
+        busy: () => m.current.phase === 'closed' || m.current.phase === 'closing',
+        lockScroll: setScrollLocked,
+      }),
+    [dragger, compact, height, top],
+  );
   const reveal = () => {
     const st = m.current;
     st.phase = 'open';
@@ -811,7 +1356,8 @@ export function SheetHost() {
       st.timer = setTimeout(() => st.phase === 'measuring' && reveal(), 300);
     });
   };
-  useEffect(() => {
+  // A sheet-page change drives the transition; content and viewport updates must not restart it.
+  const transition = useEffectEvent((topPage: string | undefined) => {
     const st = m.current;
     clearTimeout(st.timer);
     if (topPage) {
@@ -849,20 +1395,31 @@ export function SheetHost() {
             animate(fade, 1, 160).start();
           }
         }
+        if (dragger.takeFlung()) {
+          Animated.spring(y, {
+            toValue: 0,
+            damping: 30,
+            stiffness: 300,
+            useNativeDriver: native,
+          }).start();
+          animate(backdrop, 1, 200).start();
+        }
         if (topPage !== st.page) swap(topPage);
       }
     } else if (st.phase !== 'closed') {
       // A beat of grace so "close this, open that" in quick succession still reads as one sheet.
       st.timer = setTimeout(() => {
         st.phase = 'closing';
+        // A sheet dragged away has already left the screen.
+        const gone = dragger.takeFlung();
         Animated.parallel([
           Animated.timing(y, {
             toValue: compact ? height : 16,
-            duration: motionReduced() ? 0 : 240,
+            duration: motionReduced() || gone ? 0 : 240,
             easing: Easing.in(Easing.cubic),
             useNativeDriver: native,
           }),
-          animate(backdrop, 0, 220),
+          animate(backdrop, 0, gone ? 0 : 220),
         ]).start(({ finished }) => {
           if (!finished || st.phase !== 'closing') return;
           st.phase = 'closed';
@@ -875,9 +1432,15 @@ export function SheetHost() {
         });
       }, 40);
     }
+  });
+  useEffect(() => {
+    transition(topPage);
   }, [topPage]);
-  const measure = (content: number) => {
-    const target = Math.min(chrome + content, maxHeight);
+  const measure = (part: 'header' | 'content' | 'footer', size: number) => {
+    sizes.current[part] = size;
+    const { header, content, footer } = sizes.current;
+    if (content < 0 || (entry?.footer && footer < 0)) return;
+    const target = Math.min(chrome + header + content + Math.max(0, footer), maxHeight);
     if (!sized) {
       h.setValue(target);
       setSized(true);
@@ -894,98 +1457,194 @@ export function SheetHost() {
     }
   };
   const close = () => top?.onClose();
+  // Phones get the drag; the desktop card stays put.
+  const draggable = (
+    gesture: ReturnType<typeof dragger.gestureAt> | typeof dragger.scroll,
+    child: React.ReactElement,
+  ) => (compact ? <GestureDetector gesture={gesture}>{child}</GestureDetector> : child);
   return (
-    <Modal
-      visible={open}
-      transparent
-      animationType="none"
-      onRequestClose={close}
-      statusBarTranslucent
-    >
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={{
-          flex: 1,
-          justifyContent: compact ? 'flex-end' : 'center',
-          alignItems: 'center',
-          padding: compact ? 0 : 30,
-        }}
-      >
-        <Animated.View
-          style={[StyleSheet.absoluteFill, { backgroundColor: color.scrim, opacity: backdrop }]}
-        />
-        <Pressable
-          accessible={false}
-          focusable={false}
-          onPress={close}
-          style={StyleSheet.absoluteFill}
-        />
-        <Animated.View
-          accessibilityViewIsModal
-          // Slide and fade run on the native driver; height can't, so it lives on the inner view.
+    <SheetLayer visible={open} label={entry?.title} onRequestClose={close}>
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <View
           style={{
-            width: '100%',
-            maxWidth: compact ? (width > 700 ? 640 : undefined) : 520,
-            flexShrink: 1,
-            opacity: compact ? 1 : backdrop,
-            transform: [{ translateY: y }],
+            flex: 1,
+            justifyContent: compact ? 'flex-end' : 'center',
+            alignItems: 'center',
+            padding: compact ? 0 : 30,
+            paddingBottom: compact ? rise : 30,
           }}
         >
           <Animated.View
-            style={{
-              maxHeight,
-              height: sized ? h : undefined,
-              flexShrink: 1,
-              backgroundColor: color.bg,
-              borderTopLeftRadius: radius.xl,
-              borderTopRightRadius: radius.xl,
-              borderBottomLeftRadius: compact ? 0 : radius.xl,
-              borderBottomRightRadius: compact ? 0 : radius.xl,
-              overflow: 'hidden',
-              paddingBottom: compact ? insets.bottom + 6 : 0,
-              boxShadow: shadow.float,
-            }}
-          >
-            {compact && (
-              <View
-                style={{
-                  alignSelf: 'center',
-                  width: 40,
-                  height: 5,
-                  borderRadius: 3,
-                  backgroundColor: color.line,
-                  marginTop: 10,
-                  marginBottom: 6,
-                }}
-              />
-            )}
-            <View style={{ position: 'absolute', top: compact ? 18 : 20, right: 18, zIndex: 20 }}>
-              <IconButton icon={X} label={tr('Close dialog')} onPress={close} size={38} glass />
-            </View>
-            {entry && (
-              <Animated.ScrollView
-                key={page}
-                keyboardShouldPersistTaps="handled"
-                showsVerticalScrollIndicator={false}
-                onContentSizeChange={(_, content) => measure(content)}
-                style={{ opacity: fade }}
-              >
+            style={[StyleSheet.absoluteFill, { backgroundColor: color.scrim, opacity: backdrop }]}
+          />
+          <Pressable
+            accessible={false}
+            focusable={false}
+            onPress={close}
+            style={StyleSheet.absoluteFill}
+          />
+          {draggable(
+            sheetGesture,
+            <Animated.View
+              accessibilityViewIsModal
+              onLayout={(e) => dragger.measured(e.nativeEvent.layout.height)}
+              // Slide and fade run on the native driver; height can't, so it lives on the inner view.
+              style={{
+                width: '100%',
+                maxWidth: compact ? (width > 700 ? 640 : undefined) : 520,
+                flexShrink: 1,
+                opacity: compact ? 1 : backdrop,
+                transform: [{ translateY: y }],
+              }}
+            >
+              {/* Fills in below the sheet when a spring or an upward pull lifts it off the bottom. */}
+              {compact && (
                 <View
-                  style={{ padding: compact ? 22 : 30, paddingTop: compact ? 12 : 30, gap: 18 }}
+                  style={{
+                    position: 'absolute',
+                    left: 0,
+                    right: 0,
+                    bottom: -160,
+                    height: 160,
+                    backgroundColor: color.bg,
+                  }}
+                />
+              )}
+              <Animated.View
+                style={{
+                  maxHeight: maxHeight - rise,
+                  height: sized ? h : undefined,
+                  flexShrink: 1,
+                  backgroundColor: color.bg,
+                  borderTopLeftRadius: radius.xl,
+                  borderTopRightRadius: radius.xl,
+                  borderBottomLeftRadius: compact ? 0 : radius.xl,
+                  borderBottomRightRadius: compact ? 0 : radius.xl,
+                  overflow: 'hidden',
+                  paddingBottom: compact ? insets.bottom + 6 : 0,
+                  boxShadow: shadow.float,
+                }}
+              >
+                {compact && (
+                  <View
+                    style={{
+                      alignSelf: 'center',
+                      width: 40,
+                      height: 5,
+                      borderRadius: 3,
+                      backgroundColor: color.line,
+                      marginTop: 10,
+                      marginBottom: 6,
+                    }}
+                  />
+                )}
+                <View
+                  onLayout={(e) => measure('header', e.nativeEvent.layout.height)}
+                  style={{
+                    paddingTop: compact ? 0 : 22,
+                    paddingBottom: 10,
+                    paddingLeft: compact ? 22 : 30,
+                    paddingRight: 18,
+                    gap: 14,
+                    borderBottomWidth: StyleSheet.hairlineWidth,
+                    borderColor: scrolled ? color.line : 'transparent',
+                  }}
                 >
-                  {entry.title && (
-                    <Text style={[s.h2, { paddingRight: 50, fontSize: 22, lineHeight: 28 }]}>
-                      {entry.title}
-                    </Text>
+                  <View style={[s.row, { gap: 12 }]}>
+                    <Animated.View style={[s.row, { flex: 1, gap: 10, opacity: fade }]}>
+                      {entry?.leading}
+                      <View style={{ flex: 1 }}>
+                        {!!entry?.title && (
+                          <Text
+                            accessibilityRole="header"
+                            numberOfLines={2}
+                            style={[s.h2, { fontSize: 22, lineHeight: 28 }]}
+                          >
+                            {entry.title}
+                          </Text>
+                        )}
+                      </View>
+                      {entry?.actions}
+                    </Animated.View>
+                    <IconButton
+                      icon={X}
+                      label={tr('Close dialog')}
+                      onPress={close}
+                      size={38}
+                      glass
+                    />
+                  </View>
+                  {!!entry?.header && (
+                    <Animated.View style={{ opacity: fade, marginRight: compact ? 4 : 12 }}>
+                      {entry.header}
+                    </Animated.View>
                   )}
-                  {entry.children}
                 </View>
-              </Animated.ScrollView>
-            )}
-          </Animated.View>
-        </Animated.View>
-      </KeyboardAvoidingView>
-    </Modal>
+                {entry &&
+                  draggable(
+                    dragger.scroll,
+                    <Animated.ScrollView
+                      key={page}
+                      ref={scroller}
+                      scrollEnabled={!scrollLocked}
+                      keyboardShouldPersistTaps="handled"
+                      showsVerticalScrollIndicator={false}
+                      // Pulling down at the top drags the sheet, so the content doesn't bounce there.
+                      bounces={false}
+                      overScrollMode="never"
+                      scrollEventThrottle={16}
+                      onScroll={(e) => {
+                        const offset = e.nativeEvent.contentOffset.y;
+                        dragger.scrolled(offset);
+                        keyboard.onScroll(e);
+                        if (offset > 1 !== scrolled) setScrolled(offset > 1);
+                      }}
+                      onLayout={(e) => {
+                        keyboard.onLayout(e);
+                        if (entry.stickToEnd) scroller.current?.scrollToEnd({ animated: false });
+                      }}
+                      onContentSizeChange={(_, content) => {
+                        measure('content', content);
+                        if (entry.stickToEnd) scroller.current?.scrollToEnd({ animated: true });
+                      }}
+                      style={{ opacity: fade }}
+                    >
+                      <View
+                        style={{
+                          padding: compact ? 22 : 30,
+                          paddingTop: 8,
+                          paddingBottom: entry.footer ? 14 : compact ? 22 : 30,
+                          gap: 18,
+                        }}
+                      >
+                        <RevealFocus.Provider value={keyboard.reveal}>
+                          {entry.children}
+                        </RevealFocus.Provider>
+                      </View>
+                    </Animated.ScrollView>,
+                  )}
+                {!!entry?.footer && (
+                  <Animated.View
+                    onLayout={(e) => measure('footer', e.nativeEvent.layout.height)}
+                    style={{
+                      opacity: fade,
+                      gap: 10,
+                      paddingHorizontal: compact ? 16 : 24,
+                      paddingTop: 10,
+                      paddingBottom: compact ? 4 : 20,
+                      borderTopWidth: StyleSheet.hairlineWidth,
+                      borderColor: color.line,
+                    }}
+                  >
+                    {entry.footer}
+                  </Animated.View>
+                )}
+              </Animated.View>
+            </Animated.View>,
+          )}
+        </View>
+      </GestureHandlerRootView>
+    </SheetLayer>
   );
 }
 // Full-screen pages slide over the app as plain views rather than native modals, so a sheet can
@@ -1044,7 +1703,8 @@ export function CheckRow({
   return (
     <Pressable
       accessibilityRole="checkbox"
-      accessibilityState={{ checked }}
+      // The web reads only aria-checked; the apps read either.
+      aria-checked={checked}
       onPress={onPress}
       style={[s.row, { gap: 14, paddingVertical: 13 }]}
     >
@@ -1054,7 +1714,7 @@ export function CheckRow({
           height: 24,
           borderRadius: 12,
           borderWidth: 1.5,
-          borderColor: checked ? color.ink : color.line,
+          borderColor: checked ? color.ink : color.outline,
           backgroundColor: color.white,
           justifyContent: 'center',
           alignItems: 'center',
@@ -1141,6 +1801,33 @@ export function NumberField({
     />
   );
 }
+/**
+ * `pointerEvents: 'box-none'` for a layer whose children take touches but whose own box doesn't.
+ * React Native Web turns it into CSS only for a compiled style; written inline it is dropped, and
+ * the layer's whole box takes the clicks meant for the page under it. Use this instead.
+ */
+export const passThrough = StyleSheet.create({ layer: { pointerEvents: 'box-none' } }).layer;
+/** Stacks notices (announcements, app updates) over the top of every screen. */
+export function TopBanners({ children }: { children: React.ReactNode }) {
+  const { desktop, insets, gutter } = useChrome();
+  return (
+    <View
+      style={[
+        passThrough,
+        {
+          position: 'absolute',
+          top: desktop ? insets.top + 84 + 12 : insets.top + 8,
+          left: desktop ? 248 + gutter : 12,
+          right: desktop ? gutter : 12,
+          alignItems: 'center',
+          gap: 8,
+        },
+      ]}
+    >
+      {children}
+    </View>
+  );
+}
 // Rendered by the shell and again inside full-screen modals, which sit above the shell.
 export function Toast({ message, bottom }: { message: string; bottom?: number }) {
   const { t: tr } = useI18n();
@@ -1160,10 +1847,16 @@ export function Toast({ message, bottom }: { message: string; bottom?: number })
       }).start();
     else animate(a, 0, 200).start(({ finished }) => finished && setLast(''));
   }, [message, a]);
+  // VoiceOver ignores live regions, and on Android an open sheet hides the app (and this toast)
+  // from TalkBack, so the apps announce each message outright; the web keeps the live region.
+  const spoken = message ? tr(message) : '';
+  useEffect(() => {
+    if (native && spoken) AccessibilityInfo.announceForAccessibility(spoken);
+  }, [spoken]);
   if (!shown) return null;
   return (
     <View
-      accessibilityLiveRegion="polite"
+      accessibilityLiveRegion={native ? undefined : 'polite'}
       style={{
         position: 'absolute',
         left: 16,

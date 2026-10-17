@@ -1,8 +1,17 @@
 import { useI18n } from '../lib/i18n';
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, AppState, Linking, Platform, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  AppState,
+  Linking,
+  Platform,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
+} from 'react-native';
 import { CameraView, CameraType, useCameraPermissions } from 'expo-camera';
-import { Camera, RotateCcw, SwitchCamera } from 'lucide-react-native';
+import { Camera, RotateCcw, SwitchCamera } from './icons';
 import { Button, FoodImage, IconButton } from './ui';
 import { color, radius, s } from '../lib/theme';
 
@@ -14,7 +23,7 @@ export function RecipeCamera({
   onCancel: () => void;
 }) {
   const { t: tr } = useI18n();
-  const [permission, requestPermission] = useCameraPermissions();
+  const [permission, requestPermission, getPermission] = useCameraPermissions();
   const camera = useRef<CameraView>(null);
   const [facing, setFacing] = useState<CameraType>('back');
   const [ready, setReady] = useState(false);
@@ -22,10 +31,30 @@ export function RecipeCamera({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [foreground, setForeground] = useState(true);
+  // A portrait frame like a recipe page, as tall as the screen has room for. It's sized from its
+  // measured width rather than aspectRatio + maxHeight: native layout keeps the ratio by narrowing
+  // the view, which left a black bar beside the camera.
+  const { height: screen } = useWindowDimensions();
+  const [frameWidth, setFrameWidth] = useState(0);
+  const frame = {
+    width: '100%',
+    height: Math.min(frameWidth * (4 / 3), Math.max(300, screen - 420)),
+    borderRadius: radius.lg,
+    overflow: 'hidden',
+    backgroundColor: color.ink,
+  } as const;
   useEffect(() => {
-    const sub = AppState.addEventListener('change', (state) => setForeground(state === 'active'));
+    const sub = AppState.addEventListener('change', (state) => {
+      const active = state === 'active';
+      setForeground(active);
+      // The camera closes in the background and has to start again before the next shot.
+      if (!active) setReady(false);
+      // The permission is read when the camera opens, and Android doesn't restart the app when
+      // the camera is allowed in Settings, so read it again on the way back.
+      else void getPermission().catch(() => {});
+    });
     return () => sub.remove();
-  }, []);
+  }, [getPermission]);
   const capture = async () => {
     if (!ready || busy) return;
     setBusy(true);
@@ -80,22 +109,25 @@ export function RecipeCamera({
           />
         </View>
       ) : photo ? (
-        <FoodImage
-          uri={photo}
-          style={{ width: '100%', aspectRatio: 3 / 4, maxHeight: 380, borderRadius: radius.lg }}
-        />
+        <FoodImage uri={photo} style={frame} />
       ) : foreground ? (
-        <View style={{ borderRadius: radius.lg, overflow: 'hidden', backgroundColor: color.ink }}>
-          <CameraView
-            ref={camera}
-            style={{ width: '100%', aspectRatio: 3 / 4, maxHeight: 380 }}
-            facing={facing}
-            mode="picture"
-            onCameraReady={() => setReady(true)}
-            onMountError={() =>
-              setError('No camera is available. Check permission or upload a photo instead.')
-            }
-          />
+        <View onLayout={(e) => setFrameWidth(e.nativeEvent.layout.width)} style={frame}>
+          {frameWidth > 0 && (
+            <CameraView
+              ref={camera}
+              style={StyleSheet.absoluteFill}
+              facing={facing}
+              mode="picture"
+              onCameraReady={() => {
+                setReady(true);
+                // A camera that failed to start (before a lens switch, say) works now.
+                setError('');
+              }}
+              onMountError={() =>
+                setError('No camera is available. Check permission or upload a photo instead.')
+              }
+            />
+          )}
         </View>
       ) : (
         <Text style={s.muted}>{tr('Camera paused while the app is in the background.')}</Text>

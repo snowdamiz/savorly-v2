@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
@@ -96,14 +97,32 @@ func (c *Client) Create(ctx context.Context, sdp string, history []Message, stat
 	}
 	defer res.Body.Close()
 	if res.StatusCode != 201 {
-		return Answer{}, fmt.Errorf("Live create HTTP %d", res.StatusCode)
+		return Answer{}, fmt.Errorf("live create HTTP %d", res.StatusCode)
 	}
 	var out Answer
 	e = json.NewDecoder(io.LimitReader(res.Body, 256*1024)).Decode(&out)
 	if e == nil && (out.Session.ID == "" || out.Transport.SDP == "") {
-		e = fmt.Errorf("Live returned an incomplete handshake")
+		e = errors.New("live returned an incomplete handshake")
 	}
 	return out, e
+}
+
+// Hangup ends a session without the sideband, which normally sends session.close.
+func (c *Client) Hangup(ctx context.Context, id string) error {
+	r, e := http.NewRequestWithContext(ctx, "POST", c.BaseURL+"/live/sessions/"+url.PathEscape(id)+"/hangup", nil)
+	if e != nil {
+		return e
+	}
+	r.Header = c.headers()
+	res, e := c.HTTP.Do(r)
+	if e != nil {
+		return e
+	}
+	res.Body.Close()
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		return fmt.Errorf("live hangup HTTP %d", res.StatusCode)
+	}
+	return nil
 }
 func (c *Client) Attach(ctx context.Context, id string) (*websocket.Conn, error) {
 	endpoint := strings.Replace(c.BaseURL, "https://", "wss://", 1)

@@ -1,0 +1,52 @@
+# Weekly dependency updates: one grouped pull request per directory for minor and patch versions,
+# and a pull request of its own for each major version. CI verifies each one.
+#
+# The Expo SDK fixes the versions of expo, expo-*, React Native and React, so their majors are
+# ignored here and move together in an SDK upgrade (`npx expo install expo@^<sdk> --fix`, then
+# `npx expo install --check`; CONTRIBUTING.md). React Native is still 0.x, where a minor version is
+# a breaking one, so its minors are ignored too.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /apps/mobile
+    schedule:
+      interval: weekly
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+    ignore:
+      - dependency-name: expo
+        update-types: [version-update:semver-major]
+      - dependency-name: expo-*
+        update-types: [version-update:semver-major]
+      - dependency-name: jest-expo
+        update-types: [version-update:semver-major]
+      - dependency-name: eslint-config-expo
+        update-types: [version-update:semver-major]
+      - dependency-name: react-native
+        update-types: [version-update:semver-major, version-update:semver-minor]
+      - dependency-name: react
+        update-types: [version-update:semver-major]
+      - dependency-name: react-dom
+        update-types: [version-update:semver-major]
+  - package-ecosystem: npm
+    directory: /infra/cloudflare
+    schedule:
+      interval: weekly
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+  - package-ecosystem: gomod
+    directory: /services/api
+    schedule:
+      interval: weekly
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]

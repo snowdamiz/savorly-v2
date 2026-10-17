@@ -1,7 +1,12 @@
 // The Worker serves the exported web app and runs the Go API (services/api) as a Cloudflare
 // Container behind /api. Account-specific values and credentials are Worker secrets, passed
-// to the container with these vars (see docs/STAGING.md). Bindings and vars do not inherit
-// into environments, so each environment declares its own.
+// to the container with these vars (see docs/STAGING.md). Bindings and vars do not inherit into
+// environments, so each environment declares its own. Triggers do inherit; staging repeats them
+// anyway, and `"crons": []` there would turn its schedule off.
+//
+// Besides the app and /api, the Worker answers /robots.txt, /sitemap.xml, recipe pages with
+// preview tags (/recipes/<id>), /csp-report, and the app-link files under /.well-known
+// (worker.ts, docs/DEPLOYMENT.md#web-pages-and-app-links).
 {
   "name": "savorly",
   "main": "worker.ts",
@@ -23,6 +28,9 @@
   "exports": {
     "SavorlyApi": { "type": "durable-object", "storage": "sqlite" }
   },
+  // getContainer(env.API) always addresses one named instance, so the API runs as a single
+  // container; max_instances only caps how many may run at once, so the second is headroom, not
+  // capacity. Instance types and limits: docs/DEPLOYMENT.md#capacity.
   "containers": [
     {
       "class_name": "SavorlyApi",
@@ -34,6 +42,10 @@
   "durable_objects": {
     "bindings": [{ "name": "API", "class_name": "SavorlyApi" }]
   },
+  // Pings the API every 10 minutes from 07:00 to 22:50 UTC so it doesn't sleep through the day,
+  // restarting it first if secrets or vars changed since it started (worker.ts scheduled(); cost
+  // trade-off in docs/DEPLOYMENT.md#cold-starts).
+  "triggers": { "crons": ["*/10 7-22 * * *"] },
   "vars": {
     "APP_ENV": "production",
     "SEED_DATA": "false",
@@ -48,12 +60,27 @@
     "OPENROUTER_RECIPE_MODEL": "openai/gpt-6.1-sol",
     "OPENROUTER_AGENT_MODEL": "openai/gpt-6-luna",
     "OPENROUTER_IMAGE_MODEL": "openai/gpt-image-2.5-flare",
+    "OPENROUTER_IMAGE_EDIT_MODEL": "openai/gpt-image-2.5-sunburst",
     "OPENROUTER_TTS_VOICE": "sarah",
     "REAPI_VIDEO_MODEL": "doubao-seedance-2.5-eco",
     "OPENAI_LIVE_MODEL": "gpt-live-1",
     "OPENAI_LIVE_VOICE": "gleam",
     "AI_FREE_DAILY_BUDGET_USD": "5",
-    "AI_DAILY_BUDGET_USD": "25"
+    "AI_DAILY_BUDGET_USD": "25",
+    // App links (docs/PRODUCTION.md#app-links): the iOS bundle identifier and Android package.
+    // /.well-known/apple-app-site-association also needs APPLE_TEAM_ID, the Apple Developer Team
+    // ID (developer.apple.com → Account → Membership details), which is in .env.production for
+    // Sign in with Apple and so reaches the Worker as a secret; don't add it here as well.
+    "MOBILE_APP_ID": "app.savorly.mobile",
+    // /.well-known/assetlinks.json: comma-separated SHA-256 certificate fingerprints. Play
+    // Console → App integrity → App signing lists the app signing key (what Play installs) and
+    // the upload key (also in `eas credentials --platform android`); add both. Empty answers
+    // 404, and Android opens recipe links in the browser. This one is the EAS keystore that signs
+    // builds installed outside Play; add Play's app signing key once the app is on Google Play.
+    "ANDROID_CERT_SHA256": "73:76:F3:2C:35:CC:62:58:36:6E:D2:82:31:62:30:B8:FE:7D:C1:9F:52:AE:FE:5F:62:51:35:B3:88:EB:93:37",
+    // Cloudflare Web Analytics site token (dashboard → Analytics & Logs → Web Analytics → Add a
+    // site → manual setup); the Worker adds the beacon to every page. Empty leaves it out.
+    "CF_ANALYTICS_TOKEN": ""
   },
   "observability": { "enabled": true },
   "env": {
@@ -71,6 +98,7 @@
       "durable_objects": {
         "bindings": [{ "name": "API", "class_name": "SavorlyApi" }]
       },
+      "triggers": { "crons": ["*/10 7-22 * * *"] },
       "vars": {
         "APP_ENV": "production",
         // Fixture recipes and creators so a fresh staging kitchen has something to browse.
@@ -79,6 +107,9 @@
         "PAID_PLANS": "false",
         // Keeps search engines out of staging (X-Robots-Tag).
         "NOINDEX": "true",
+        // New recipes may reuse the fixture recipes' photos (docs/STORAGE.md). A var, so it must
+        // not also be in .env.staging: a secret can't share a var's name.
+        "MEDIA_HOSTS": "images.unsplash.com",
         "TRUSTED_PROXY_HEADER": "X-Savorly-Client-IP",
         "S3_REGION": "auto",
         "S3_BUCKET": "savorly-staging-media",
@@ -88,13 +119,20 @@
         "OPENROUTER_RECIPE_MODEL": "openai/gpt-6.1-sol",
         "OPENROUTER_AGENT_MODEL": "openai/gpt-6-luna",
         "OPENROUTER_IMAGE_MODEL": "openai/gpt-image-2.5-flare",
+        "OPENROUTER_IMAGE_EDIT_MODEL": "openai/gpt-image-2.5-sunburst",
         "OPENROUTER_TTS_VOICE": "sarah",
         "REAPI_VIDEO_MODEL": "doubao-seedance-2.5-eco",
         "OPENAI_LIVE_MODEL": "gpt-live-1",
         "OPENAI_LIVE_VOICE": "gleam",
         // With no per-member limits, these shared daily ceilings are the only spend guard.
         "AI_FREE_DAILY_BUDGET_USD": "10",
-        "AI_DAILY_BUDGET_USD": "10"
+        "AI_DAILY_BUDGET_USD": "10",
+        // App links for the staging app (docs/STAGING.md#app-links); APPLE_TEAM_ID comes from
+        // .env.staging like production's.
+        "MOBILE_APP_ID": "app.savorly.mobile.staging",
+        // SHA-256 of the staging keystore: `eas credentials --platform android`, staging profile.
+        "ANDROID_CERT_SHA256": "E4:25:63:F3:25:5E:F1:2E:7D:B6:DB:03:C7:D5:AB:9A:EC:46:56:65:D3:B5:22:AD:F2:81:26:4B:B9:AF:E9:A4",
+        "CF_ANALYTICS_TOKEN": ""
       }
     }
   }

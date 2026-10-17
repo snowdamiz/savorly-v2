@@ -1,0 +1,24 @@
+Mode: built-in image generation
+Use case: logo-brand
+Asset type: regenerated Savorly chef-hat mascot comparison sheet.
+Input image: the supplied chef-hat study sheet is the edit target and design reference.
+User correction: the last set was too simple and the empty white eyes looked like ghosts. Regenerate the sheet with slightly richer chef-hat shapes and friendly eyes with VERY CLEAR DARK PUPILS. Keep them suitable for future small app icons and favicons.
+
+Preserve: eight numbered options in a spacious 4-column by 2-row landscape grid, off-white background (#F7F8F5), charcoal (#1B1C1A) artwork, thin light-gray separators, large mascot plus two much smaller matching size previews in each cell. Keep the overall warm, playful, premium food-brand aesthetic. Header text: "SAVORLY / CHEF HAT STUDIES".
+
+MOST IMPORTANT EYE RULE: EVERY mascot has TWO OPEN EYES, and EACH eye must have an off-white sclera containing a large clearly visible DARK CHARCOAL PUPIL. Pupils are actual filled circles or ovals inside the white eyes, about 40–50 percent of eye width, with enough white visible around them to see gaze direction. Do not draw hollow eye sockets, plain white disks, plain crescent holes, blank eyes, closed eyes, or winks. No tiny white specular dots are necessary. Make the pupils and gaze easy to see. Facial expression should read as a friendly character, not a ghost.
+
+Slightly richer shapes: introduce one or two broad curved fold cutouts where the crown joins the band; soften and shape the hat band; give some hats an asymmetric puffy crown. Add a restrained smile or a softly raised eyebrow where it helps expression. Keep all lines thick and sparse. No hair, human head, nose, mustache, body, hands, or feet. The HAT ITSELF is the character, and it must still clearly look like a chef's toque.
+
+Reading order / exact labels / new treatments:
+"01  THE CLASSIC" — balanced three-lobe crown, two bold fold cuts, distinct gently curved band with two round white eyes and large black pupils looking forward, small welcoming smile.
+"02  THE LEAN" — jaunty soft crown tilted to the right, one broad fold cut, slightly asymmetric white oval eyes with clear dark pupils glancing upward toward the taller lobe, tiny confident smile.
+"03  THE SIDE GLANCE" — wide low three-lobe hat, two short crown folds and a soft band, two large white eyes with dark pupils both looking to one side, subtle raised brow, a cheeky little curved smile.
+"04  THE TINY TOQUE" — the simplest of the new set, squat three-lobed hat with ONE broad band-separating cut, two generous white oval eyes and large dark pupils, no eyebrows or mouth. Distinctive enough to use at 16–32px, not hollow-eyed.
+"05  THE SOFT TOP" — fluffy tall central puff and low rounded side puffs, two generous crown cutouts, broad rounded band, oval eyes with dark pupils looking slightly upward and a warm small smile.
+"06  THE CURIOUS CHEF" — asymmetrical two-major-lobe crown, a single tapered fold cut, gently bent band, two white eyes with round black pupils glancing up-right, one softly lifted eyebrow. No mouth needed.
+"07  THE HAPPY BRIM" — a wide friendly three-puff crown and rounded band, two white eyes with visibly centered charcoal pupils and a small thick smile. A couple of wide fold cuts give the hat a little more structure.
+"08  THE QUIET CHEF" — compact relaxed three-puff crown, two gentle broad crease cuts and a soft band; TWO OPEN white eyes with large black pupils and slightly lowered upper eyelids for a calm friendly expression, slight smile. Pupils remain clearly visible.
+
+Small previews: show two scaled copies of the matching large design beneath each mascot. Preserve their pupils and overall face; these are visual comparison previews, not additional variants. Keep the labels separate below.
+Avoid: empty white eyes, pupil-less faces, ghostlike expressions, detailed illustration, thin lines, cluttered folds, decorative props, human chefs, vegetables, 3D, gradients, shadows, texture, colored backgrounds, green tiles, enclosing badge shapes, wordmarks, watermarks. Produce a fresh polished board with eight distinct but related mascot candidates.

@@ -1,23 +1,27 @@
 import { useI18n } from '../lib/i18n';
-import React, { useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Animated, Platform, Pressable, StyleSheet, Text, View, ViewStyle } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
   ArrowRight,
   ArrowUp,
   Bell,
   CalendarDays,
+  Carrot,
+  ChevronRight,
   Clock3,
   Leaf,
   Search,
   SlidersHorizontal,
+  Soup,
   Sparkles,
   Users,
   Zap,
-} from 'lucide-react-native';
+} from '../components/icons';
 import { useApp } from '../lib/store';
 import { AIRequest, Creator, Recipe, Screen } from '../lib/types';
-import { color, font, radius, s } from '../lib/theme';
+import { color, font, maxFontScale, radius, s } from '../lib/theme';
+import { haptic } from '../lib/haptics';
 import {
   Avatar,
   Button,
@@ -25,21 +29,28 @@ import {
   Dialog,
   Empty,
   FadeIn,
-  FlatGlass,
   FoodImage,
   IconButton,
   PageHeading,
   Pill,
   Press,
+  Rail,
   SearchBar,
   SectionTitle,
   Segmented,
+  animate,
+  motionReduced,
+  usePress,
   useChrome,
 } from '../components/ui';
-import { RecipeGrid, RecipeRow, RecipeTile } from '../components/RecipeCard';
+import { RecipeGrid, RecipeRow, RecipeTile, Save } from '../components/RecipeCard';
+import { FollowPill } from '../components/FollowPill';
 import { useRecipeSearch } from '../lib/useRecipeSearch';
 import { foodIcon } from '../lib/icons';
 import { allCuisines } from '../lib/cuisines';
+import { homeShelves } from '../lib/feed';
+import { linkTo, pressedInApp, recipePath } from '../lib/routes';
+import { track } from '../lib/telemetry';
 import { CuisineBrowser } from '../components/CuisineBrowser';
 import { CuisinePicker } from '../components/CuisinePicker';
 const categories = [
@@ -50,10 +61,26 @@ const categories = [
   ['High protein', 'High protein'],
   ['Comfort food', 'Comfort food'],
 ];
+// One-tap starting points for the sous-chef; the prompt runs as soon as the sheet opens.
+const ideas = [
+  {
+    title: 'Dinner in 20 minutes',
+    prompt: 'A satisfying dinner I can make in 20 minutes.',
+    icon: Zap,
+  },
+  { title: 'Something cozy', prompt: 'Something cozy and comforting for tonight.', icon: Soup },
+  {
+    title: 'Use up my vegetables',
+    prompt: 'A recipe that uses up the vegetables I have.',
+    icon: Carrot,
+  },
+];
 const greeting = () => {
   const h = new Date().getHours();
   return h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
 };
+const heroHeight = (compact: boolean, width: number) =>
+  compact ? Math.min(460, Math.round(width * 1.15)) : 420;
 export function Discover({
   explore,
   query,
@@ -64,6 +91,7 @@ export function Discover({
   onAI,
   onActivity,
   onAccount,
+  onHeader,
 }: {
   explore?: boolean;
   query: string;
@@ -74,6 +102,8 @@ export function Discover({
   onAI: (r: AIRequest) => void;
   onActivity: () => void;
   onAccount: () => void;
+  /** Height of the phone's black header, so the shell can turn the status bar light past it. */
+  onHeader?: (height: number) => void;
 }) {
   const { t: tr } = useI18n();
   const app = useApp();
@@ -84,19 +114,48 @@ export function Discover({
   const [filters, setFilters] = useState(false);
   const [sort, setSort] = useState('For you');
   const [quick, setQuick] = useState(false);
-  const search = useRecipeSearch({ query, category, cuisine, quick, sort });
+  const listing = !!query || !!explore;
+  // Filtering belongs to Explore. Home only searches, so returning to it never leaves the feed
+  // stuck as a filtered list, while Explore keeps its filters for the next visit.
+  const search = useRecipeSearch(
+    explore
+      ? { query, category, cuisine, quick, sort }
+      : { query, category: 'All recipes', cuisine: allCuisines, quick: false, sort: 'For you' },
+    listing,
+  );
   const filtered = search.recipes;
-  const refined = cuisine !== allCuisines || quick || sort !== 'For you';
-  const listing = !!query || !!explore || category !== 'All recipes' || refined;
-  const hero = recipes.find((r) => r.id === 'lemon-ricotta-pasta') || recipes[0];
-  const trending = recipes
-    .filter((r) => r.id !== hero?.id)
-    .sort((a, b) => b.saveCount - a.saveCount || b.rating - a.rating)
-    .slice(0, 6);
-  const weeknight = recipes
-    .filter((r) => r.id !== hero?.id && !trending.includes(r))
-    .sort((a, b) => a.minutes - b.minutes)
-    .slice(0, 4);
+  const refined = !!explore && (cuisine !== allCuisines || quick || sort !== 'For you');
+  // What people search for, and what finds nothing: each search once, when the typing has paused
+  // and its first results have arrived (Show more isn't another search).
+  const searched = query.trim();
+  const counted = useRef('');
+  useEffect(() => {
+    if (!searched || search.loading || search.error || counted.current === searched) return;
+    const results = filtered.length;
+    const timer = setTimeout(() => {
+      counted.current = searched;
+      track('search', { query: searched.slice(0, 100), results });
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, [searched, search.loading, search.error, filtered.length]);
+  // The shelves, from GET /feed (or worked out here without it), each recipe on screen once. Rails
+  // on phones hold six; desktop rows show what fits.
+  const shelfSize = compact ? 6 : width > 1430 ? 4 : 3;
+  const { feed, library } = app;
+  const {
+    hero,
+    trending,
+    quick: weeknight,
+    following,
+  } = useMemo(
+    () =>
+      homeShelves(feed, recipes, user ? library.followingIds : [], {
+        trending: shelfSize,
+        quick: 4,
+        following: user ? shelfSize : 0,
+      }),
+    [feed, recipes, user, library.followingIds, shelfSize],
+  );
   const hello = `${tr(greeting())}${user ? `, ${user.name.split(' ')[0]}` : ''}`;
   const reset = () => {
     setCategory('All recipes');
@@ -112,15 +171,34 @@ export function Discover({
       ? `In my pantry: ${app.kitchen.pantry.map((p) => p.name).join(', ')}`
       : undefined,
   };
-  const bleed = compact ? { marginHorizontal: -gutter } : undefined;
-  const pad = compact ? { paddingHorizontal: gutter } : undefined;
   const tileWidth = Math.min(250, Math.round(width * 0.6));
   // On phones the feed is a light sheet that rises over the black header on rounded top corners.
   const sheet = compact && !explore;
+  // On phones the filters live inside the search bar, so Explore opens with one control, not two.
+  const filter = compact ? (
+    <IconButton
+      icon={SlidersHorizontal}
+      label={tr('Filter recipes')}
+      selected={refined}
+      plain={!refined}
+      size={40}
+      onPress={() => setFilters(true)}
+    />
+  ) : (
+    <Button
+      title={tr('Filters')}
+      label={tr('Filter recipes')}
+      icon={SlidersHorizontal}
+      variant={refined ? 'primary' : 'secondary'}
+      small
+      onPress={() => setFilters(true)}
+    />
+  );
   return (
-    <View style={{ gap: 30 }}>
+    <View style={{ gap: explore ? 24 : 30 }}>
       {sheet ? (
         <View
+          onLayout={(e) => onHeader?.(e.nativeEvent.layout.height)}
           style={{
             marginHorizontal: -gutter,
             marginTop: -top,
@@ -146,23 +224,35 @@ export function Discover({
                   padding: 2,
                 }}
               >
-                <Avatar name={user?.name || 'S'} uri={user?.avatar} size={40} />
+                <Avatar name={user?.name || ''} uri={user?.avatar} size={40} />
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={{ color: color.onInk, fontFamily: font.medium, fontSize: 13 }}>
                   {tr(greeting())}
                 </Text>
-                <Text
-                  numberOfLines={1}
-                  style={{ color: color.white, fontFamily: font.bold, fontSize: 16 }}
-                >
-                  {user ? user.name : tr('Sign in to save recipes')}
-                </Text>
+                <View style={[s.row, { gap: 4 }]}>
+                  <Text
+                    numberOfLines={1}
+                    style={{
+                      color: color.white,
+                      fontFamily: font.bold,
+                      fontSize: 16,
+                      flexShrink: 1,
+                    }}
+                  >
+                    {user ? user.name : tr('Sign in to save recipes')}
+                  </Text>
+                  {!user && <ChevronRight size={16} color={color.onInk} strokeWidth={2.2} />}
+                </View>
               </View>
             </Pressable>
             <IconButton icon={Bell} dark label={tr('Kitchen activity')} onPress={onActivity} />
           </View>
-          <Text style={[s.display, { color: color.white, fontSize: 31, lineHeight: 37 }]}>
+          <Text
+            role="heading"
+            aria-level={1}
+            style={[s.display, { color: color.white, fontSize: 31, lineHeight: 37 }]}
+          >
             {tr('What would you like to cook today?')}
           </Text>
           <View style={{ flexDirection: 'row' }}>
@@ -170,26 +260,45 @@ export function Discover({
           </View>
         </View>
       ) : (
-        <FadeIn offset={10} style={{ gap: 18 }}>
+        <FadeIn offset={10} style={{ gap: compact ? 16 : 18 }}>
+          {/* Explore is a tool, not a story: its name, the search, and the ways to narrow it. */}
           <PageHeading
-            eyebrow={explore ? tr('Every craving, every occasion') : hello}
+            eyebrow={explore ? undefined : hello}
             title={explore ? tr('Explore') : tr('What would you like to cook today?')}
-            subtitle={
-              explore
-                ? tr('Search by dish, ingredient or cuisine, then narrow it down.')
-                : undefined
-            }
-          />
+          >
+            {explore && !compact && filter}
+          </PageHeading>
           {compact && (
             <View style={{ flexDirection: 'row' }}>
-              <SearchBar value={query} onChangeText={onQuery} />
+              <SearchBar
+                value={query}
+                onChangeText={onQuery}
+                accessory={explore ? filter : undefined}
+              />
             </View>
+          )}
+          {/* Categories narrow a search, so they sit with it rather than atop the home feed. */}
+          {explore && (
+            <Rail gap={8}>
+              {categories.map(([value, title]) => (
+                <Chip
+                  key={value}
+                  title={tr(title)}
+                  icon={foodIcon(value)}
+                  active={category === value}
+                  onPress={() => {
+                    if (category !== value) haptic.select();
+                    setCategory(value);
+                  }}
+                />
+              ))}
+            </Rail>
           )}
         </FadeIn>
       )}
       <View
         style={[
-          { gap: 30 },
+          { gap: explore ? 24 : 30 },
           sheet && {
             marginHorizontal: -gutter,
             marginTop: -30 - radius.xl,
@@ -201,59 +310,69 @@ export function Discover({
           },
         ]}
       >
-        <View style={[s.row, { gap: 10 }]}>
-          <IconButton
-            icon={SlidersHorizontal}
-            label={tr('Filter recipes')}
-            selected={refined}
-            size={42}
-            onPress={() => setFilters(true)}
+        {explore ? (
+          <CuisineBrowser value={cuisine} onChange={setCuisine} />
+        ) : (
+          // On home a cuisine is a way into Explore, already narrowed to it.
+          <CuisineBrowser
+            onChange={(next) => {
+              reset();
+              setCuisine(next);
+              navigate('explore');
+            }}
+            onSeeAll={() => {
+              setFilters(true);
+              navigate('explore');
+            }}
           />
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={[{ flex: 1 }, compact && { marginRight: -gutter }]}
-            contentContainerStyle={{ gap: 8, paddingRight: compact ? gutter : 0 }}
-          >
-            {categories.map(([value, title]) => (
-              <Chip
-                key={value}
-                title={tr(title)}
-                icon={foodIcon(value)}
-                active={category === value}
-                onPress={() => setCategory(value)}
-              />
-            ))}
-          </ScrollView>
-        </View>
-        <CuisineBrowser value={cuisine} onChange={setCuisine} onSeeAll={() => setFilters(true)} />
+        )}
         {listing ? (
           <FadeIn key={category} offset={10}>
-            <SectionTitle
-              title={
-                query
-                  ? tr('Results for “{{v0}}”', { v0: query })
-                  : category !== 'All recipes'
-                    ? tr(category)
-                    : cuisine !== allCuisines
-                      ? tr('{{v0}} recipes', { v0: tr(cuisine) })
-                      : explore
-                        ? tr('All recipes')
-                        : tr('Recipes')
-              }
-              subtitle={
-                search.loading && !filtered.length
-                  ? tr('Searching…')
-                  : tr('recipeCount', { count: filtered.length, more: search.hasMore ? '+' : '' })
-              }
-              action={refined ? reset : undefined}
-              actionTitle={tr('Clear filters')}
-            />
+            {explore ? (
+              // The search, chips and tiles above already say what is shown; this only counts it.
+              <View style={[s.between, { marginBottom: 14, minHeight: 26 }]}>
+                <Text
+                  accessibilityLiveRegion="polite"
+                  style={[s.muted, { fontFamily: font.semibold }]}
+                >
+                  {search.loading && !filtered.length
+                    ? tr('Searching…')
+                    : tr('recipeCount', {
+                        count: filtered.length,
+                        more: search.hasMore ? '+' : '',
+                      })}
+                </Text>
+                {refined && (
+                  <Press
+                    accessibilityRole="button"
+                    accessibilityLabel={tr('Clear filters')}
+                    onPress={reset}
+                    hitSlop={10}
+                  >
+                    <Text style={{ fontFamily: font.bold, fontSize: 14, color: color.ink }}>
+                      {tr('Clear filters')}
+                    </Text>
+                  </Press>
+                )}
+              </View>
+            ) : (
+              // Home lists recipes only for a search (filters belong to Explore), so it's titled by it.
+              <SectionTitle
+                title={tr('Results for “{{v0}}”', { v0: query })}
+                subtitle={
+                  search.loading && !filtered.length
+                    ? tr('Searching…')
+                    : tr('recipeCount', { count: filtered.length, more: search.hasMore ? '+' : '' })
+                }
+                action={refined ? reset : undefined}
+                actionTitle={tr('Clear filters')}
+              />
+            )}
             {!!search.error && (
               <Text style={[s.muted, { color: color.error }]}>{tr(search.error)}</Text>
             )}
             {search.loading && !filtered.length ? (
-              <ActivityIndicator color={color.ink} style={{ paddingVertical: 60 }} />
+              <TileBones />
             ) : filtered.length ? (
               <RecipeGrid recipes={filtered} onOpen={onOpen} />
             ) : (
@@ -278,7 +397,8 @@ export function Discover({
                       onAI({
                         ...fridge,
                         title: tr('A recipe for {{v0}}', { v0: query }),
-                        prompt: `Create a recipe for ${query}.`,
+                        // In the cook's language: it's their own message, and the model's cue.
+                        prompt: tr('Create a recipe for {{v0}}.', { v0: query }),
                       })
                     }
                   />
@@ -299,244 +419,149 @@ export function Discover({
           <>
             {hero && (
               <FadeIn>
-                <Press
-                  accessibilityRole="button"
-                  accessibilityLabel={tr('Let’s get cooking')}
-                  onPress={() => onOpen(hero)}
-                  scale={0.985}
-                  style={{
-                    height: compact ? Math.min(460, Math.round(width * 1.15)) : 420,
-                    borderRadius: radius.xl,
-                    overflow: 'hidden',
-                    backgroundColor: color.ink,
-                  }}
-                >
-                  <View
-                    style={{
-                      position: 'absolute',
-                      top: 0,
-                      bottom: 0,
-                      right: 0,
-                      width: compact ? '100%' : '66%',
-                    }}
-                  >
-                    <FoodImage uri={hero.image} style={StyleSheet.absoluteFill} />
-                  </View>
-                  <LinearGradient
-                    colors={
-                      compact
-                        ? ['rgba(0,0,0,0.1)', 'rgba(0,0,0,0.1)', 'rgba(0,0,0,0.86)']
-                        : [color.ink, color.ink, 'rgba(13,13,13,0)']
-                    }
-                    locations={compact ? [0, 0.35, 1] : [0, 0.36, 0.7]}
-                    start={{ x: 0, y: compact ? 0 : 0.5 }}
-                    end={{ x: compact ? 0 : 1, y: compact ? 1 : 0.5 }}
-                    style={StyleSheet.absoluteFill}
-                  />
-                  <View style={{ position: 'absolute', top: 18, left: 18 }}>
-                    <Pill title={tr('The daily dish')} tone="glass" />
-                  </View>
-                  <View
-                    style={{
-                      position: 'absolute',
-                      left: compact ? 22 : 40,
-                      right: compact ? 22 : '45%',
-                      bottom: compact ? 22 : 40,
-                      gap: 12,
-                    }}
-                  >
-                    <Text
-                      style={[
-                        s.display,
-                        {
-                          color: color.white,
-                          fontSize: compact ? 30 : 40,
-                          lineHeight: compact ? 35 : 46,
-                        },
-                      ]}
-                    >
-                      {hero.title}
-                    </Text>
-                    <Text
-                      numberOfLines={2}
-                      style={{
-                        color: 'rgba(255,255,255,0.78)',
-                        fontFamily: font.medium,
-                        fontSize: 14,
-                        lineHeight: 21,
-                      }}
-                    >
-                      {hero.description}
-                    </Text>
-                    <View style={[s.row, { gap: 12, marginTop: 6 }]}>
-                      <View
-                        style={[
-                          s.row,
-                          {
-                            gap: 8,
-                            backgroundColor: color.white,
-                            height: 48,
-                            paddingHorizontal: 20,
-                            borderRadius: radius.pill,
-                          },
-                        ]}
-                      >
-                        <Text style={{ fontFamily: font.bold, fontSize: 14, color: color.ink }}>
-                          {tr('Let’s get cooking')}
-                        </Text>
-                        <ArrowRight size={16} color={color.ink} strokeWidth={2.2} />
-                      </View>
-                      <View style={[s.row, { gap: 6 }]}>
-                        <Clock3 size={14} color="rgba(255,255,255,0.8)" />
-                        <Text
-                          style={{
-                            color: 'rgba(255,255,255,0.8)',
-                            fontFamily: font.semibold,
-                            fontSize: 13,
-                          }}
-                        >
-                          {tr('{{v0}} min', { v0: hero.minutes })}
-                        </Text>
-                      </View>
-                    </View>
-                  </View>
-                </Press>
+                <Hero recipe={hero} onOpen={onOpen} />
               </FadeIn>
             )}
             <FadeIn delay={90}>
               <SectionTitle title={tr('Trending now')} action={() => navigate('explore')} />
               {compact ? (
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  snapToInterval={tileWidth + 12}
-                  decelerationRate="fast"
-                  style={[{ flexGrow: 0 }, bleed]}
-                  contentContainerStyle={[pad, { gap: 12, paddingBottom: 8 }]}
-                >
-                  <FlatGlass>
-                    {trending.map((r) => (
-                      <RecipeTile
-                        key={r.id}
-                        recipe={r}
-                        onOpen={onOpen}
-                        width={tileWidth}
-                        height={Math.round(tileWidth * 1.28)}
-                      />
-                    ))}
-                  </FlatGlass>
-                </ScrollView>
+                <Rail gap={12} snap={tileWidth + 12}>
+                  {trending.map((r) => (
+                    <RecipeTile
+                      key={r.id}
+                      recipe={r}
+                      onOpen={onOpen}
+                      width={tileWidth}
+                      height={Math.round(tileWidth * 1.28)}
+                    />
+                  ))}
+                </Rail>
               ) : (
-                <RecipeGrid recipes={trending.slice(0, width > 1430 ? 4 : 3)} onOpen={onOpen} />
+                <RecipeGrid recipes={trending} onOpen={onOpen} />
               )}
             </FadeIn>
             <FadeIn
               delay={180}
-              style={{
-                backgroundColor: color.ink,
-                borderRadius: radius.xl,
-                padding: compact ? 22 : 32,
-                gap: 14,
-                overflow: 'hidden',
-              }}
+              style={[
+                {
+                  backgroundColor: color.ink,
+                  borderRadius: radius.xl,
+                  padding: compact ? 22 : 40,
+                  gap: compact ? 18 : 48,
+                  overflow: 'hidden',
+                },
+                desktop && { flexDirection: 'row', alignItems: 'center' },
+              ]}
             >
               <LinearGradient
-                colors={['rgba(255,255,255,0.09)', 'rgba(255,255,255,0)']}
+                colors={['rgba(255,255,255,0.11)', 'rgba(255,255,255,0)']}
                 start={{ x: 1, y: 0 }}
                 end={{ x: 0.3, y: 0.8 }}
                 style={[StyleSheet.absoluteFill, { pointerEvents: 'none' }]}
               />
-              <View style={[s.row, { gap: 10 }]}>
-                <View
-                  style={{
-                    width: 32,
-                    height: 32,
-                    borderRadius: 16,
-                    backgroundColor: color.white,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  <Sparkles size={16} color={color.ink} strokeWidth={2.2} />
+              <View style={[{ gap: 14 }, desktop && { flex: 1 }]}>
+                <View style={[s.row, { gap: 10 }]}>
+                  <View style={styles.spark}>
+                    <Sparkles size={16} color={color.ink} strokeWidth={2.2} />
+                  </View>
+                  <Text style={[s.label, { color: color.onInk }]}>{tr('Sous-chef')}</Text>
                 </View>
-                <Text style={[s.label, { color: color.onInk }]}>{tr('Sous-chef')}</Text>
-              </View>
-              <Text style={[s.h1, { color: color.white, fontSize: 25, lineHeight: 31 }]}>
-                {tr('Not sure what to make?')}
-              </Text>
-              <Text style={[s.muted, { color: color.onInk, maxWidth: 520 }]}>
-                {tr(
-                  'Say what’s in your fridge or what you’re craving. You get a full recipe you can tweak and save.',
-                )}
-              </Text>
-              <Press
-                accessibilityRole="button"
-                accessibilityLabel={tr('Ask the sous-chef for a recipe')}
-                onPress={() => onAI(fridge)}
-                scale={0.98}
-                style={[
-                  s.row,
-                  {
-                    height: 56,
-                    marginTop: 4,
-                    borderRadius: radius.pill,
-                    backgroundColor: color.glass,
-                    borderWidth: 1,
-                    borderColor: color.glassBorder,
-                    paddingLeft: 20,
-                    paddingRight: 6,
-                    maxWidth: 560,
-                  },
-                ]}
-              >
                 <Text
-                  numberOfLines={1}
-                  style={{ flex: 1, color: color.onInk, fontFamily: font.medium, fontSize: 15 }}
+                  role="heading"
+                  aria-level={2}
+                  style={[
+                    s.h1,
+                    { color: color.white },
+                    compact && { fontSize: 25, lineHeight: 31 },
+                  ]}
                 >
-                  {tr('Eggs, spinach, feta…')}
+                  {tr('Not sure what to make?')}
                 </Text>
-                <View
-                  style={{
-                    width: 44,
-                    height: 44,
-                    borderRadius: 22,
-                    backgroundColor: color.white,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
+                <Text style={[s.muted, { color: color.onInk, maxWidth: 520 }]}>
+                  {tr(
+                    'Say what’s in your fridge or what you’re craving. You get a full recipe you can tweak and save.',
+                  )}
+                </Text>
+              </View>
+              <View style={[{ gap: 14 }, desktop && { flex: 1.1 }]}>
+                <Press
+                  accessibilityRole="button"
+                  accessibilityLabel={tr('Ask the sous-chef for a recipe')}
+                  onPress={() => onAI(fridge)}
+                  scale={0.98}
+                  style={[
+                    s.row,
+                    {
+                      minHeight: 56,
+                      borderRadius: radius.pill,
+                      backgroundColor: color.glass,
+                      borderWidth: 1,
+                      borderColor: color.glassBorder,
+                      paddingLeft: 20,
+                      paddingRight: 6,
+                      maxWidth: 560,
+                    },
+                  ]}
                 >
-                  <ArrowUp size={20} color={color.ink} strokeWidth={2.4} />
+                  <Text
+                    numberOfLines={1}
+                    maxFontSizeMultiplier={maxFontScale}
+                    style={{ flex: 1, color: color.onInk, fontFamily: font.medium, fontSize: 15 }}
+                  >
+                    {tr('Eggs, spinach, feta…')}
+                  </Text>
+                  <View style={styles.send}>
+                    <ArrowUp size={20} color={color.ink} strokeWidth={2.4} />
+                  </View>
+                </Press>
+                <View style={[s.wrap, { gap: 8, maxWidth: 620 }]}>
+                  {ideas.map(({ title, prompt, icon: Icon }) => (
+                    <Press
+                      key={title}
+                      accessibilityRole="button"
+                      accessibilityLabel={tr('Ask the sous-chef: {{v0}}', { v0: tr(title) })}
+                      onPress={() => onAI({ ...fridge, title: tr(title), prompt })}
+                      scale={0.95}
+                      style={styles.idea}
+                    >
+                      <Icon size={14} color={color.white} strokeWidth={2} />
+                      <Text
+                        maxFontSizeMultiplier={maxFontScale}
+                        style={{ color: color.white, fontFamily: font.semibold, fontSize: 13 }}
+                      >
+                        {tr(title)}
+                      </Text>
+                    </Press>
+                  ))}
                 </View>
-              </Press>
+              </View>
             </FadeIn>
             {compact && (
               <FadeIn delay={240} style={[s.row, { gap: 10, alignItems: 'stretch' }]}>
                 {[
-                  { key: 'planner', title: tr('Planner'), text: 'Your week', icon: CalendarDays },
-                  { key: 'pantry', title: tr('Pantry'), text: 'What you have', icon: Leaf },
-                  { key: 'community', title: tr('Cooks'), text: 'Find people', icon: Users },
+                  {
+                    key: 'planner',
+                    title: tr('Planner'),
+                    text: tr('Your week'),
+                    icon: CalendarDays,
+                  },
+                  { key: 'pantry', title: tr('Pantry'), text: tr('What you have'), icon: Leaf },
+                  { key: 'community', title: tr('Cooks'), text: tr('Find people'), icon: Users },
                 ].map(({ key, title, text, icon: Icon }) => (
                   <Press
                     key={key}
                     accessibilityRole="button"
                     accessibilityLabel={tr('Open {{v0}}', { v0: title })}
                     onPress={() => navigate(key as Screen)}
-                    style={[s.card, { flex: 1, padding: 14, gap: 10 }]}
+                    style={[s.card, { flex: 1, padding: 14, gap: 12 }]}
                   >
-                    <View
-                      style={{
-                        width: 38,
-                        height: 38,
-                        borderRadius: 19,
-                        backgroundColor: color.bg,
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                      }}
-                    >
-                      <Icon size={18} color={color.ink} strokeWidth={1.9} />
+                    <View style={styles.shortcut}>
+                      <Icon size={18} color={color.white} strokeWidth={2} />
                     </View>
-                    <View>
-                      <Text style={[s.h3, { fontSize: 14 }]}>{title}</Text>
+                    <View style={{ gap: 1 }}>
+                      <Text numberOfLines={1} style={[s.h3, { fontSize: 14, lineHeight: 19 }]}>
+                        {title}
+                      </Text>
                       <Text numberOfLines={1} style={[s.small, { fontSize: 11 }]}>
                         {text}
                       </Text>
@@ -545,12 +570,33 @@ export function Discover({
                 ))}
               </FadeIn>
             )}
+            {following.length > 0 && (
+              <FadeIn delay={270}>
+                <SectionTitle title={tr('From kitchens you follow')} />
+                {compact ? (
+                  <Rail gap={12} snap={tileWidth + 12}>
+                    {following.map((r) => (
+                      <RecipeTile
+                        key={r.id}
+                        recipe={r}
+                        onOpen={onOpen}
+                        width={tileWidth}
+                        height={Math.round(tileWidth * 1.28)}
+                      />
+                    ))}
+                  </Rail>
+                ) : (
+                  <RecipeGrid recipes={following} onOpen={onOpen} />
+                )}
+              </FadeIn>
+            )}
             {weeknight.length > 0 && (
               <FadeIn delay={300}>
                 <SectionTitle
                   title={tr('Weeknight winners')}
                   subtitle={tr('Fast, forgiving and full of flavor.')}
                   action={() => {
+                    reset();
                     setSort('Quickest');
                     navigate('explore');
                   }}
@@ -567,32 +613,19 @@ export function Discover({
             {creators.length > 0 && (
               <FadeIn delay={360}>
                 <SectionTitle title={tr('Cooks to follow')} action={() => navigate('community')} />
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  style={[{ flexGrow: 0 }, bleed]}
-                  contentContainerStyle={[pad, { gap: 12, paddingBottom: 8 }]}
-                >
-                  {creators.slice(0, 8).map((c) => (
-                    <Press
-                      key={c.id}
-                      accessibilityRole="button"
-                      accessibilityLabel={tr('Meet {{v0}}', { v0: c.name })}
-                      onPress={() => onCreator(c)}
-                      style={[s.card, { width: 148, alignItems: 'center', gap: 10, padding: 18 }]}
-                    >
-                      <Avatar uri={c.avatar} name={c.name} size={60} />
-                      <View style={{ alignItems: 'center', gap: 2 }}>
-                        <Text numberOfLines={1} style={[s.h3, { fontSize: 14 }]}>
-                          {c.name}
-                        </Text>
-                        <Text style={s.small}>
-                          {tr('{{v0}} recipes', { v0: c.recipeCount ?? 0 })}
-                        </Text>
-                      </View>
-                    </Press>
-                  ))}
-                </ScrollView>
+                {compact ? (
+                  <Rail gap={12} pad={14}>
+                    {creators.slice(0, 8).map((c) => (
+                      <Cook key={c.id} creator={c} onPress={onCreator} width={156} />
+                    ))}
+                  </Rail>
+                ) : (
+                  <View style={[s.row, { gap: 16, alignItems: 'stretch' }]}>
+                    {creators.slice(0, 6).map((c) => (
+                      <Cook key={c.id} creator={c} onPress={onCreator} />
+                    ))}
+                  </View>
+                )}
               </FadeIn>
             )}
           </>
@@ -629,9 +662,9 @@ export function Discover({
             title={
               search.loading
                 ? tr('Searching…')
-                : tr('Show {{v0}}{{v1}} recipes', {
-                    v0: filtered.length,
-                    v1: search.hasMore ? '+' : '',
+                : tr('showRecipes', {
+                    count: filtered.length,
+                    more: search.hasMore ? '+' : '',
                   })
             }
             style={{ flex: 1 }}
@@ -642,3 +675,300 @@ export function Discover({
     </View>
   );
 }
+// The daily dish: an editorial cover with the cook's byline, saving without opening it.
+function Hero({ recipe, onOpen }: { recipe: Recipe; onOpen: (r: Recipe) => void }) {
+  const { t: tr } = useI18n();
+  const { compact, width } = useChrome();
+  const press = usePress(0.985);
+  const hover = useState(() => new Animated.Value(0))[0];
+  return (
+    <Animated.View
+      style={[
+        {
+          height: heroHeight(compact, width),
+          borderRadius: radius.xl,
+          overflow: 'hidden',
+          backgroundColor: color.ink,
+        },
+        press.style,
+      ]}
+    >
+      {/* A link on the web: crawlable, and a new tab on a middle or modified click. */}
+      <Pressable
+        {...linkTo(recipePath(recipe.id))}
+        accessibilityRole={Platform.OS === 'web' ? 'link' : 'button'}
+        accessibilityLabel={tr('Let’s get cooking: {{v0}}', { v0: recipe.title })}
+        onPress={(e) => pressedInApp(e) && onOpen(recipe)}
+        onPressIn={press.onPressIn}
+        onPressOut={press.onPressOut}
+        onHoverIn={() => animate(hover, 1, 900).start()}
+        onHoverOut={() => animate(hover, 0, 600).start()}
+        style={StyleSheet.absoluteFill}
+      >
+        <Animated.View
+          style={{
+            position: 'absolute',
+            top: 0,
+            bottom: 0,
+            right: 0,
+            width: compact ? '100%' : '66%',
+            transform: [
+              { scale: hover.interpolate({ inputRange: [0, 1], outputRange: [1, 1.04] }) },
+            ],
+          }}
+        >
+          {/* The page's largest image: fetched first, at about the size it's shown. */}
+          <FoodImage
+            uri={recipe.image}
+            style={StyleSheet.absoluteFill}
+            width={compact ? width : Math.round((Math.min(width, 1848) - 328) * 0.66)}
+            priority="high"
+          />
+        </Animated.View>
+        {/* Many short stops ease the photo into the ink without a visible band. */}
+        <LinearGradient
+          colors={
+            compact
+              ? [
+                  'rgba(0,0,0,0.3)',
+                  'rgba(0,0,0,0)',
+                  'rgba(0,0,0,0.04)',
+                  'rgba(0,0,0,0.38)',
+                  'rgba(0,0,0,0.72)',
+                  'rgba(0,0,0,0.9)',
+                ]
+              : [
+                  color.ink,
+                  color.ink,
+                  'rgba(13,13,13,0.94)',
+                  'rgba(13,13,13,0.74)',
+                  'rgba(13,13,13,0.42)',
+                  'rgba(13,13,13,0.14)',
+                  'rgba(13,13,13,0)',
+                ]
+          }
+          locations={
+            compact ? [0, 0.22, 0.38, 0.6, 0.8, 1] : [0, 0.33, 0.41, 0.5, 0.59, 0.67, 0.76]
+          }
+          start={{ x: 0, y: compact ? 0 : 0.5 }}
+          end={{ x: compact ? 0 : 1, y: compact ? 1 : 0.5 }}
+          style={StyleSheet.absoluteFill}
+        />
+        <View style={{ position: 'absolute', top: 18, left: 18, pointerEvents: 'none' }}>
+          <Pill title={tr('The daily dish')} tone="glass" />
+        </View>
+        <View
+          style={{
+            position: 'absolute',
+            left: compact ? 22 : 40,
+            right: compact ? 22 : '45%',
+            bottom: compact ? 22 : 40,
+            gap: 12,
+          }}
+        >
+          <View style={[s.row, { gap: 8 }]}>
+            <Avatar uri={recipe.author.avatar} name={recipe.author.name} size={24} />
+            <Text numberOfLines={1} style={styles.byline}>
+              {tr('by {{v0}}', { v0: recipe.author.name })}
+            </Text>
+          </View>
+          <Text
+            role="heading"
+            aria-level={2}
+            style={[
+              s.display,
+              {
+                color: color.white,
+                fontSize: compact ? 30 : 42,
+                lineHeight: compact ? 35 : 48,
+              },
+            ]}
+          >
+            {recipe.title}
+          </Text>
+          <Text numberOfLines={2} style={styles.blurb}>
+            {recipe.description}
+          </Text>
+          <View style={[s.row, { gap: 14, marginTop: 6 }]}>
+            <View style={[s.row, styles.cta]}>
+              <Text
+                maxFontSizeMultiplier={maxFontScale}
+                style={{ fontFamily: font.bold, fontSize: 14, color: color.ink }}
+              >
+                {tr('Let’s get cooking')}
+              </Text>
+              <ArrowRight size={16} color={color.ink} strokeWidth={2.2} />
+            </View>
+            <View style={[s.row, { gap: 6 }]}>
+              <Clock3 size={14} color="rgba(255,255,255,0.8)" />
+              <Text style={styles.meta}>
+                {`${tr('minuteCount', { count: recipe.minutes })} · ${tr(recipe.difficulty)}`}
+              </Text>
+            </View>
+          </View>
+        </View>
+      </Pressable>
+      <View style={{ position: 'absolute', top: 14, right: 14 }}>
+        <Save recipe={recipe} size={40} glass />
+      </View>
+    </Animated.View>
+  );
+}
+function Cook({
+  creator,
+  onPress,
+  width,
+}: {
+  creator: Creator;
+  onPress: (c: Creator) => void;
+  width?: number;
+}) {
+  const { t: tr } = useI18n();
+  const press = usePress(0.97);
+  // The card and its follow button are siblings: browsers don't allow a button inside a button.
+  return (
+    <Animated.View
+      style={[
+        s.card,
+        { alignItems: 'center', gap: 12, padding: 16, paddingTop: 20 },
+        width ? { width } : { flex: 1, maxWidth: 300 },
+        press.style,
+      ]}
+    >
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={tr('Meet {{v0}}', { v0: creator.name })}
+        onPress={() => onPress(creator)}
+        onPressIn={press.onPressIn}
+        onPressOut={press.onPressOut}
+        style={[StyleSheet.absoluteFill, { borderRadius: radius.lg }]}
+      />
+      <View style={{ alignItems: 'center', gap: 12, alignSelf: 'stretch', pointerEvents: 'none' }}>
+        <Avatar uri={creator.avatar} name={creator.name} size={64} />
+        <View style={{ alignItems: 'center', gap: 2, alignSelf: 'stretch' }}>
+          <Text numberOfLines={1} style={[s.h3, { fontSize: 15 }]}>
+            {creator.name}
+          </Text>
+          <Text numberOfLines={1} style={s.small}>
+            {tr('recipeCount', { count: creator.recipeCount ?? 0, more: '' })}
+          </Text>
+        </View>
+      </View>
+      <FollowPill creator={creator} stretch />
+    </Animated.View>
+  );
+}
+// Placeholder tiles while a search runs.
+function usePulse() {
+  const a = useState(() => new Animated.Value(0))[0];
+  useEffect(() => {
+    if (motionReduced()) return;
+    const loop = Animated.loop(Animated.sequence([animate(a, 1, 800), animate(a, 0, 800)]));
+    loop.start();
+    return () => loop.stop();
+  }, [a]);
+  return a.interpolate({ inputRange: [0, 1], outputRange: [1, 0.5] });
+}
+function Bone({
+  style,
+  dark,
+  pulse,
+}: {
+  style: ViewStyle;
+  dark?: boolean;
+  pulse: Animated.AnimatedInterpolation<number>;
+}) {
+  return (
+    <Animated.View
+      style={[
+        {
+          backgroundColor: dark ? 'rgba(255,255,255,0.1)' : '#E7E7E7',
+          borderRadius: radius.pill,
+          opacity: pulse,
+        },
+        style,
+      ]}
+    />
+  );
+}
+function TileBones({ count }: { count?: number }) {
+  const { compact } = useChrome();
+  const pulse = usePulse();
+  return (
+    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: compact ? 12 : 20 }}>
+      {Array.from({ length: count ?? (compact ? 4 : 8) }, (_, i) => (
+        <Bone
+          key={i}
+          pulse={pulse}
+          style={{
+            flexGrow: 1,
+            flexBasis: compact ? '40%' : '20%',
+            aspectRatio: compact ? 1 / 1.3 : 1 / 1.12,
+            borderRadius: radius.lg,
+          }}
+        />
+      ))}
+    </View>
+  );
+}
+const styles = StyleSheet.create({
+  spark: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: color.white,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  send: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: color.white,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  idea: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    minHeight: 36,
+    paddingHorizontal: 14,
+    borderRadius: radius.pill,
+    backgroundColor: 'rgba(255,255,255,0.07)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.14)',
+  },
+  shortcut: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: color.ink,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  byline: {
+    color: 'rgba(255,255,255,0.88)',
+    fontFamily: font.semibold,
+    fontSize: 13,
+    flexShrink: 1,
+  },
+  blurb: {
+    color: 'rgba(255,255,255,0.78)',
+    fontFamily: font.medium,
+    fontSize: 14,
+    lineHeight: 21,
+  },
+  cta: {
+    gap: 8,
+    backgroundColor: color.white,
+    minHeight: 48,
+    paddingHorizontal: 20,
+    borderRadius: radius.pill,
+  },
+  meta: {
+    color: 'rgba(255,255,255,0.8)',
+    fontFamily: font.semibold,
+    fontSize: 13,
+  },
+});

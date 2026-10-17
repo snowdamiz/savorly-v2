@@ -1,22 +1,25 @@
 import { LanguageSettings } from '../components/LanguageSettings';
+import { UpdateSettings } from '../components/AppUpdates';
 import { useI18n } from '../lib/i18n';
 import React, { useEffect, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import {
   Bookmark,
   CalendarDays,
-  ChefHat,
   Check,
   ChevronRight,
   Leaf,
   LogOut,
   Plus,
   Settings2,
+  ShieldCheck,
   Sparkles,
   Trash2,
   Users,
-} from 'lucide-react-native';
+} from '../components/icons';
 import { useApp } from '../lib/store';
+import { useShelf } from '../lib/shelf';
+import { BrandMark } from '../components/Brand';
 import { api, persistSession } from '../lib/api';
 import { Creator, Recipe, RecipeInput, Screen } from '../lib/types';
 import { color, font, radius, s } from '../lib/theme';
@@ -31,13 +34,25 @@ import {
   Pill,
   Press,
   SectionTitle,
+  useChrome,
 } from '../components/ui';
 import { RecipeGrid, RecipeRow } from '../components/RecipeCard';
+import { CreatorCookbooks } from '../components/CreatorCookbooks';
 import { SousChefHistory } from '../components/SousChef';
 import { PlanSettings } from '../components/PlanSettings';
 import { SocialButtons } from '../components/SocialButtons';
+import { HandleField, useHandle } from '../components/Username';
+import { PhotoButton, ProfilePhoto } from '../components/ProfilePhoto';
+import { dietOptions, useSaveProfile } from '../lib/profile';
 import { DangerButton } from './Kitchen';
 import { foodIcon } from '../lib/icons';
+import { AdminPending } from './admin/AdminPending';
+import { AccountSecurity } from '../components/AccountSecurity';
+import { DataExport } from '../components/DataExport';
+import { LegalLinks } from '../components/Legal';
+import { NotificationSettings } from '../components/NotificationSettings';
+import { UnitSettings } from '../components/UnitSettings';
+import { VerifyEmail } from '../components/VerifyEmail';
 function MenuRow({
   icon: Icon,
   title,
@@ -121,10 +136,10 @@ export function Community({ onCreator }: { onCreator: (c: Creator) => void }) {
                 {c.bio}
               </Text>
               <Text style={[s.small, { color: color.ink }]}>
-                {tr('{{v0}} recipes · {{v1}} followers', {
-                  v0: c.recipeCount ?? 0,
-                  v1: c.followerCount ?? 0,
-                })}
+                {[
+                  tr('recipeCount', { count: c.recipeCount ?? 0, more: '' }),
+                  tr('followerCount', { count: c.followerCount ?? 0 }),
+                ].join(' · ')}
               </Text>
             </Press>
           );
@@ -137,10 +152,13 @@ export function CreatorDialog({
   creator,
   onClose,
   onOpen,
+  onCookbook,
 }: {
   creator: Creator;
   onClose: () => void;
   onOpen: (r: Recipe) => void;
+  /** Opens one of the cook's public cookbooks (by id); without it they aren't listed. */
+  onCookbook?: (id: string) => void;
 }) {
   const { t: tr } = useI18n();
   const app = useApp();
@@ -154,7 +172,7 @@ export function CreatorDialog({
   const following = app.library.followingIds.includes(creator.id);
   return (
     <Dialog visible onClose={onClose}>
-      <View style={{ gap: 12, alignItems: 'center', paddingTop: 12 }}>
+      <View style={{ gap: 12, alignItems: 'center' }}>
         <Avatar uri={creator.avatar} name={creator.name} size={88} />
         <View style={{ alignItems: 'center', gap: 2 }}>
           <Text style={[s.h1, { fontSize: 26, textAlign: 'center' }]}>{creator.name}</Text>
@@ -170,23 +188,11 @@ export function CreatorDialog({
             icon={following ? Check : Plus}
             variant={following ? 'secondary' : 'primary'}
             style={{ alignSelf: 'stretch', marginTop: 6 }}
-            onPress={() => {
-              if (app.requireUser())
-                void app.act(
-                  async () => {
-                    await api(`/creators/${creator.id}/follow`, {
-                      method: following ? 'DELETE' : 'PUT',
-                    });
-                    await Promise.all([app.refreshPrivate(), app.refreshRecipes()]);
-                  },
-                  following
-                    ? 'You’ve unfollowed this kitchen.'
-                    : 'Following. Their recipes will show up for you.',
-                );
-            }}
+            onPress={() => void app.toggleFollow(creator)}
           />
         )}
       </View>
+      {onCookbook && <CreatorCookbooks creatorId={creator.id} onOpen={onCookbook} />}
       <Text style={[s.h2, { marginTop: 8 }]}>{tr('Recipes')}</Text>
       {!!error && <Text style={{ color: color.error }}>{tr(error)}</Text>}
       <View style={{ gap: 10 }}>
@@ -208,24 +214,27 @@ export function Profile({
 }) {
   const { t: tr } = useI18n();
   const app = useApp();
+  const { desktop } = useChrome();
   const [name, setName] = useState(app.user?.name || '');
   const [bio, setBio] = useState(app.user?.bio || '');
   const [avatar, setAvatar] = useState(app.user?.avatar || '');
   const [diets, setDiets] = useState<string[]>(app.user?.preferences.diets || []);
   const [allergies, setAllergies] = useState(app.user?.preferences.allergies?.join(', ') || '');
+  const handle = useHandle(app.user?.handle || '');
   const [edit, setEdit] = useState(false);
   const [remove, setRemove] = useState(false);
   const [history, setHistory] = useState(false);
+  // The photo sheet either saves the profile photo at once, or fills in the Edit profile form.
+  const [photo, setPhoto] = useState<'profile' | 'form' | null>(null);
+  const saveProfile = useSaveProfile();
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
-  useEffect(() => {
-    setName(app.user?.name || '');
-    setBio(app.user?.bio || '');
-    setAvatar(app.user?.avatar || '');
-    setDiets(app.user?.preferences.diets || []);
-    setAllergies(app.user?.preferences.allergies?.join(', ') || '');
-  }, [app.user]);
-  const mine = app.library.recipes.filter((r) => r.author.id === app.user?.id);
+  // The cook's own recipes, drafts too, a page at a time; the count of published ones is whole.
+  const own = useShelf('mine');
+  const mine = own.recipes;
+  const shared = app.library.publishedCount ?? mine.filter((r) => r.published).length;
+  const saved = app.library.savedIds.length;
+  const following = app.library.followingIds.length;
   // An app can update before the API does, so missing account fields mean "none".
   const identities = app.user?.identities ?? [];
   // Deleting also cancels any subscription; a kitchen without a password confirms by signing in.
@@ -243,21 +252,35 @@ export function Profile({
       .finally(() => setBusy(false));
   };
   const menu = [
+    ...(app.user?.admin
+      ? [
+          {
+            icon: ShieldCheck,
+            title: tr('Admin console'),
+            inSidebar: true,
+            text: 'Moderation, members, AI spend and settings',
+            go: () => navigate('admin'),
+          },
+        ]
+      : []),
     {
       icon: CalendarDays,
       title: tr('Meal planner'),
+      inSidebar: true,
       text: 'Plan the week and shop for it',
       go: () => navigate('planner'),
     },
     {
       icon: Leaf,
       title: tr('Pantry'),
+      inSidebar: true,
       text: 'What you have, and what to cook with it',
       go: () => navigate('pantry'),
     },
     {
       icon: Bookmark,
       title: tr('Saved recipes'),
+      inSidebar: true,
       text: 'Favorites and cookbooks',
       go: () => navigate('saved'),
     },
@@ -270,83 +293,97 @@ export function Profile({
     {
       icon: Users,
       title: tr('Community'),
+      inSidebar: true,
       text: 'Cooks to follow',
       go: () => navigate('community'),
     },
   ];
-  return (
-    <View style={{ gap: 22 }}>
-      <PageHeading title={tr('My kitchen')} />
-      {!app.user ? (
-        <View style={[s.card, { alignItems: 'center', gap: 10, paddingVertical: 32 }]}>
+  const identity = !app.user ? (
+    <View style={[s.card, { alignItems: 'center', gap: 10, paddingVertical: 32 }]}>
+      <View
+        style={{
+          width: 72,
+          height: 72,
+          alignItems: 'center',
+          justifyContent: 'center',
+          marginBottom: 6,
+        }}
+      >
+        <BrandMark size={54} />
+      </View>
+      <Text style={[s.h2, { textAlign: 'center' }]}>{tr('A kitchen to call your own')}</Text>
+      <Text style={[s.muted, { textAlign: 'center', maxWidth: 340 }]}>
+        {tr('Join to save recipes, plan your week and share dishes of your own.')}
+      </Text>
+      <Button
+        title={tr('Sign in or join')}
+        onPress={() => app.setAuthOpen(true)}
+        style={{ alignSelf: 'stretch', marginTop: 10 }}
+      />
+    </View>
+  ) : (
+    <View style={[s.card, { alignItems: 'center', gap: 14, paddingVertical: 28 }]}>
+      <PhotoButton
+        name={app.user.name}
+        uri={app.user.avatar}
+        size={88}
+        onPress={() => setPhoto('profile')}
+      />
+      <View style={{ alignItems: 'center', gap: 2 }}>
+        <Text style={[s.h1, { fontSize: 24, textAlign: 'center' }]}>{app.user.name}</Text>
+        <Text style={s.small}>@{app.user.handle}</Text>
+      </View>
+      {!!app.user.bio && (
+        <Text style={[s.muted, { textAlign: 'center', maxWidth: 440 }]}>{app.user.bio}</Text>
+      )}
+      <View style={[s.row, { alignSelf: 'stretch', marginTop: 4 }]}>
+        {/* Each label agrees with its number, and with what it counts (recipes, or kitchens). */}
+        {[
+          { key: 'shared', n: shared, label: tr('sharedStat', { count: shared }) },
+          { key: 'saved', n: saved, label: tr('savedStat', { count: saved }) },
+          { key: 'following', n: following, label: tr('followingStat', { count: following }) },
+        ].map((x, i) => (
           <View
-            style={{
-              width: 72,
-              height: 72,
-              borderRadius: 36,
-              backgroundColor: color.ink,
-              alignItems: 'center',
-              justifyContent: 'center',
-              marginBottom: 6,
-            }}
+            key={x.key}
+            style={[
+              { flex: 1, alignItems: 'center', gap: 2 },
+              i > 0 && { borderLeftWidth: StyleSheet.hairlineWidth, borderColor: color.line },
+            ]}
           >
-            <ChefHat size={30} color={color.white} strokeWidth={1.7} />
+            <Text style={[s.h1, { fontSize: 24 }]}>{x.n}</Text>
+            <Text style={s.small}>{x.label}</Text>
           </View>
-          <Text style={[s.h2, { textAlign: 'center' }]}>{tr('A kitchen to call your own')}</Text>
-          <Text style={[s.muted, { textAlign: 'center', maxWidth: 340 }]}>
-            {tr('Join to save recipes, plan your week and share dishes of your own.')}
-          </Text>
-          <Button
-            title={tr('Sign in or join')}
-            onPress={() => app.setAuthOpen(true)}
-            style={{ alignSelf: 'stretch', marginTop: 10 }}
-          />
-        </View>
-      ) : (
-        <View style={[s.card, { alignItems: 'center', gap: 14, paddingVertical: 28 }]}>
-          <Avatar name={app.user.name} uri={app.user.avatar} size={88} />
-          <View style={{ alignItems: 'center', gap: 2 }}>
-            <Text style={[s.h1, { fontSize: 24, textAlign: 'center' }]}>{app.user.name}</Text>
-            <Text style={s.small}>@{app.user.handle}</Text>
-          </View>
-          {!!app.user.bio && (
-            <Text style={[s.muted, { textAlign: 'center', maxWidth: 440 }]}>{app.user.bio}</Text>
-          )}
-          <View style={[s.row, { alignSelf: 'stretch', marginTop: 4 }]}>
-            {[
-              { n: mine.filter((r) => r.published).length, label: tr('Shared') },
-              { n: app.library.savedIds.length, label: tr('Saved') },
-              { n: app.library.followingIds.length, label: tr('Following') },
-            ].map((x, i) => (
-              <View
-                key={tr(x.label)}
-                style={[
-                  { flex: 1, alignItems: 'center', gap: 2 },
-                  i > 0 && { borderLeftWidth: StyleSheet.hairlineWidth, borderColor: color.line },
-                ]}
-              >
-                <Text style={[s.h1, { fontSize: 24 }]}>{x.n}</Text>
-                <Text style={s.small}>{tr(x.label)}</Text>
-              </View>
-            ))}
-          </View>
-          {!!app.user.preferences.diets?.length && (
-            <View style={[s.wrap, { gap: 6, justifyContent: 'center' }]}>
-              {app.user.preferences.diets.map((d) => (
-                <Pill key={d} title={tr(d)} icon={foodIcon(d)} tone="dark" />
-              ))}
-            </View>
-          )}
-          <Button
-            title={tr('Edit profile')}
-            label={tr('Edit your profile')}
-            icon={Settings2}
-            variant="secondary"
-            small
-            onPress={() => setEdit(true)}
-          />
+        ))}
+      </View>
+      {!!app.user.preferences.diets?.length && (
+        <View style={[s.wrap, { gap: 6, justifyContent: 'center' }]}>
+          {app.user.preferences.diets.map((d) => (
+            <Pill key={d} title={tr(d)} icon={foodIcon(d)} tone="dark" />
+          ))}
         </View>
       )}
+      <Button
+        title={tr('Edit profile')}
+        label={tr('Edit your profile')}
+        icon={Settings2}
+        variant="secondary"
+        small
+        onPress={() => {
+          setName(app.user?.name || '');
+          setBio(app.user?.bio || '');
+          setAvatar(app.user?.avatar || '');
+          setDiets(app.user?.preferences.diets || []);
+          setAllergies(app.user?.preferences.allergies?.join(', ') || '');
+          handle.setValue(app.user?.handle || '');
+          setEdit(true);
+        }}
+      />
+    </View>
+  );
+  const account = (
+    <>
+      <VerifyEmail />
+      <AdminPending />
       {app.user && app.capabilities?.plans && <PlanSettings />}
       {app.user && (
         <View style={[s.card, { gap: 12 }]}>
@@ -359,6 +396,7 @@ export function Profile({
           </View>
           <SocialButtons
             only={(['apple', 'google'] as const).filter((p) => !identities.includes(p))}
+            purpose="connect"
             onError={app.notify}
             onToken={(t) =>
               void app.act(async () => {
@@ -369,9 +407,24 @@ export function Profile({
           />
         </View>
       )}
-      <View style={{ gap: 8 }}>
-        <LanguageSettings />
-        {menu.map((m) => (
+      {app.user && (
+        <View style={{ gap: 8 }}>
+          <AccountSecurity />
+          <DataExport />
+        </View>
+      )}
+    </>
+  );
+  // A desktop's sidebar already leads to the planner, pantry, cookbooks and community.
+  const settings = (
+    <View style={{ gap: 8 }}>
+      <LanguageSettings />
+      <UnitSettings />
+      <NotificationSettings />
+      <UpdateSettings />
+      {menu
+        .filter((m) => !desktop || !m.inSidebar)
+        .map((m) => (
           <MenuRow
             key={m.title}
             icon={m.icon}
@@ -380,45 +433,95 @@ export function Profile({
             onPress={m.go}
           />
         ))}
-      </View>
-      {app.user && (
+    </View>
+  );
+  const recipes = app.user && (
+    <View>
+      <SectionTitle
+        title={tr('Your recipes')}
+        subtitle={tr('Published recipes and private drafts.')}
+        action={() => navigate('create')}
+        actionTitle={tr('New recipe')}
+      />
+      {mine.length ? (
         <>
-          <View>
-            <SectionTitle
-              title={tr('Your recipes')}
-              subtitle={tr('Published recipes and private drafts.')}
-              action={() => navigate('create')}
-              actionTitle={tr('New recipe')}
+          <RecipeGrid recipes={mine} onOpen={onOpen} />
+          {own.hasMore && (
+            <Button
+              title={tr('Show more')}
+              variant="secondary"
+              busy={own.busy}
+              onPress={() => void own.showMore()}
+              style={{ alignSelf: 'center', minWidth: 220, marginTop: 16 }}
             />
-            {mine.length ? (
-              <RecipeGrid recipes={mine} onOpen={onOpen} />
-            ) : (
-              <Empty
-                title={tr('Your first recipe is waiting')}
-                text={tr('Start with the dish your friends always ask you to make.')}
-                action={() => navigate('create')}
-                actionTitle={tr('Share a recipe')}
-              />
-            )}
-          </View>
-          <View style={{ gap: 8 }}>
-            <MenuRow
-              icon={LogOut}
-              title={tr('Sign out')}
-              onPress={() => void app.act(app.signOut)}
-            />
-            <MenuRow
-              icon={Trash2}
-              title={tr('Delete my account')}
-              danger
-              onPress={() => setRemove(true)}
-            />
-          </View>
+          )}
         </>
+      ) : !own.settled ? (
+        <View style={{ paddingVertical: 40, alignItems: 'center' }}>
+          <ActivityIndicator color={color.ink} accessibilityLabel={tr('Loading…')} />
+        </View>
+      ) : (
+        <Empty
+          title={tr('Your first recipe is waiting')}
+          text={tr('Start with the dish your friends always ask you to make.')}
+          action={() => navigate('create')}
+          actionTitle={tr('Share a recipe')}
+        />
+      )}
+    </View>
+  );
+  const leave = app.user && (
+    <View style={{ gap: 8 }}>
+      <MenuRow icon={LogOut} title={tr('Sign out')} onPress={() => void app.act(app.signOut)} />
+      <MenuRow
+        icon={Trash2}
+        title={tr('Delete my account')}
+        danger
+        onPress={() => setRemove(true)}
+      />
+    </View>
+  );
+  return (
+    <View style={{ gap: 22 }}>
+      <PageHeading title={tr('My kitchen')} />
+      {desktop && app.user ? (
+        // Who you are and your account down the side; your recipes get the room.
+        <View style={{ flexDirection: 'row', gap: 32, alignItems: 'flex-start' }}>
+          <View style={{ width: 360, gap: 16 }}>
+            {identity}
+            {account}
+            {settings}
+            {leave}
+            <LegalLinks />
+          </View>
+          <View style={{ flex: 1 }}>{recipes}</View>
+        </View>
+      ) : (
+        <View style={{ gap: 22, width: '100%', maxWidth: desktop ? 560 : undefined }}>
+          {identity}
+          {account}
+          {settings}
+          {recipes}
+          {leave}
+          <LegalLinks />
+        </View>
       )}
       <SousChefHistory visible={history} onClose={() => setHistory(false)} onRecipe={onRecipe} />
       <Dialog visible={edit} onClose={() => setEdit(false)} title={tr('Edit profile')}>
+        <View style={[s.row, { gap: 16 }]}>
+          <PhotoButton name={name} uri={avatar} size={68} onPress={() => setPhoto('form')} />
+          <View style={{ flex: 1, alignItems: 'flex-start', gap: 6 }}>
+            <Text style={s.h3}>{tr('Profile photo')}</Text>
+            <Button
+              title={avatar ? tr('Change photo') : tr('Add a photo')}
+              variant="secondary"
+              small
+              onPress={() => setPhoto('form')}
+            />
+          </View>
+        </View>
         <Field label={tr('Your name')} value={name} onChangeText={setName} maxLength={70} />
+        <HandleField handle={handle} />
         <Field
           label={tr('About you')}
           value={bio}
@@ -427,16 +530,9 @@ export function Profile({
           maxLength={1000}
           placeholder={tr('What do you love to cook?')}
         />
-        <Field
-          label={tr('Profile photo URL')}
-          value={avatar}
-          onChangeText={setAvatar}
-          placeholder="https://…"
-          autoCapitalize="none"
-        />
         <Text style={s.label}>{tr('Food preferences')}</Text>
         <View style={[s.wrap, { gap: 8 }]}>
-          {['Vegetarian', 'Vegan', 'Gluten free', 'Dairy free', 'High protein'].map((d) => (
+          {dietOptions.map((d) => (
             <Chip
               key={d}
               title={tr(d)}
@@ -463,6 +559,7 @@ export function Profile({
           title={tr('Save profile')}
           icon={Check}
           busy={busy}
+          disabled={!handle.ready}
           onPress={() => {
             setBusy(true);
             void app
@@ -473,6 +570,7 @@ export function Profile({
                     name,
                     bio,
                     avatar,
+                    handle: handle.value,
                     preferences: {
                       diets,
                       allergies: allergies
@@ -489,6 +587,17 @@ export function Profile({
           }}
         />
       </Dialog>
+      <ProfilePhoto
+        visible={!!photo}
+        onClose={() => setPhoto(null)}
+        name={photo === 'form' ? name : app.user?.name || ''}
+        value={photo === 'form' ? avatar : app.user?.avatar || ''}
+        onSave={async (url) => {
+          if (photo === 'form') return setAvatar(url);
+          await saveProfile({ avatar: url });
+          app.notify(url ? 'Your photo is updated.' : 'Your photo is removed.');
+        }}
+      />
       <Dialog visible={remove} onClose={() => setRemove(false)} title={tr('Delete your account?')}>
         <View style={{ backgroundColor: color.errorBg, borderRadius: radius.md, padding: 16 }}>
           <Text style={[s.body, { color: color.error }]}>
@@ -519,6 +628,7 @@ export function Profile({
             </Text>
             <SocialButtons
               only={identities}
+              purpose="delete"
               onError={app.notify}
               onToken={(t) => void deleteAccount({ provider: t.provider, token: t.token })}
             />

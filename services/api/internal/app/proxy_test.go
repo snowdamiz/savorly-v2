@@ -1,7 +1,9 @@
 package app
 
 import (
+	"encoding/json"
 	"io"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -25,5 +27,25 @@ func TestClientIPComesFromGatewayHeaderOnlyWhenConfigured(t *testing.T) {
 		if string(got) != tc.want {
 			t.Errorf("proxy header %q: client IP %q, want %q", tc.header, got, tc.want)
 		}
+	}
+}
+
+func TestRateLimitAnswersInJSON(t *testing.T) {
+	f := New(nil, Config{Origins: []string{"http://localhost:8081"}})
+	f.Get("/ping", func(c fiber.Ctx) error { return c.SendString("ok") })
+	var res *http.Response
+	for i := 0; i <= 300; i++ {
+		var e error
+		if res, e = f.Test(httptest.NewRequest("GET", "/ping", nil)); e != nil {
+			t.Fatal(e)
+		}
+		if i < 300 {
+			res.Body.Close()
+		}
+	}
+	defer res.Body.Close()
+	var body map[string]string
+	if res.StatusCode != 429 || json.NewDecoder(res.Body).Decode(&body) != nil || body["error"] == "" {
+		t.Fatalf("over the limit: %d %v", res.StatusCode, body)
 	}
 }

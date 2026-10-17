@@ -1,14 +1,17 @@
 import { StyleSheet } from 'react-native';
 // Monochrome surfaces; the only hues are semantic (success / warning / error).
+// Text and icons keep 4.5:1 on white and on the page (`bg`): `soft` is the lightest for them.
+// `outline` edges controls (fields, chips, secondary buttons, checkboxes) at 3:1 on both;
+// `border` and `line` are for decorative edges and hairlines only.
 export const color = {
   ink: '#0D0D0D',
-  ink2: '#1E1E1E',
   muted: '#6B6B6B',
-  soft: '#A3A3A3',
+  soft: '#707070',
   bg: '#F4F4F4',
   white: '#FFFFFF',
   border: '#E6E6E6',
   line: '#D4D4D4',
+  outline: '#8D8D8D',
   subtle: '#ECECEC',
   onInk: '#9C9C9C',
   glass: 'rgba(255,255,255,0.16)',
@@ -33,6 +36,9 @@ export const font = {
   bold: 'Manrope_700Bold',
   extra: 'Manrope_800ExtraBold',
 };
+/** How far text in compact controls (pills, chips, day cells) follows a larger system text size;
+ * the controls grow with it (minHeight), and beyond this the text stops growing. */
+export const maxFontScale = 1.6;
 export const s = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center' },
   between: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
@@ -47,7 +53,7 @@ export const s = StyleSheet.create({
     fontFamily: font.extra,
     color: color.ink,
     fontSize: 32,
-    letterSpacing: -1.3,
+    letterSpacing: -1.1,
     lineHeight: 38,
   },
   h1: {
@@ -81,14 +87,13 @@ export const s = StyleSheet.create({
     letterSpacing: 1.3,
     textTransform: 'uppercase',
   },
-  divider: { height: StyleSheet.hairlineWidth, backgroundColor: color.line, marginVertical: 18 },
   input: {
     fontFamily: font.medium,
     color: color.ink,
     fontSize: 15,
     backgroundColor: color.white,
     borderWidth: 1,
-    borderColor: color.border,
+    borderColor: color.outline,
     borderRadius: 18,
     paddingHorizontal: 18,
     paddingVertical: 15,

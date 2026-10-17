@@ -1,13 +1,23 @@
 import { useI18n } from '../lib/i18n';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Animated, Platform, Text, TextInput, View } from 'react-native';
-import { ArrowRight, ArrowUp, ChevronRight, RotateCcw, Sparkles } from 'lucide-react-native';
+import { ArrowRight, ArrowUp, ChevronRight, RotateCcw, Sparkles } from './icons';
 import { AIJob, AIKind, AIRequest, RecipeInput, emptyRecipe } from '../lib/types';
 import { api } from '../lib/api';
 import { useApp } from '../lib/store';
 import { requestKey } from '../lib/utils';
 import { color, font, radius, s, shadow } from '../lib/theme';
-import { Button, Chip, Dialog, Empty, FoodImage, IconButton, Pill, Press } from './ui';
+import {
+  Button,
+  Chip,
+  Dialog,
+  Empty,
+  FoodImage,
+  IconButton,
+  Pill,
+  Press,
+  motionReduced,
+} from './ui';
 import { VideoPlayer } from './VideoPlayer';
 const finished = (j: AIJob) => j.status === 'completed' || j.status === 'failed';
 const askOf = (prompt: string) => prompt.split('\n\nContext:')[0].split('\nDietary preferences')[0];
@@ -24,13 +34,16 @@ const kindLabel: Record<AIKind, string> = {
 function Thinking({ video }: { video: boolean }) {
   const { t: tr } = useI18n();
   const a = useState(() => new Animated.Value(0))[0];
+  // With reduced motion the dots hold still; the words say it's working.
+  const [still] = useState(motionReduced);
   useEffect(() => {
+    if (still) return;
     const loop = Animated.loop(
       Animated.timing(a, { toValue: 1, duration: 1300, useNativeDriver: Platform.OS !== 'web' }),
     );
     loop.start();
     return () => loop.stop();
-  }, []);
+  }, [a, still]);
   return (
     <View accessibilityLiveRegion="polite" style={[s.card, { gap: 12 }]}>
       <View style={[s.row, { gap: 6 }]}>
@@ -42,20 +55,17 @@ function Thinking({ video }: { video: boolean }) {
               height: 8,
               borderRadius: 4,
               backgroundColor: color.ink,
-              opacity: a.interpolate({
-                inputRange: [0, 0.2 + i * 0.2, 0.4 + i * 0.2, 1],
-                outputRange: [0.2, 1, 0.2, 0.2],
-              }),
+              opacity: still
+                ? 0.6
+                : a.interpolate({
+                    inputRange: [0, 0.2 + i * 0.2, 0.4 + i * 0.2, 1],
+                    outputRange: [0.2, 1, 0.2, 0.2],
+                  }),
             }}
           />
         ))}
       </View>
       <Text style={s.h3}>{video ? tr('Filming your clip…') : tr('Thinking it through…')}</Text>
-      <Text style={s.muted}>
-        {tr('{{v0}} You can close this. Results are kept in My kitchen → Sous-chef history.', {
-          v0: video ? tr('Short films take a few minutes. ') : '',
-        })}
-      </Text>
     </View>
   );
 }
@@ -79,11 +89,11 @@ export function JobResult({
           {r.recipe.description}
         </Text>
         <Text style={s.small}>
-          {tr('{{v0}} min · {{v1}} servings · {{v2}} ingredients', {
-            v0: r.recipe.minutes,
-            v1: r.recipe.servings,
-            v2: r.recipe.ingredients.length,
-          })}
+          {[
+            tr('minuteCount', { count: r.recipe.minutes }),
+            tr('servingCount', { count: r.recipe.servings }),
+            tr('ingredientCount', { count: r.recipe.ingredients.length }),
+          ].join(' · ')}
         </Text>
         <Text numberOfLines={2} style={[s.small, { color: color.ink }]}>
           {r.recipe.ingredients.map((i) => i.name).join(' · ')}
@@ -96,6 +106,9 @@ export function JobResult({
         />
       </View>
     );
+  // A touch-up is already where it was asked for; history just shows it.
+  if (r.url && job.source)
+    return <FoodImage uri={r.url} style={{ height: 300, borderRadius: radius.lg }} />;
   if (r.url && (job.kind === 'image' || job.kind === 'video')) {
     const image = job.kind === 'image';
     return (
@@ -149,9 +162,8 @@ export function SousChef({
   const { t: tr, number, language } = useI18n();
   const app = useApp();
   const { kind } = request;
-  const [prompt, setPrompt] = useState(request.prompt || '');
+  const [prompt, setPrompt] = useState(() => tr(request.prompt || ''));
   const [job, setJob] = useState<AIJob | null>(null);
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const enabled =
     kind === 'video'
@@ -159,34 +171,48 @@ export function SousChef({
       : kind === 'image'
         ? app.capabilities?.imageAI
         : app.capabilities?.textAI;
-  const run = async (text: string) => {
+  const prepare = (ask: string) => {
+    const prefs =
+      kind === 'image' || kind === 'video'
+        ? ''
+        : `\nDietary preferences (always verify ingredient labels): ${JSON.stringify(app.user?.preferences || {})}`;
+    const body = `${ask}\nPlease respond in ${language}.${request.context ? `\n\nContext: ${request.context}` : ''}${prefs}`;
+    return { kind, prompt: body.slice(0, 12000), key: requestKey() };
+  };
+  // Capture each submission once, including its idempotency key. Effect replay must not create
+  // another paid job, and changing language/profile while it runs must not resubmit it.
+  const [submission, setSubmission] = useState(() =>
+    prompt.trim().length >= 3 && enabled && app.user ? prepare(prompt.trim()) : null,
+  );
+  const busy = submission !== null;
+  const run = (text: string) => {
     const ask = text.trim();
     if (busy || ask.length < 3 || !enabled || !app.requireUser()) return;
     setPrompt(ask);
-    setBusy(true);
     setError('');
-    try {
-      const prefs =
-        kind === 'image' || kind === 'video'
-          ? ''
-          : `\nDietary preferences (always verify ingredient labels): ${JSON.stringify(app.user?.preferences || {})}`;
-      const body = `${ask}\nPlease respond in ${language}.${request.context ? `\n\nContext: ${request.context}` : ''}${prefs}`;
-      setJob(
-        await api<AIJob>('/ai/jobs', {
-          method: 'POST',
-          body: { kind, prompt: body.slice(0, 12000) },
-          headers: { 'Idempotency-Key': requestKey() },
-        }),
-      );
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
+    setSubmission(prepare(ask));
   };
   useEffect(() => {
-    if (request.prompt) void run(tr(request.prompt));
-  }, []);
+    if (!submission) return;
+    let active = true;
+    api<AIJob>('/ai/jobs', {
+      method: 'POST',
+      body: { kind: submission.kind, prompt: submission.prompt },
+      headers: { 'Idempotency-Key': submission.key },
+    })
+      .then((next) => {
+        if (active) setJob(next);
+      })
+      .catch((e: Error) => {
+        if (active) setError(e.message);
+      })
+      .finally(() => {
+        if (active) setSubmission(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [submission]);
   useEffect(() => {
     if (!job || finished(job)) return;
     let alive = true;
@@ -205,10 +231,10 @@ export function SousChef({
       alive = false;
       clearInterval(timer);
     };
-  }, [job?.id, job?.status]);
+  }, [job]);
   return (
     <Dialog visible onClose={onClose}>
-      <View style={{ gap: 8, paddingRight: 48 }}>
+      <View style={{ gap: 8 }}>
         <View style={[s.row, { gap: 8 }]}>
           <View
             style={{
@@ -266,7 +292,7 @@ export function SousChef({
                 gap: 10,
               }}
             >
-              <Text style={[s.body, { color: color.error }]}>{job.error}</Text>
+              <Text style={[s.body, { color: color.error }]}>{tr(job.error)}</Text>
               <Button
                 title={tr('Try again')}
                 small
@@ -277,7 +303,10 @@ export function SousChef({
           ) : (
             <JobResult
               job={job}
-              onRecipe={onRecipe}
+              // An adaptation keeps a link to the recipe it came from.
+              onRecipe={(r) =>
+                onRecipe(request.derivedFrom ? { ...r, derivedFrom: request.derivedFrom } : r)
+              }
               onMedia={
                 request.onMedia &&
                 ((url) => {
@@ -400,10 +429,19 @@ export function SousChefHistory({
   const [error, setError] = useState('');
   useEffect(() => {
     if (!visible || !app.user) return;
-    setError('');
+    let active = true;
     api<AIJob[]>('/ai/jobs')
-      .then(setJobs)
-      .catch((e) => setError(e.message));
+      .then((next) => {
+        if (!active) return;
+        setJobs(next);
+        setError('');
+      })
+      .catch((e) => {
+        if (active) setError(e.message);
+      });
+    return () => {
+      active = false;
+    };
   }, [visible, app.user]);
   return (
     <Dialog visible={visible} onClose={onClose} title={tr('Sous-chef history')}>
@@ -422,7 +460,7 @@ export function SousChefHistory({
         jobs.map((j) => (
           <View key={j.id} style={{ gap: 10, paddingBottom: 8 }}>
             <View style={s.between}>
-              <Text style={s.label}>{tr(kindLabel[j.kind])}</Text>
+              <Text style={s.label}>{j.source ? tr('Photo touch-up') : tr(kindLabel[j.kind])}</Text>
               <Pill
                 title={
                   j.status === 'completed'
@@ -436,11 +474,14 @@ export function SousChefHistory({
                 }
               />
             </View>
-            <Text numberOfLines={2} style={s.h3}>
-              {askOf(j.prompt)}
-            </Text>
+            {/* A touch-up's prompt is Savorly's instructions, not something the cook wrote. */}
+            {!j.source && (
+              <Text numberOfLines={2} style={s.h3}>
+                {askOf(j.prompt)}
+              </Text>
+            )}
             {j.status === 'failed' ? (
-              <Text style={[s.muted, { color: color.error }]}>{j.error}</Text>
+              <Text style={[s.muted, { color: color.error }]}>{tr(j.error)}</Text>
             ) : (
               j.status === 'completed' && <JobResult job={j} onRecipe={onRecipe} />
             )}

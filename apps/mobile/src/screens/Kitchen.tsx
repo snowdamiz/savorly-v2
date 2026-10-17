@@ -1,21 +1,25 @@
 import { useI18n } from '../lib/i18n';
-import React, { useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import {
   BookOpen,
   CalendarDays,
   ChevronLeft,
   ChevronRight,
+  Globe,
   Leaf,
+  Pencil,
   Plus,
+  Share2,
   ShoppingBasket,
   Trash2,
   X,
-} from 'lucide-react-native';
+} from '../components/icons';
 import { useApp } from '../lib/store';
 import { api } from '../lib/api';
-import { AIRequest, Plan, Recipe, Screen } from '../lib/types';
-import { color, font, radius, s } from '../lib/theme';
+import { AIRequest, GroceryMerge, Kitchen, Plan, Recipe, Screen } from '../lib/types';
+import { useShelf } from '../lib/shelf';
+import { color, font, maxFontScale, radius, s } from '../lib/theme';
 import {
   Button,
   CheckRow,
@@ -34,8 +38,25 @@ import {
 } from '../components/ui';
 import { RecipeGrid } from '../components/RecipeCard';
 import { AskCard } from '../components/SousChef';
-import { localDate, weekDays } from '../lib/utils';
+import { DatePicker } from '../components/DatePicker';
+import { CookbookSettings, useShareCookbook } from '../components/CookbookSettings';
+import { DangerButton } from '../components/DangerButton';
+import {
+  AddedBy,
+  HouseholdEntry,
+  HouseholdSheet,
+  useHousehold,
+} from '../components/HouseholdSheet';
+import {
+  daysBetween,
+  firstDayOfWeek,
+  formatDay,
+  localDate,
+  parseDay,
+  weekDays,
+} from '../lib/utils';
 import { foodIcon } from '../lib/icons';
+export { DangerButton };
 const meals = ['Breakfast', 'Lunch', 'Dinner'];
 export function SignInKitchen({
   title,
@@ -88,14 +109,11 @@ export function Cookbooks({
   const [create, setCreate] = useState(false);
   const [name, setName] = useState('');
   const [remove, setRemove] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const share = useShareCookbook();
   const selected = app.library.collections.find((c) => c.id === active);
-  const recipes = app.library.recipes.filter((r) =>
-    active === 'mine'
-      ? r.author.id === app.user?.id
-      : active === 'all'
-        ? app.library.savedIds.includes(r.id)
-        : app.library.saves.some((v) => v.recipeId === r.id && v.collectionId === active),
-  );
+  const shelf = useShelf(active);
+  const { recipes } = shelf;
   return (
     <View style={{ gap: 22 }}>
       <PageHeading
@@ -136,24 +154,67 @@ export function Cookbooks({
               <Chip
                 key={c.id}
                 title={c.name}
+                icon={c.public ? Globe : undefined}
                 active={active === c.id}
                 onPress={() => setActive(c.id)}
               />
             ))}
           </ScrollView>
           {selected && (
-            <View style={s.between}>
-              <Text style={s.h2}>{selected.name}</Text>
-              <IconButton
-                icon={Trash2}
-                size={38}
-                label={tr('Delete cookbook')}
-                onPress={() => setRemove(true)}
-              />
+            <View style={{ gap: 6 }}>
+              <View style={[s.between, { gap: 12 }]}>
+                <View style={[s.row, { flex: 1, gap: 10, flexWrap: 'wrap' }]}>
+                  <Text style={s.h2}>{selected.name}</Text>
+                  {selected.public && <Pill title={tr('Public')} icon={Globe} />}
+                </View>
+                <View style={[s.row, { gap: 8 }]}>
+                  {selected.public && (
+                    <IconButton
+                      icon={Share2}
+                      size={38}
+                      label={tr('Share cookbook')}
+                      onPress={() => void share(selected)}
+                    />
+                  )}
+                  {/* Older servers can't rename a cookbook or make it public. */}
+                  {typeof selected.public === 'boolean' && (
+                    <IconButton
+                      icon={Pencil}
+                      size={38}
+                      label={tr('Edit cookbook')}
+                      onPress={() => setEditing(true)}
+                    />
+                  )}
+                  <IconButton
+                    icon={Trash2}
+                    size={38}
+                    label={tr('Delete cookbook')}
+                    onPress={() => setRemove(true)}
+                  />
+                </View>
+              </View>
+              {!!selected.description && (
+                <Text style={[s.muted, { maxWidth: 640 }]}>{selected.description}</Text>
+              )}
             </View>
           )}
           {recipes.length ? (
-            <RecipeGrid recipes={recipes} onOpen={onOpen} />
+            <>
+              <RecipeGrid recipes={recipes} onOpen={onOpen} />
+              {shelf.hasMore && (
+                <Button
+                  title={tr('Show more')}
+                  variant="secondary"
+                  busy={shelf.busy}
+                  onPress={() => void shelf.showMore()}
+                  style={{ alignSelf: 'center', minWidth: 220 }}
+                />
+              )}
+            </>
+          ) : !shelf.settled ? (
+            <View style={{ paddingVertical: 60, alignItems: 'center' }}>
+              <ActivityIndicator color={color.ink} accessibilityLabel={tr('Loading…')} />
+            </View>
           ) : (
             <Empty
               title={
@@ -188,7 +249,7 @@ export function Cookbooks({
                 method: 'POST',
                 body: { name },
               });
-              await app.refreshPrivate();
+              await app.refreshLibrary();
               setName('');
               setCreate(false);
               setActive(c.id);
@@ -207,44 +268,18 @@ export function Cookbooks({
           onPress={() =>
             void app.act(async () => {
               await api(`/collections/${active}`, { method: 'DELETE' });
-              await app.refreshPrivate();
+              await app.refreshLibrary();
               setActive('all');
               setRemove(false);
             }, 'Cookbook removed. Your recipes are still saved.')
           }
         />
       </Dialog>
+      <CookbookSettings
+        cookbook={editing && selected ? selected : null}
+        onClose={() => setEditing(false)}
+      />
     </View>
-  );
-}
-export function DangerButton({
-  title,
-  onPress,
-  busy,
-  disabled,
-}: {
-  title: string;
-  onPress: () => void;
-  busy?: boolean;
-  disabled?: boolean;
-}) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={title}
-      disabled={disabled || busy}
-      onPress={onPress}
-      style={({ pressed }: { pressed: boolean }) => ({
-        minHeight: 52,
-        borderRadius: radius.pill,
-        backgroundColor: color.error,
-        alignItems: 'center',
-        justifyContent: 'center',
-        opacity: disabled || busy ? 0.4 : pressed ? 0.8 : 1,
-      })}
-    >
-      <Text style={{ fontFamily: font.bold, fontSize: 15, color: color.white }}>{title}</Text>
-    </Pressable>
   );
 }
 function MealSlot({
@@ -260,7 +295,7 @@ function MealSlot({
   onAdd: () => void;
   onRemove: () => void;
 }) {
-  const { t: tr } = useI18n();
+  const { t: tr, locale } = useI18n();
   return plan ? (
     <View style={[s.card, s.row, { padding: 10, gap: 12, flex: 1 }]}>
       <Pressable
@@ -275,14 +310,17 @@ function MealSlot({
           <Text numberOfLines={1} style={[s.h3, { fontSize: 15 }]}>
             {plan.recipe.title}
           </Text>
-          <Text style={s.small}>{tr('{{v0}} servings', { v0: plan.servings })}</Text>
+          <Text style={s.small}>{tr('servingCount', { count: plan.servings })}</Text>
         </View>
       </Pressable>
       <IconButton
         icon={X}
         plain
         size={34}
-        label={tr('Remove {{v0}} on {{v1}}', { v0: tr(meal), v1: plan.day })}
+        label={tr('Remove {{v0}} on {{v1}}', {
+          v0: tr(meal),
+          v1: formatDay(plan.day, locale, { weekday: 'long', month: 'long', day: 'numeric' }),
+        })}
         onPress={onRemove}
       />
     </View>
@@ -301,7 +339,7 @@ function MealSlot({
           borderRadius: radius.lg,
           borderWidth: 1.5,
           borderStyle: 'dashed',
-          borderColor: color.line,
+          borderColor: color.outline,
           opacity: pressed ? 0.6 : 1,
         },
       ]}
@@ -330,6 +368,51 @@ function MealSlot({
     </Pressable>
   );
 }
+/** The YYYY-MM-DD day `n` days after (or before) `day`. */
+const shiftDay = (day: string, n: number) => {
+  const d = parseDay(day) ?? new Date();
+  return localDate(new Date(d.getFullYear(), d.getMonth(), d.getDate() + n));
+};
+/**
+ * Plans for the week from..to. The store holds them from the week before this one to some weeks
+ * ahead; a week it might not hold (anything outside a week back and three ahead, whichever way
+ * its weeks are counted) is asked for on its own, and again after every change to it.
+ */
+function useWeekPlans(from: string, to: string, today: string, userId: string | null) {
+  const near = from >= shiftDay(today, -7) && to <= shiftDay(today, 21);
+  const key = `${userId}:${from}:${to}`;
+  const [week, setWeek] = useState<{ key: string; plans: Plan[] | null; error: string } | null>(
+    null,
+  );
+  // Answers are numbered: one for a week the planner has since left is dropped.
+  const asked = useRef(0);
+  const load = useCallback(() => {
+    const n = ++asked.current;
+    return api<Kitchen>(`/kitchen?from=${from}&to=${to}`).then(
+      (kitchen) => {
+        const plans = Array.isArray(kitchen?.plans) ? kitchen.plans : [];
+        if (n === asked.current) setWeek({ key, plans, error: '' });
+      },
+      (e: Error) => {
+        if (n === asked.current) setWeek({ key, plans: null, error: e.message });
+      },
+    );
+  }, [key, from, to]);
+  useEffect(() => {
+    if (!near && userId) void load();
+  }, [near, userId, load]);
+  const reload = useCallback(async () => {
+    if (!near) await load();
+  }, [near, load]);
+  const own = !near && week?.key === key ? week : null;
+  return {
+    /** The week's own plans, or null to use the store's. */
+    plans: own?.plans ?? null,
+    loading: !near && !!userId && !own,
+    error: own?.error ?? '',
+    reload,
+  };
+}
 export function Planner({
   onOpen,
   onAI,
@@ -339,6 +422,7 @@ export function Planner({
 }) {
   const { t: tr, locale } = useI18n();
   const app = useApp();
+  const { refreshKitchen } = app;
   const { compact } = useChrome();
   const [tab, setTab] = useState<'week' | 'groceries'>('week');
   const [offset, setOffset] = useState(0);
@@ -348,32 +432,51 @@ export function Planner({
   const [name, setName] = useState('');
   const [quantity, setQuantity] = useState('');
   const [busy, setBusy] = useState(false);
+  const [sharing, setSharing] = useState(false);
+  const userId = app.user?.id ?? null;
   const today = localDate(new Date());
-  const days = weekDays(offset);
-  const weekPlans = app.kitchen.plans.filter((p) => days.some((d) => localDate(d) === p.day));
+  // Weeks start where the cook's calendar does: Sunday in the US, Japan or Brazil, Monday in Europe.
+  const firstDay = firstDayOfWeek(locale);
+  const days = weekDays(offset, firstDay);
+  const from = localDate(days[0]);
+  const to = localDate(days[6]);
+  const week = useWeekPlans(from, to, today, userId);
+  const weekPlans = (week.plans ?? app.kitchen.plans).filter((p) => p.day >= from && p.day <= to);
+  const household = useHousehold(userId);
+  const shared = household.supported && !!household.household;
   const groceries = app.kitchen.groceries;
   const checked = groceries.filter((g) => g.checked).length;
+  // Others add to a shared list too, so opening it shows their latest.
+  useEffect(() => {
+    if (tab === 'groceries' && shared) void refreshKitchen().catch(() => {});
+  }, [tab, shared, refreshKitchen]);
   const moveWeek = (n: number) => {
     setOffset(n);
-    const next = weekDays(n);
+    const next = weekDays(n, firstDay);
     setSelectedDay(n === 0 ? today : localDate(next[0]));
   };
+  const replan = () => Promise.all([refreshKitchen(), week.reload()]);
   const remove = (p: Plan) =>
     void app.act(async () => {
       await api(`/planner/${p.id}`, { method: 'DELETE' });
-      await app.refreshPrivate();
+      await replan();
     });
+  // The server puts the whole week on the list at once, folding repeats into matching lines.
   const addAll = async () => {
     if (busy) return;
     setBusy(true);
     await app.act(async () => {
-      for (const p of weekPlans)
-        await api(`/recipes/${p.recipeId}/groceries`, {
-          method: 'POST',
-          body: { servings: p.servings },
-        });
-      await app.refreshPrivate();
-    }, 'Your week’s ingredients are on the list.');
+      const result = await api<GroceryMerge>('/planner/groceries', {
+        method: 'POST',
+        body: { from, to },
+      });
+      await refreshKitchen();
+      const said = [
+        result?.added > 0 ? tr('weekGroceriesAdded', { count: result.added }) : '',
+        result?.merged > 0 ? tr('weekGroceriesMerged', { count: result.merged }) : '',
+      ].filter(Boolean);
+      app.notify(said.length ? said.join(' ') : tr('Nothing new to add from this week.'));
+    });
     setBusy(false);
   };
   const slots = (day: string) =>
@@ -393,26 +496,32 @@ export function Planner({
         }}
       />
     ));
+  const tabs = (
+    <Segmented
+      value={tab}
+      onChange={setTab}
+      options={[
+        { value: 'week', label: tr('Week') },
+        {
+          value: 'groceries',
+          label: tr('{{v0}}{{v1}}', {
+            v0: tr('Groceries'),
+            v1: groceries.length - checked ? ` · ${groceries.length - checked}` : '',
+          }),
+        },
+      ]}
+    />
+  );
   return (
     <View style={{ gap: 22 }}>
+      {/* Desktops keep the switch beside the title rather than stretched across the page. */}
       <PageHeading
         title={tr('Meal planner')}
         subtitle={tr('A little plan for the week, and a list to match.')}
-      />
-      <Segmented
-        value={tab}
-        onChange={setTab}
-        options={[
-          { value: 'week', label: tr('Week') },
-          {
-            value: 'groceries',
-            label: tr('{{v0}}{{v1}}', {
-              v0: tr('Groceries'),
-              v1: groceries.length - checked ? ` · ${groceries.length - checked}` : '',
-            }),
-          },
-        ]}
-      />
+      >
+        {!compact && <View style={{ width: 320 }}>{tabs}</View>}
+      </PageHeading>
+      {compact && tabs}
       {!app.user ? (
         <SignInKitchen
           title={tr('A little planning goes a long way')}
@@ -438,12 +547,22 @@ export function Planner({
                 {days[0].toLocaleDateString(locale, { month: 'short', day: 'numeric' })} –{' '}
                 {days[6].toLocaleDateString(locale, { month: 'short', day: 'numeric' })}
               </Text>
-              <Text style={s.small}>
-                {tr('{{v0}} · {{v1}} planned', {
-                  v0: offset === 0 ? tr('This week') : tr('Tap for this week'),
-                  v1: weekPlans.length,
-                })}
-              </Text>
+              <View style={[s.row, { gap: 6 }]}>
+                <Text style={s.small}>
+                  {[
+                    offset === 0 ? tr('This week') : tr('Tap for this week'),
+                    tr('plannedCount', { count: weekPlans.length }),
+                  ].join(' · ')}
+                </Text>
+                {week.loading && (
+                  <ActivityIndicator
+                    size="small"
+                    color={color.muted}
+                    accessibilityLabel={tr('Loading…')}
+                    style={{ transform: [{ scale: 0.7 }] }}
+                  />
+                )}
+              </View>
             </Pressable>
             <IconButton
               icon={ChevronRight}
@@ -472,7 +591,8 @@ export function Planner({
                       onPress={() => setSelectedDay(day)}
                       style={{
                         flex: 1,
-                        height: 72,
+                        minHeight: 72,
+                        paddingVertical: 8,
                         borderRadius: radius.pill,
                         alignItems: 'center',
                         justifyContent: 'center',
@@ -481,6 +601,8 @@ export function Planner({
                       }}
                     >
                       <Text
+                        numberOfLines={1}
+                        maxFontSizeMultiplier={maxFontScale}
                         style={{
                           fontFamily: font.semibold,
                           fontSize: 11,
@@ -490,6 +612,7 @@ export function Planner({
                         {d.toLocaleDateString(locale, { weekday: 'short' })}
                       </Text>
                       <Text
+                        maxFontSizeMultiplier={maxFontScale}
                         style={{
                           fontFamily: font.bold,
                           fontSize: 17,
@@ -561,8 +684,21 @@ export function Planner({
               })}
             </View>
           )}
+          {!!week.error && (
+            <View style={[s.card, s.row, { gap: 12, padding: 14 }]}>
+              <Text style={[s.small, { flex: 1, color: color.error, fontFamily: font.medium }]}>
+                {tr(week.error)}
+              </Text>
+              <Button
+                small
+                variant="secondary"
+                title={tr('Try again')}
+                onPress={() => void week.reload()}
+              />
+            </View>
+          )}
           <Button
-            title={tr('Add this week to my grocery list')}
+            title={tr('Add this week’s groceries')}
             icon={ShoppingBasket}
             variant="secondary"
             disabled={!weekPlans.length}
@@ -591,6 +727,9 @@ export function Planner({
         </>
       ) : (
         <View style={{ gap: 16 }}>
+          {household.supported && household.ready && (
+            <HouseholdEntry household={household.household} onPress={() => setSharing(true)} />
+          )}
           <View style={[s.card, { gap: 14 }]}>
             <View style={s.between}>
               <Text style={s.h3}>
@@ -640,7 +779,7 @@ export function Planner({
                     await api('/groceries', { method: 'POST', body: { name, quantity } });
                     setName('');
                     setQuantity('');
-                    await app.refreshPrivate();
+                    await app.refreshKitchen();
                   })
                 }
               />
@@ -671,28 +810,22 @@ export function Planner({
                         ]}
                       >
                         <View style={{ flex: 1 }}>
-                          <CheckRow
-                            checked={g.checked}
-                            onPress={() =>
-                              void app.act(async () => {
-                                await api(`/groceries/${g.id}`, {
-                                  method: 'PATCH',
-                                  body: { checked: !g.checked },
-                                });
-                                await app.refreshPrivate();
-                              })
-                            }
-                          >
+                          <CheckRow checked={g.checked} onPress={() => void app.toggleGrocery(g)}>
                             <View style={[s.between, { gap: 10 }]}>
-                              <Text
-                                style={[
-                                  s.body,
-                                  { flex: 1 },
-                                  g.checked && { textDecorationLine: 'line-through' },
-                                ]}
-                              >
-                                {g.name}
-                              </Text>
+                              <View style={{ flex: 1, gap: 1 }}>
+                                <Text
+                                  style={[
+                                    s.body,
+                                    g.checked && { textDecorationLine: 'line-through' },
+                                  ]}
+                                >
+                                  {g.name}
+                                </Text>
+                                {/* On a shared list, a quiet note of who added what (not you). */}
+                                {shared && !!g.addedBy && g.addedBy.id !== userId && (
+                                  <AddedBy name={g.addedBy.name} />
+                                )}
+                              </View>
                               <Text style={s.small}>{g.quantity}</Text>
                             </View>
                           </CheckRow>
@@ -705,7 +838,7 @@ export function Planner({
                           onPress={() =>
                             void app.act(async () => {
                               await api(`/groceries/${g.id}`, { method: 'DELETE' });
-                              await app.refreshPrivate();
+                              await app.refreshKitchen();
                             })
                           }
                         />
@@ -720,15 +853,23 @@ export function Planner({
       <Dialog
         visible={!!pick}
         onClose={() => setPick(null)}
-        title={tr('What’s for {{v0}}?', { v0: tr(pick?.meal || '').toLowerCase() })}
+        title={
+          pick?.meal === 'Breakfast'
+            ? tr('What’s for breakfast?')
+            : pick?.meal === 'Lunch'
+              ? tr('What’s for lunch?')
+              : tr('What’s for dinner?')
+        }
+        header={
+          <View style={{ flexDirection: 'row' }}>
+            <SearchBar
+              value={query}
+              onChangeText={setQuery}
+              placeholder={tr('Search your next meal…')}
+            />
+          </View>
+        }
       >
-        <View style={{ flexDirection: 'row' }}>
-          <SearchBar
-            value={query}
-            onChangeText={setQuery}
-            placeholder={tr('Search your next meal…')}
-          />
-        </View>
         <View style={[s.card, { paddingVertical: 4 }]}>
           {app.recipes
             .filter((r) => r.title.toLowerCase().includes(query.toLowerCase()))
@@ -743,7 +884,7 @@ export function Planner({
                       method: 'POST',
                       body: { ...pick, recipeId: r.id, servings: r.servings },
                     });
-                    await app.refreshPrivate();
+                    await replan();
                     setPick(null);
                   }, 'Added to your week.')
                 }
@@ -759,7 +900,10 @@ export function Planner({
                     {r.title}
                   </Text>
                   <Text style={s.small}>
-                    {tr('{{v0}} min · {{v1}} servings', { v0: r.minutes, v1: r.servings })}
+                    {[
+                      tr('minuteCount', { count: r.minutes }),
+                      tr('servingCount', { count: r.servings }),
+                    ].join(' · ')}
                   </Text>
                 </View>
                 <Plus size={18} color={color.ink} />
@@ -767,6 +911,7 @@ export function Planner({
             ))}
         </View>
       </Dialog>
+      <HouseholdSheet visible={sharing} onClose={() => setSharing(false)} state={household} />
     </View>
   );
 }
@@ -783,8 +928,16 @@ export function Pantry({
   const [name, setName] = useState('');
   const [quantity, setQuantity] = useState('');
   const [expires, setExpires] = useState('');
-  const today = localDate(new Date());
-  const soonDate = localDate(new Date(Date.now() + 3 * 86400000));
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 60_000);
+    return () => clearInterval(timer);
+  }, []);
+  // Days left until a best-before date (negative once it has passed), compared as calendar days.
+  const daysLeft = (day: string | null) => {
+    const date = parseDay(day);
+    return date ? daysBetween(now, date) : null;
+  };
   const matching = useMemo(
     () =>
       app.recipes
@@ -809,6 +962,155 @@ export function Pantry({
         `${p.name}${p.quantity ? ` (${p.quantity})` : ''}${p.expiresOn ? `, best before ${p.expiresOn}` : ''}`,
     )
     .join('; ');
+  const ask = (
+    <AskCard
+      title={tr('What can I make with this?')}
+      text={tr('The sous-chef builds a recipe around your pantry, using what expires first.')}
+      onPress={() =>
+        onAI({
+          kind: 'recipe',
+          title: tr('Cook from your pantry'),
+          context: pantryList ? `My pantry: ${pantryList}` : 'My pantry is nearly empty.',
+          suggestions: [
+            tr('Something quick, under 30 minutes'),
+            tr('Something cozy and comforting'),
+            tr('Use what expires soonest'),
+          ],
+        })
+      }
+    />
+  );
+  const add = (
+    <View style={[s.card, { gap: 12 }]}>
+      <Text style={s.h3}>{tr('Add an ingredient')}</Text>
+      <View style={{ gap: 8 }}>
+        <Field
+          placeholder={tr('Chickpeas, lemons, rice…')}
+          accessibilityLabel={tr('Ingredient')}
+          value={name}
+          onChangeText={setName}
+          style={{ backgroundColor: color.bg, borderColor: color.bg }}
+        />
+        <View style={[s.row, { gap: 8 }]}>
+          <View style={{ flex: 1 }}>
+            <Field
+              placeholder={tr('Quantity')}
+              value={quantity}
+              onChangeText={setQuantity}
+              style={{ backgroundColor: color.bg, borderColor: color.bg }}
+            />
+          </View>
+          <View style={{ flex: 1 }}>
+            <DatePicker
+              label={tr('Best before')}
+              value={expires}
+              onChange={setExpires}
+              style={{ backgroundColor: color.bg, borderColor: color.bg }}
+            />
+          </View>
+        </View>
+      </View>
+      <Button
+        title={tr('Add to pantry')}
+        icon={Plus}
+        disabled={!name.trim()}
+        onPress={() =>
+          void app.act(async () => {
+            await api('/pantry', {
+              method: 'POST',
+              body: { name, quantity, expiresOn: expires || null },
+            });
+            setName('');
+            setQuantity('');
+            setExpires('');
+            await app.refreshKitchen();
+          }, 'Added to your pantry.')
+        }
+      />
+    </View>
+  );
+  const stock = (
+    <>
+      {app.kitchen.pantry.length ? (
+        <View style={[s.card, { paddingVertical: 4, paddingRight: 8 }]}>
+          {app.kitchen.pantry.map((p, n) => {
+            const left = daysLeft(p.expiresOn);
+            const expired = left !== null && left < 0;
+            const soon = left !== null && left >= 0 && left <= 3;
+            return (
+              <View
+                key={p.id}
+                style={[
+                  s.row,
+                  { gap: 12, paddingVertical: 12 },
+                  n > 0 && {
+                    borderTopWidth: StyleSheet.hairlineWidth,
+                    borderColor: color.line,
+                  },
+                ]}
+              >
+                <View
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 20,
+                    backgroundColor: color.bg,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <Leaf size={17} color={color.ink} strokeWidth={1.8} />
+                </View>
+                <View style={{ flex: 1, gap: 2 }}>
+                  <Text style={[s.h3, { textTransform: 'capitalize', fontSize: 15 }]}>
+                    {p.name}
+                  </Text>
+                  <Text style={s.small}>
+                    {p.quantity || tr('In the pantry')}
+                    {left !== null && !soon && !expired
+                      ? tr(' · best before {{v0}}', { v0: formatDay(p.expiresOn, locale) })
+                      : ''}
+                  </Text>
+                </View>
+                {expired ? (
+                  <Pill title={tr('Expired')} tone="error" />
+                ) : soon ? (
+                  <Pill title={tr('Use soon')} tone="warning" />
+                ) : null}
+                <IconButton
+                  icon={X}
+                  plain
+                  size={34}
+                  label={tr('Remove {{v0}}', { v0: p.name })}
+                  onPress={() =>
+                    void app.act(async () => {
+                      await api(`/pantry/${p.id}`, { method: 'DELETE' });
+                      await app.refreshKitchen();
+                    })
+                  }
+                />
+              </View>
+            );
+          })}
+        </View>
+      ) : (
+        <Empty
+          title={tr('Let’s look in the fridge')}
+          text={tr('Add a few ingredients and we’ll find recipes you can already make.')}
+          icon={Leaf}
+        />
+      )}
+      {matching.length > 0 && (
+        <View>
+          <SectionTitle
+            title={tr('You’re partway there')}
+            subtitle={tr('Recipes that use what you have.')}
+          />
+          <RecipeGrid recipes={matching.map((m) => m.recipe)} onOpen={onOpen} />
+        </View>
+      )}
+    </>
+  );
   return (
     <View style={{ gap: 22 }}>
       <PageHeading
@@ -821,147 +1123,20 @@ export function Pantry({
           text={tr('Sign in to track ingredients and find recipes that use what you already have.')}
           icon={Leaf}
         />
+      ) : desktop ? (
+        // Adding on the left, what you have and what it makes on the right.
+        <View style={{ flexDirection: 'row', gap: 32, alignItems: 'flex-start' }}>
+          <View style={{ width: 380, gap: 16 }}>
+            {ask}
+            {add}
+          </View>
+          <View style={{ flex: 1, gap: 22 }}>{stock}</View>
+        </View>
       ) : (
         <>
-          <AskCard
-            title={tr('What can I make with this?')}
-            text={tr('The sous-chef builds a recipe around your pantry, using what expires first.')}
-            onPress={() =>
-              onAI({
-                kind: 'recipe',
-                title: tr('Cook from your pantry'),
-                context: pantryList ? `My pantry: ${pantryList}` : 'My pantry is nearly empty.',
-                suggestions: [
-                  tr('Something quick, under 30 minutes'),
-                  tr('Something cozy and comforting'),
-                  tr('Use what expires soonest'),
-                ],
-              })
-            }
-          />
-          <View style={[s.card, { gap: 12 }]}>
-            <Text style={s.h3}>{tr('Add an ingredient')}</Text>
-            <View style={{ flexDirection: desktop ? 'row' : 'column', gap: 8 }}>
-              <Field
-                placeholder={tr('Chickpeas, lemons, rice…')}
-                accessibilityLabel={tr('Ingredient')}
-                value={name}
-                onChangeText={setName}
-                style={{ backgroundColor: color.bg, borderColor: color.bg }}
-              />
-              <View style={[s.row, { gap: 8, flex: desktop ? 1.2 : undefined }]}>
-                <Field
-                  placeholder={tr('Quantity')}
-                  value={quantity}
-                  onChangeText={setQuantity}
-                  style={{ backgroundColor: color.bg, borderColor: color.bg }}
-                />
-                <Field
-                  placeholder={tr('Best before')}
-                  accessibilityLabel={tr('Best before (YYYY-MM-DD)')}
-                  value={expires}
-                  onChangeText={setExpires}
-                  style={{ backgroundColor: color.bg, borderColor: color.bg }}
-                />
-              </View>
-            </View>
-            <Button
-              title={tr('Add to pantry')}
-              icon={Plus}
-              disabled={!name.trim()}
-              onPress={() =>
-                void app.act(async () => {
-                  await api('/pantry', {
-                    method: 'POST',
-                    body: { name, quantity, expiresOn: expires || null },
-                  });
-                  setName('');
-                  setQuantity('');
-                  setExpires('');
-                  await app.refreshPrivate();
-                }, 'Added to your pantry.')
-              }
-            />
-          </View>
-          {app.kitchen.pantry.length ? (
-            <View style={[s.card, { paddingVertical: 4, paddingRight: 8 }]}>
-              {app.kitchen.pantry.map((p, n) => {
-                const expired = !!p.expiresOn && p.expiresOn < today;
-                const soon = !!p.expiresOn && !expired && p.expiresOn <= soonDate;
-                return (
-                  <View
-                    key={p.id}
-                    style={[
-                      s.row,
-                      { gap: 12, paddingVertical: 12 },
-                      n > 0 && {
-                        borderTopWidth: StyleSheet.hairlineWidth,
-                        borderColor: color.line,
-                      },
-                    ]}
-                  >
-                    <View
-                      style={{
-                        width: 40,
-                        height: 40,
-                        borderRadius: 20,
-                        backgroundColor: color.bg,
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                      }}
-                    >
-                      <Leaf size={17} color={color.ink} strokeWidth={1.8} />
-                    </View>
-                    <View style={{ flex: 1, gap: 2 }}>
-                      <Text style={[s.h3, { textTransform: 'capitalize', fontSize: 15 }]}>
-                        {p.name}
-                      </Text>
-                      <Text style={s.small}>
-                        {p.quantity || tr('In the pantry')}
-                        {p.expiresOn && !soon && !expired
-                          ? tr(' · best before {{v0}}', {
-                              v0: new Date(`${p.expiresOn}T12:00:00`).toLocaleDateString(locale),
-                            })
-                          : ''}
-                      </Text>
-                    </View>
-                    {expired ? (
-                      <Pill title={tr('Expired')} tone="error" />
-                    ) : soon ? (
-                      <Pill title={tr('Use soon')} tone="warning" />
-                    ) : null}
-                    <IconButton
-                      icon={X}
-                      plain
-                      size={34}
-                      label={tr('Remove {{v0}}', { v0: p.name })}
-                      onPress={() =>
-                        void app.act(async () => {
-                          await api(`/pantry/${p.id}`, { method: 'DELETE' });
-                          await app.refreshPrivate();
-                        })
-                      }
-                    />
-                  </View>
-                );
-              })}
-            </View>
-          ) : (
-            <Empty
-              title={tr('Let’s look in the fridge')}
-              text={tr('Add a few ingredients and we’ll find recipes you can already make.')}
-              icon={Leaf}
-            />
-          )}
-          {matching.length > 0 && (
-            <View>
-              <SectionTitle
-                title={tr('You’re partway there')}
-                subtitle={tr('Recipes that use what you have.')}
-              />
-              <RecipeGrid recipes={matching.map((m) => m.recipe)} onOpen={onOpen} />
-            </View>
-          )}
+          {ask}
+          {add}
+          {stock}
         </>
       )}
     </View>

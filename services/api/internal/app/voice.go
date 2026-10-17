@@ -10,6 +10,8 @@ import (
 	"log/slog"
 	"savorly/api/internal/live"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -39,9 +41,13 @@ func (a *App) voiceCreate(c fiber.Ctx) error {
 	if _, e = tx.Exec(c.Context(), `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, owner); e != nil {
 		return e
 	}
-	// A crashed server cannot leave an account locked forever. Its reservation remains
-	// charged conservatively until provider final usage is confirmed.
-	if _, e = tx.Exec(c.Context(), `UPDATE voice_sessions SET status='interrupted' WHERE user_id=$1 AND status IN ('active','connecting') AND heartbeat_at<now()-interval '90 seconds'`, owner); e != nil {
+	// A crashed server cannot leave an account locked until the worker's next sweep.
+	if e = endStaleVoice(c.Context(), tx, owner); e != nil {
+		return e
+	}
+	// A session already asked to end (renewing at the end of a lease, or the assistant ending
+	// the call) is only finishing its last words; it doesn't hold the user's one voice slot.
+	if _, e = tx.Exec(c.Context(), `UPDATE voice_sessions SET status='closing' WHERE user_id=$1 AND status='active' AND close_requested`, owner); e != nil {
 		return e
 	}
 	var active bool
@@ -61,7 +67,7 @@ func (a *App) voiceCreate(c fiber.Ctx) error {
 	}
 	remaining := plan.VoiceMinutes*60 - used.VoiceSeconds
 	if remaining < 15 {
-		return fiber.NewError(429, "You've used this month's live voice time on your plan. Your conversation is saved and you can continue by text.")
+		return fiber.NewError(429, "You've used your plan's live voice time for the last 30 days. Your conversation is saved and you can continue by text.")
 	}
 	seconds := 1800
 	if remaining < seconds {
@@ -71,49 +77,87 @@ func (a *App) voiceCreate(c fiber.Ctx) error {
 		return e
 	}
 	id := uuid.NewString()
-	_, e = tx.Exec(c.Context(), `INSERT INTO voice_sessions(id,project_id,user_id,reserved_seconds,expires_at) VALUES($1,$2,$3,$4,now()+$4*interval '1 second')`, id, project, owner, seconds)
+	// One type for $4: unannotated, Postgres deduces integer for the column and double
+	// precision for the interval product, and refuses to prepare the statement.
+	_, e = tx.Exec(c.Context(), `INSERT INTO voice_sessions(id,project_id,user_id,reserved_seconds,expires_at) VALUES($1,$2,$3,$4::int,now()+$4::int*interval '1 second')`, id, project, owner, seconds)
 	if e != nil {
 		return e
 	}
 	if e = tx.Commit(c.Context()); e != nil {
 		return e
 	}
-	failed := func() {
-		_, _ = a.DB.Exec(context.Background(), `UPDATE voice_sessions SET status='interrupted' WHERE id=$1`, id)
+	// Until the provider has a session nothing is billed, so a failure releases the whole
+	// reservation; after that it bills the 15-second minimum, as a short call would.
+	failed := func(billed bool) {
+		end, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		query := `UPDATE voice_sessions SET status='interrupted',reserved_seconds=0,seconds=0,finalized=true WHERE id=$1`
+		if billed {
+			query = `UPDATE voice_sessions SET status='interrupted',seconds=greatest(seconds,15),finalized=true WHERE id=$1`
+		}
+		if _, e := a.DB.Exec(end, query, id); e != nil {
+			slog.Error("release voice reservation", "session", id, "error", e)
+		}
 	}
 	handshake, cancel := context.WithTimeout(c.Context(), 24*time.Second)
 	defer cancel()
 	answer, e := a.Live.Create(handshake, in.SDP, state.Conversation, fmt.Sprintf("Current draft revision: %d. Status: %s. Continue from the conversation; do not repeat completed actions.", state.Revision, state.Status))
 	if e != nil {
-		failed()
+		failed(false)
 		slog.Warn("voice handshake failed", "error", e)
 		return fiber.NewError(502, "Couldn't connect to the voice model. Check the OpenAI project's GPT-Live access, or continue by text.")
 	}
 	_, e = a.DB.Exec(c.Context(), `UPDATE voice_sessions SET provider_id=$2 WHERE id=$1`, id, answer.Session.ID)
 	if e != nil {
-		failed()
+		failed(true)
 		return e
 	}
 	conn, e := a.Live.Attach(handshake, answer.Session.ID)
 	if e != nil {
-		failed()
-		return fiber.NewError(502, "Couldn't attach your sous-chef. Close this attempt and try again.")
+		failed(true)
+		slog.Warn("voice attach failed", "error", e)
+		return fiber.NewError(502, "Couldn't connect to your sous-chef. End the call and try again.")
 	}
 	_, e = a.DB.Exec(c.Context(), `UPDATE voice_sessions SET status='active',heartbeat_at=now() WHERE id=$1`, id)
 	if e != nil {
 		conn.CloseNow()
-		failed()
+		failed(true)
 		return e
 	}
 	parent := a.Context
 	if parent == nil {
 		parent = context.Background()
 	}
-	go a.monitorVoice(parent, conn, id, project, owner, seconds)
+	running := a.voiceMonitors()
+	running.Add(1)
+	go func() {
+		defer running.Add(-1)
+		a.monitorVoice(parent, conn, id, answer.Session.ID, project, owner, seconds)
+	}()
 	return c.Status(201).JSON(fiber.Map{"id": id, "sdp": answer.Transport.SDP, "maxSeconds": seconds, "model": a.Live.ModelID()})
 }
+
+// Voice monitors run on the API's App, but the worker's shutdown waits for them too (see
+// waitForVoice), so each can end its provider session and record what it bills before the
+// pool closes.
+var voiceMonitorCounts sync.Map
+
+func (a *App) voiceMonitors() *atomic.Int64 {
+	n, _ := voiceMonitorCounts.LoadOrStore(a.DB, new(atomic.Int64))
+	return n.(*atomic.Int64)
+}
+
+// waitForVoice returns once no voice monitor runs on this pool, or after limit.
+func (a *App) waitForVoice(limit time.Duration) {
+	for deadline := time.Now().Add(limit); a.voiceMonitors().Load() > 0 && time.Now().Before(deadline); {
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// voiceClose asks the session's server to end it gracefully. The user's voice slot frees at
+// once, so a renewal can start while the old session says its last words.
 func (a *App) voiceClose(c fiber.Ctx) error {
-	result, e := a.DB.Exec(c.Context(), `UPDATE voice_sessions SET close_requested=true WHERE id=$1 AND user_id=$2`, c.Params("session"), userID(c))
+	result, e := a.DB.Exec(c.Context(), `UPDATE voice_sessions SET close_requested=true,status=CASE WHEN status='active' THEN 'closing' ELSE status END WHERE id=$1 AND user_id=$2`, c.Params("session"), userID(c))
 	if e != nil {
 		return e
 	}
@@ -122,17 +166,34 @@ func (a *App) voiceClose(c fiber.Ctx) error {
 	}
 	return c.SendStatus(204)
 }
-func (a *App) monitorVoice(parent context.Context, conn *websocket.Conn, id, project, owner string, maxSeconds int) {
-	ctx, cancel := context.WithCancel(parent)
+
+// endStaleVoice finalizes sessions nothing reports on any more: their server stopped
+// heartbeating (it crashed or was replaced), or lost the session without being able to end
+// it. They stop holding the user's voice slot, blocking deletion and counting as live, and
+// bill the connected time last recorded, at least the 15-second minimum. user limits it to
+// one member; "" sweeps everyone.
+func endStaleVoice(ctx context.Context, q execer, user string) error {
+	_, e := q.Exec(ctx, `UPDATE voice_sessions SET status='interrupted',seconds=greatest(seconds,15),finalized=true WHERE NOT finalized AND heartbeat_at<now()-interval '90 seconds' AND ($1='' OR user_id=$1)`, user)
+	return e
+}
+
+// monitorVoice is the server's side of a live session: it records transcripts, runs
+// delegations, relays replies and ends the session. It bills what was used whenever that can
+// be known: the provider's final usage, or the connected time it observed once the session is
+// known to be over. A session it can neither observe nor end keeps its reservation, which the
+// stale sweep finalizes once heartbeats stop.
+func (a *App) monitorVoice(parent context.Context, conn *websocket.Conn, id, provider, project, owner string, maxSeconds int) {
+	// The sideband outlives a stop request long enough to end the session properly.
+	ctx, cancel := context.WithCancel(context.WithoutCancel(parent))
 	defer cancel()
-	defer conn.CloseNow()
+	defer func() { conn.CloseNow() }()
 	events := make(chan live.Event, 64)
-	readError := make(chan error, 1)
-	go func() {
+	dropped := make(chan error, 1)
+	read := func(conn *websocket.Conn) {
 		for {
 			var ev live.Event
 			if e := wsjson.Read(ctx, conn, &ev); e != nil {
-				readError <- e
+				dropped <- e
 				return
 			}
 			select {
@@ -141,40 +202,93 @@ func (a *App) monitorVoice(parent context.Context, conn *websocket.Conn, id, pro
 				return
 			}
 		}
-	}()
+	}
+	go read(conn)
 	tick := time.NewTicker(2 * time.Second)
 	defer tick.Stop()
 	started := time.Now()
 	lastSpeech := started
 	closing := time.Time{}
-	finalized := false
+	var giveUp <-chan time.Time
+	sent := false // session.close reached the provider
+	// "closed": the provider reported final usage; "ended": the session is known to be over.
+	outcome := ""
 	defer func() {
 		end, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		status := "interrupted"
-		if finalized {
-			status = "closed"
+		observed := time.Since(started)
+		if !closing.IsZero() {
+			observed = closing.Sub(started)
 		}
-		_, _ = a.DB.Exec(end, `UPDATE voice_sessions SET status=$2,finalized=$3 WHERE id=$1`, id, status, finalized)
+		query, args := `UPDATE voice_sessions SET status='interrupted' WHERE id=$1`, []any{id}
+		switch outcome {
+		case "closed":
+			query = `UPDATE voice_sessions SET status='closed',finalized=true WHERE id=$1`
+		case "ended":
+			query, args = `UPDATE voice_sessions SET status='interrupted',seconds=greatest(seconds,$2,15),finalized=true WHERE id=$1`, []any{id, observed.Seconds()}
+		}
+		if _, e := a.DB.Exec(end, query, args...); e != nil {
+			slog.Error("record voice session end", "session", id, "error", e)
+		}
 	}()
 	lastProgress := ""
 	endAfter := time.Time{}
-	closeCall := func() {
+	closeCall := func(grace time.Duration) {
 		if !closing.IsZero() {
 			return
 		}
-		closing = time.Now()
-		write, c := context.WithTimeout(context.Background(), 3*time.Second)
+		closing, giveUp = time.Now(), time.After(grace)
+		write, c := context.WithTimeout(ctx, 3*time.Second)
 		defer c()
-		_ = wsjson.Write(write, conn, map[string]string{"type": "session.close"})
+		sent = wsjson.Write(write, conn, map[string]string{"type": "session.close"}) == nil
 	}
+	// over reports whether the session is known to have ended; without the sideband it hangs
+	// up over REST.
+	over := func() bool {
+		if sent {
+			return true
+		}
+		hangup, c := context.WithTimeout(ctx, 5*time.Second)
+		defer c()
+		e := a.Live.Hangup(hangup, provider)
+		if e != nil {
+			slog.Warn("voice hangup failed", "session", id, "error", e)
+		}
+		return e == nil
+	}
+	stopping := parent.Done()
 	for {
 		select {
-		case <-parent.Done():
-			closeCall()
+		case <-stopping:
+			// The server is stopping: end the session so nothing accrues unseen, and give the
+			// provider a moment to report its final usage.
+			stopping = nil
+			closeCall(3 * time.Second)
+			if !sent {
+				if over() {
+					outcome = "ended"
+				}
+				return
+			}
+			giveUp = time.After(3 * time.Second) // Also shortens a close already under way.
+		case <-giveUp:
+			if over() {
+				outcome = "ended"
+			}
 			return
-		case <-readError:
-			closeCall()
+		case e := <-dropped:
+			if closing.IsZero() && parent.Err() == nil {
+				slog.Warn("voice sideband dropped", "session", id, "error", e)
+				if next, ok := a.reattachVoice(parent, provider); ok {
+					conn.CloseNow()
+					conn = next
+					go read(conn)
+					continue
+				}
+			}
+			if over() {
+				outcome = "ended"
+			}
 			return
 		case ev := <-events:
 			switch ev.Type {
@@ -189,7 +303,7 @@ func (a *App) monitorVoice(parent context.Context, conn *websocket.Conn, id, pro
 				}
 				_, e := a.DB.Exec(ctx, `INSERT INTO voice_events(project_id,session_id,event_id,role,content) VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING`, project, id, ev.ID, role, ev.Delta)
 				if e != nil {
-					closeCall()
+					closeCall(8 * time.Second)
 				}
 			case "session.delegation.created":
 				if ev.Delegation.ID == "" {
@@ -214,11 +328,13 @@ func (a *App) monitorVoice(parent context.Context, conn *websocket.Conn, id, pro
 				}
 				if e != nil {
 					_ = live.Append(ctx, conn, "commentary", ev.Delegation.ID, publicError(e))
+				} else {
+					a.wake("studio")
 				}
 			case "session.usage.updated", "session.closed":
 				_, _ = a.DB.Exec(ctx, `UPDATE voice_sessions SET seconds=greatest(seconds,$2) WHERE id=$1`, id, ev.Usage.Seconds)
 				if ev.Type == "session.closed" {
-					finalized = true
+					outcome = "closed"
 					return
 				}
 			case "error":
@@ -226,10 +342,7 @@ func (a *App) monitorVoice(parent context.Context, conn *websocket.Conn, id, pro
 			}
 		case <-tick.C:
 			if !closing.IsZero() {
-				if time.Since(closing) > 8*time.Second {
-					return
-				}
-				continue
+				continue // Waiting for session.closed, or giveUp.
 			}
 			var stop bool
 			e := a.DB.QueryRow(ctx, `UPDATE voice_sessions SET heartbeat_at=now(),seconds=greatest(seconds,$2) WHERE id=$1 RETURNING close_requested`, id, time.Since(started).Seconds()).Scan(&stop)
@@ -243,12 +356,12 @@ func (a *App) monitorVoice(parent context.Context, conn *websocket.Conn, id, pro
 				}
 			}
 			if e != nil || stop || time.Since(started) >= time.Duration(maxSeconds)*time.Second {
-				closeCall()
+				closeCall(8 * time.Second)
 				continue
 			}
 			if time.Since(lastSpeech) > 3*time.Minute {
 				_ = live.Append(ctx, conn, "commentary", "", "I'll pause the microphone now to save your voice time. Our conversation is saved; you can resume whenever you're ready.")
-				closeCall()
+				closeCall(8 * time.Second)
 				continue
 			}
 			if e = a.deliverVoiceReplies(ctx, conn, id); e != nil {
@@ -267,6 +380,27 @@ func (a *App) monitorVoice(parent context.Context, conn *websocket.Conn, id, pro
 			}
 		}
 	}
+}
+
+// reattachVoice rejoins a session whose sideband dropped, if the provider allows it, and gives
+// up when the server stops.
+func (a *App) reattachVoice(ctx context.Context, provider string) (*websocket.Conn, bool) {
+	wait := 500 * time.Millisecond
+	for range 3 {
+		select {
+		case <-ctx.Done():
+			return nil, false
+		case <-time.After(wait):
+		}
+		attach, cancel := context.WithTimeout(ctx, 5*time.Second)
+		conn, e := a.Live.Attach(attach, provider)
+		cancel()
+		if e == nil {
+			return conn, true
+		}
+		wait *= 2
+	}
+	return nil, false
 }
 func (a *App) deliverVoiceReplies(ctx context.Context, conn *websocket.Conn, session string) error {
 	rows, e := a.DB.Query(ctx, `SELECT id,CASE WHEN session_id=$1 THEN delegation_id ELSE '' END,reply FROM voice_actions WHERE project_id=(SELECT project_id FROM voice_sessions WHERE id=$1) AND (session_id=$1 OR updated_at>(SELECT created_at FROM voice_sessions WHERE id=$1)) AND status IN ('completed','failed') AND NOT delivered ORDER BY created_at`, session)

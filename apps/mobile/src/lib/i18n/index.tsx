@@ -7,7 +7,7 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import { ActivityIndicator, AppState, Platform, View } from 'react-native';
+import { AppState, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getLocales, useLocales } from 'expo-localization';
 import {
@@ -93,19 +93,16 @@ function useLanguageState() {
   return { preference, language, locale, detected, setLanguage, ready, storageError, t, number };
 }
 const Context = createContext<ReturnType<typeof useLanguageState> | null>(null);
-export function I18nProvider({ children }: { children: React.ReactNode }) {
+export function I18nProvider({
+  children,
+  fallback,
+}: {
+  children: React.ReactNode;
+  /** Shown until the saved language is restored. */
+  fallback: React.ReactNode;
+}) {
   const value = useLanguageState();
-  return (
-    <Context.Provider value={value}>
-      {value.ready ? (
-        children
-      ) : (
-        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-          <ActivityIndicator />
-        </View>
-      )}
-    </Context.Provider>
-  );
+  return <Context.Provider value={value}>{value.ready ? children : fallback}</Context.Provider>;
 }
 export function useI18n() {
   const value = useContext(Context);

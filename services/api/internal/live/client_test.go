@@ -113,6 +113,24 @@ func TestLiveModelEnvironmentReachesSession(t *testing.T) {
 	}
 }
 
+func TestHangupEndsASessionOverREST(t *testing.T) {
+	var got string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Method + " " + r.URL.Path + " " + r.Header.Get("Authorization")
+		if r.URL.Path == "/live/sessions/gone/hangup" {
+			w.WriteHeader(404)
+		}
+	}))
+	defer server.Close()
+	client := &Client{Key: "test-secret", BaseURL: server.URL, HTTP: server.Client()}
+	if e := client.Hangup(context.Background(), "live_test"); e != nil || got != "POST /live/sessions/live_test/hangup Bearer test-secret" {
+		t.Fatal(e, got)
+	}
+	if e := client.Hangup(context.Background(), "gone"); e == nil {
+		t.Fatal("a refused hangup counted as ended")
+	}
+}
+
 func TestAppendSplitsWithoutLosingUnicode(t *testing.T) {
 	original := strings.Repeat("レモンの皮をすりおろして加える。", 100)
 	remaining, joined := original, ""

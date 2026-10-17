@@ -12,7 +12,10 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/gofiber/fiber/v3"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"savorly/api/internal/narration"
 )
@@ -45,7 +48,7 @@ func (a *App) narrationStep(c fiber.Ctx) (string, string, int, error) {
 
 func (a *App) prepareNarration(c fiber.Ctx) error {
 	if !a.Narrator.Enabled() {
-		return fiber.NewError(503, "Natural narration is not configured.")
+		return fiber.NewError(503, "Natural-voice read-aloud isn't set up on this server.")
 	}
 	id, text, step, err := a.narrationStep(c)
 	if err != nil {
@@ -79,7 +82,7 @@ func (a *App) prepareNarration(c fiber.Ctx) error {
 			return err
 		})
 		if err != nil {
-			return fiber.NewError(503, "Narration is busy. Please try again.")
+			return fiber.NewError(503, "Read-aloud is busy. Please try again.")
 		}
 	}
 	c.Set("Cache-Control", "no-store")
@@ -96,10 +99,12 @@ func (a *App) generateNarration(ctx context.Context, key, recipe, owner, text st
 	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,7182303))`, key); err != nil {
 		return err
 	}
-	var audio []byte
-	err = tx.QueryRow(ctx, `SELECT audio FROM recipe_narrations WHERE cache_key=$1`, key).Scan(&audio)
+	cached, err := loadNarration(ctx, tx, key)
 	if err == nil {
-		_, err = stream.Write(audio)
+		var audio []byte
+		if audio, err = a.narrationBytes(ctx, cached); err == nil {
+			_, err = stream.Write(audio)
+		}
 		return err
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
@@ -135,15 +140,125 @@ func (a *App) generateNarration(ctx context.Context, key, recipe, owner, text st
 	if err = a.Narrator.Generate(ctx, text, stream); err != nil {
 		return err
 	}
-	if _, err = tx.Exec(ctx, `INSERT INTO recipe_narrations(cache_key,recipe_id,audio) VALUES($1,$2,$3)`, key, recipe, stream.Bytes()); err != nil {
-		return err
+	audio := stream.Bytes()
+	object := a.storeNarration(ctx, audio)
+	if object == "" {
+		_, err = tx.Exec(ctx, `INSERT INTO recipe_narrations(cache_key,recipe_id,audio) VALUES($1,$2,$3)`, key, recipe, audio)
+	} else {
+		_, err = tx.Exec(ctx, `INSERT INTO recipe_narrations(cache_key,recipe_id,object_key,size) VALUES($1,$2,$3,$4)`, key, recipe, object, len(audio))
 	}
-	return tx.Commit(ctx)
+	if err == nil {
+		err = tx.Commit(ctx)
+	}
+	if err != nil && object != "" {
+		// The worker that clears the private bucket removes the stray recording.
+		_, _ = a.DB.Exec(context.Background(), `INSERT INTO source_deletions(object_key) VALUES($1) ON CONFLICT DO NOTHING`, object)
+	}
+	return err
+}
+
+// storeNarration puts a new recording in the private bucket and returns its key, or "" to keep
+// it in Postgres: without object storage, or if the upload fails (the audio is paid for).
+func (a *App) storeNarration(ctx context.Context, audio []byte) string {
+	if a.Media == nil || a.Media.S3 == nil || a.Media.SourceBucket == "" {
+		return ""
+	}
+	if e := a.Media.ensureSourceBucket(ctx, a.Config.Production); e != nil {
+		slog.Warn("narration storage unavailable", "error", e)
+		return ""
+	}
+	// A fresh name per recording: a purged one's deletion can't remove its replacement.
+	key := "narration/" + uuid.NewString() + "." + narration.Format
+	_, e := a.Media.S3.PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String(a.Media.SourceBucket), Key: aws.String(key), Body: bytes.NewReader(audio), ContentType: aws.String("audio/mpeg"), CacheControl: aws.String("private,no-store")})
+	if e != nil {
+		slog.Warn("store narration audio", "error", e)
+		return ""
+	}
+	return key
+}
+
+// storedNarration is a cached recording: bytes in the row (older rows, or no object storage)
+// or an object in the private bucket.
+type storedNarration struct {
+	audio  []byte
+	object string
+	size   int64
+	stale  bool // last used over an hour ago
+}
+
+func loadNarration(ctx context.Context, q querier, key string) (storedNarration, error) {
+	var n storedNarration
+	e := q.QueryRow(ctx, `SELECT audio,COALESCE(object_key,''),COALESCE(size,octet_length(audio)),last_used_at<now()-interval '1 hour' FROM recipe_narrations WHERE cache_key=$1`, key).Scan(&n.audio, &n.object, &n.size, &n.stale)
+	return n, e
+}
+
+// narrationBytes reads a whole recording, for a stream that replays the cache.
+func (a *App) narrationBytes(ctx context.Context, n storedNarration) ([]byte, error) {
+	if n.object == "" {
+		return n.audio, nil
+	}
+	if a.Media == nil || a.Media.S3 == nil {
+		return nil, errors.New("narration storage is not configured")
+	}
+	out, e := a.Media.S3.GetObject(ctx, &s3.GetObjectInput{Bucket: aws.String(a.Media.SourceBucket), Key: aws.String(n.object)})
+	if e != nil {
+		return nil, e
+	}
+	defer out.Body.Close()
+	return io.ReadAll(io.LimitReader(out.Body, 8<<20))
+}
+
+// sendStoredNarration answers with a cached recording, streaming an object from storage
+// (with Range support) rather than holding it in memory.
+func (a *App) sendStoredNarration(c fiber.Ctx, key string, n storedNarration) error {
+	if n.stale {
+		// Purging goes by last use; an hour's precision saves a write per play.
+		if _, e := a.DB.Exec(c.Context(), `UPDATE recipe_narrations SET last_used_at=now() WHERE cache_key=$1`, key); e != nil {
+			slog.Warn("touch narration", "error", e)
+		}
+	}
+	if n.object == "" {
+		return sendNarration(c, n.audio)
+	}
+	if a.Media == nil || a.Media.S3 == nil {
+		return fiber.NewError(503, "Read-aloud is unavailable.")
+	}
+	in := &s3.GetObjectInput{Bucket: aws.String(a.Media.SourceBucket), Key: aws.String(n.object)}
+	status, length := 200, n.size
+	c.Set("Accept-Ranges", "bytes")
+	if c.Get("Range") != "" {
+		r, err := c.Range(n.size)
+		if err != nil || r.Type != "bytes" || len(r.Ranges) != 1 {
+			c.Set("Content-Range", fmt.Sprintf("bytes */%d", n.size))
+			return c.SendStatus(416)
+		}
+		part := r.Ranges[0]
+		in.Range = aws.String(fmt.Sprintf("bytes=%d-%d", part.Start, part.End))
+		status, length = 206, int64(part.End-part.Start+1)
+		c.Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", part.Start, part.End, n.size))
+	}
+	parent := a.Context
+	if parent == nil {
+		parent = context.Background()
+	}
+	// The body is read after the handler returns, so it gets its own deadline.
+	ctx, cancel := context.WithTimeout(parent, 2*time.Minute)
+	out, e := a.Media.S3.GetObject(ctx, in)
+	if e != nil {
+		cancel()
+		if storageNotFound(e) {
+			// Lost from storage: drop the row so the next read-aloud records it again.
+			_, _ = a.DB.Exec(c.Context(), `DELETE FROM recipe_narrations WHERE cache_key=$1 AND object_key=$2`, key, n.object)
+			return fiber.NewError(404, "This read-aloud wasn't found.")
+		}
+		return e
+	}
+	return c.Status(status).SendStream(&narrationResponse{Reader: out.Body, close: func() { cancel(); out.Body.Close() }}, int(length))
 }
 
 func (a *App) readNarration(c fiber.Ctx) error {
 	if a.Narrator == nil {
-		return fiber.NewError(503, "Narration unavailable.")
+		return fiber.NewError(503, "Read-aloud is unavailable.")
 	}
 	id, text, step, err := a.narrationStep(c)
 	if err != nil {
@@ -151,7 +266,7 @@ func (a *App) readNarration(c fiber.Ctx) error {
 	}
 	key := narrationKey(id, step, text, a.Narrator.Voice)
 	if c.Params("key") != key {
-		return fiber.NewError(404, "Narration not found.")
+		return fiber.NewError(404, "This read-aloud wasn't found.")
 	}
 	c.Set("Content-Type", "audio/mpeg")
 	c.Set("Cache-Control", "private, no-cache")
@@ -162,11 +277,10 @@ func (a *App) readNarration(c fiber.Ctx) error {
 		parent = context.Background()
 	}
 	ctx, cancel := context.WithTimeout(parent, 26*time.Second)
-	var audio []byte
-	err = a.DB.QueryRow(ctx, `SELECT audio FROM recipe_narrations WHERE cache_key=$1`, key).Scan(&audio)
+	stored, err := loadNarration(ctx, a.DB, key)
 	if err == nil {
 		cancel()
-		return sendNarration(c, audio)
+		return a.sendStoredNarration(c, key, stored)
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
 		cancel()
@@ -178,9 +292,9 @@ func (a *App) readNarration(c fiber.Ctx) error {
 			// iOS may probe with bytes=0-1; it needs an accurate total length.
 			defer cancel()
 			defer reader.Close()
-			audio, err = io.ReadAll(reader)
+			audio, err := io.ReadAll(reader)
 			if err != nil {
-				return fiber.NewError(502, "Narration unavailable.")
+				return fiber.NewError(502, "Read-aloud is unavailable.")
 			}
 			return sendNarration(c, audio)
 		}
@@ -189,7 +303,7 @@ func (a *App) readNarration(c fiber.Ctx) error {
 		if _, err = io.ReadFull(reader, first); err != nil {
 			cancel()
 			reader.Close()
-			return fiber.NewError(502, "Narration unavailable.")
+			return fiber.NewError(502, "Read-aloud is unavailable.")
 		}
 		// A full-file bytes=0- request can receive a 200 chunked response while
 		// the length is unknown. Do not buffer Chrome/Android's normal request.
@@ -197,18 +311,19 @@ func (a *App) readNarration(c fiber.Ctx) error {
 		return c.SendStream(&narrationResponse{Reader: io.MultiReader(bytes.NewReader(first), reader), close: func() { cancel(); reader.Close() }})
 	}
 	// A load balancer may send the GET to a different replica. Wait for the
-	// shared cache instead of starting a second paid generation.
+	// shared cache instead of starting a second paid generation. A row with an
+	// object key is written only after its upload, so the object is there to read.
 	defer cancel()
 	tick := time.NewTicker(100 * time.Millisecond)
 	defer tick.Stop()
 	for {
 		select {
 		case <-ctx.Done():
-			return fiber.NewError(504, "Narration is not ready.")
+			return fiber.NewError(504, "This read-aloud isn't ready yet.")
 		case <-tick.C:
-			err = a.DB.QueryRow(ctx, `SELECT audio FROM recipe_narrations WHERE cache_key=$1`, key).Scan(&audio)
+			stored, err = loadNarration(ctx, a.DB, key)
 			if err == nil {
-				return sendNarration(c, audio)
+				return a.sendStoredNarration(c, key, stored)
 			}
 			if !errors.Is(err, pgx.ErrNoRows) {
 				return err

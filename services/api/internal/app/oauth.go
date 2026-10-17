@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -75,7 +76,9 @@ func (a *App) authNonce(c fiber.Ctx) error {
 
 type providerIdentity struct {
 	Provider, Subject, Email, Name, ClientID string
-	EmailVerified                            bool
+	// Google's profile photo, which starts a new kitchen's own.
+	Picture       string
+	EmailVerified bool
 }
 
 func (a *App) verifyIdentity(ctx context.Context, provider, raw string) (providerIdentity, error) {
@@ -94,8 +97,8 @@ func (a *App) verifyIdentity(ctx context.Context, provider, raw string) (provide
 		}
 	}
 	var claims struct {
-		Email, Name, Nonce string
-		EmailVerified      json.RawMessage `json:"email_verified"` // Apple sends "true" as a string
+		Email, Name, Nonce, Picture string
+		EmailVerified               json.RawMessage `json:"email_verified"` // Apple sends "true" as a string
 	}
 	if e = tok.Claims(&claims); e != nil || id.ClientID == "" || tok.Subject == "" {
 		return providerIdentity{}, fiber.NewError(401, "That sign-in couldn't be verified. Please try again.")
@@ -107,7 +110,7 @@ func (a *App) verifyIdentity(ctx context.Context, provider, raw string) (provide
 	if claims.Nonce == "" || r.RowsAffected() == 0 {
 		return providerIdentity{}, fiber.NewError(401, "That sign-in expired. Please try again.")
 	}
-	id.Email, id.Name = strings.ToLower(strings.TrimSpace(claims.Email)), claims.Name
+	id.Email, id.Name, id.Picture = strings.ToLower(strings.TrimSpace(claims.Email)), claims.Name, providerPhoto(claims.Picture)
 	id.EmailVerified = string(claims.EmailVerified) == "true" || string(claims.EmailVerified) == `"true"`
 	return id, nil
 }
@@ -119,11 +122,23 @@ func (a *App) signedInUser(c fiber.Ctx) string {
 	return id
 }
 
-func providerName(p string) string {
-	if p == "apple" {
-		return "Apple"
+// providerPhoto keeps a provider's HTTPS profile photo, asking Google for a size that stays
+// sharp at profile scale (its URLs end in a size such as "=s96-c").
+func providerPhoto(raw string) string {
+	if !strings.HasPrefix(raw, "https://") || len(raw) > 2000 || !validMedia(raw) {
+		return ""
 	}
-	return "Google"
+	return googleSize.ReplaceAllString(raw, "=s512-c")
+}
+
+var googleSize = regexp.MustCompile(`=s\d+(-c)?$`)
+
+// providerMessage picks the sentence written for the provider, so the app can translate it whole.
+func providerMessage(p, apple, google string) string {
+	if p == "apple" {
+		return apple
+	}
+	return google
 }
 
 func (a *App) oauthSignIn(c fiber.Ctx) error {
@@ -138,11 +153,12 @@ func (a *App) oauthSignIn(c fiber.Ctx) error {
 	}
 	current := a.signedInUser(c)
 	var owner string
+	created := false
 	e = a.DB.QueryRow(ctx, `SELECT user_id FROM identities WHERE provider=$1 AND subject=$2`, id.Provider, id.Subject).Scan(&owner)
 	switch {
 	case e == nil:
 		if current != "" && current != owner {
-			return fiber.NewError(409, "This "+providerName(id.Provider)+" account is already connected to a different Savorly kitchen.")
+			return fiber.NewError(409, providerMessage(id.Provider, "This Apple account is already connected to a different Savorly kitchen.", "This Google account is already connected to a different Savorly kitchen."))
 		}
 	case !errors.Is(e, pgx.ErrNoRows):
 		return e
@@ -153,6 +169,13 @@ func (a *App) oauthSignIn(c fiber.Ctx) error {
 		}
 	default:
 		if owner, e = a.createProviderUser(ctx, id, in.Name); e != nil {
+			return e
+		}
+		created = true
+	}
+	// A provider that verified this same address proves the kitchen's email, as a reset code does.
+	if id.EmailVerified && id.Email != "" {
+		if _, e = a.DB.Exec(ctx, `UPDATE users SET email_verified=true WHERE id=$1 AND email=$2 AND NOT email_verified`, owner, id.Email); e != nil {
 			return e
 		}
 	}
@@ -167,19 +190,22 @@ func (a *App) oauthSignIn(c fiber.Ctx) error {
 	if current != "" {
 		return c.JSON(fiber.Map{"ok": true, "connected": id.Provider})
 	}
-	return a.session(c, owner)
+	return a.session(c, owner, created)
 }
 
 func (a *App) createProviderUser(ctx context.Context, id providerIdentity, name string) (string, error) {
 	if id.Email == "" || !id.EmailVerified {
-		return "", fiber.NewError(400, "Your "+providerName(id.Provider)+" account needs a verified email to create a kitchen.")
+		return "", fiber.NewError(400, providerMessage(id.Provider, "Your Apple account needs a verified email to create a kitchen.", "Your Google account needs a verified email to create a kitchen."))
+	}
+	if e := a.signupsOpen(ctx); e != nil {
+		return "", e
 	}
 	var taken bool
 	if e := a.DB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE email=$1)`, id.Email).Scan(&taken); e != nil {
 		return "", e
 	}
 	if taken {
-		return "", fiber.NewError(409, "A kitchen already uses this email. Sign in with your password, then connect "+providerName(id.Provider)+" from My kitchen.")
+		return "", fiber.NewError(409, providerMessage(id.Provider, "A kitchen already uses this email. Sign in with your password, then connect Apple from My kitchen.", "A kitchen already uses this email. Sign in with your password, then connect Google from My kitchen."))
 	}
 	name = strings.TrimSpace(name)
 	if !validText(name, 2, 70) {
@@ -188,14 +214,29 @@ func (a *App) createProviderUser(ctx context.Context, id providerIdentity, name 
 	if !validText(name, 2, 70) {
 		name = "Savorly cook"
 	}
+	// A suggested handle can be claimed by a sign-up racing this one; pick again if so.
+	for try := 0; ; try++ {
+		owner, e := a.insertProviderUser(ctx, id, name)
+		if handleConflict(e) && try < 2 {
+			continue
+		}
+		return owner, e
+	}
+}
+
+func (a *App) insertProviderUser(ctx context.Context, id providerIdentity, name string) (string, error) {
 	owner := uuid.NewString()
 	tx, e := a.DB.Begin(ctx)
 	if e != nil {
 		return "", e
 	}
 	defer tx.Rollback(ctx)
+	handle, e := freeHandle(ctx, tx, name)
+	if e != nil {
+		return "", e
+	}
 	// "!" is never a bcrypt hash: no password works until the owner sets one by email.
-	if _, e = tx.Exec(ctx, `INSERT INTO users(id,email,password_hash,name,handle,email_verified) VALUES($1,$2,'!',$3,$4,true)`, owner, id.Email, name, newHandle(name, owner)); e != nil {
+	if _, e = tx.Exec(ctx, `INSERT INTO users(id,email,password_hash,name,handle,avatar,email_verified) VALUES($1,$2,'!',$3,$4,$5,true)`, owner, id.Email, name, handle, id.Picture); e != nil {
 		return "", e
 	}
 	if _, e = tx.Exec(ctx, `INSERT INTO identities(provider,subject,user_id,email) VALUES($1,$2,$3,$4)`, id.Provider, id.Subject, owner, id.Email); e != nil {
