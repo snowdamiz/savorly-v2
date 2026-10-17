@@ -422,13 +422,14 @@ test('Chat it writes a new recipe in a conversation of its own, and the sous-che
   await expect(
     page.getByText('Noted: Grandma’s lemon toast, for two.', { exact: true }),
   ).toBeVisible();
-  // The launcher opens it as an ordinary conversation.
+  // The launcher picks it up too, still about the new recipe until it's published.
   await page.getByRole('button', { name: 'Close the sous-chef', exact: true }).click();
   await page.getByRole('button', { name: 'Ask your sous-chef' }).click();
   await expect(
     page.getByText('Noted: Grandma’s lemon toast, for two.', { exact: true }),
   ).toBeVisible();
-  await expect.poll(() => state.contexts.at(-1)).toMatchObject({ purpose: '' });
+  await expect(page.getByText('New recipe', { exact: true })).toBeVisible();
+  await expect.poll(() => state.contexts.at(-1)).toMatchObject({ purpose: 'recipe' });
   expect(state.messages).toEqual(['Find me a quick dinner', 'Grandma’s lemon toast, for two.']);
 });
 

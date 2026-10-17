@@ -387,9 +387,10 @@ function Shell({ onReady }: { onReady: (ready: boolean) => void }) {
     return () => sub.remove();
   }, [openById, openCookbook, toTop]);
   const openSousChef = () => (studio ? setStudioHidden(false) : startStudio('chat'));
-  // The screens' sous-chef cards open the same conversation, with their prompt as the message.
-  const askSousChef = (message?: string) =>
-    message ? startStudio('chat', { message }) : openSousChef();
+  // The screens' sous-chef cards open the same conversation, with their prompt as the message;
+  // one that asks for a new recipe opens it for writing one.
+  const askSousChef = (message?: string, recipe?: boolean) =>
+    message ? startStudio('chat', { message, recipe }) : openSousChef();
   const recipeAt = (id: string) => api<Recipe>(`/recipes/${encodeURIComponent(id)}`);
   const act = (action: AppAction) => {
     if (action.type === 'set_language') void setLanguage(action.language as LanguagePreference);

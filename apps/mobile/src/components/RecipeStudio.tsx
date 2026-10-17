@@ -181,9 +181,14 @@ export function RecipeStudio({
   const dock = useSousChefDock();
   const floating = !!dock.panel;
   const [project, setProject] = useState<StudioProject | null>(null);
-  // The conversation a start from Create a recipe writes its new recipe in, and that start.
+  // The conversation a start from Create a recipe writes its new recipe in, and that start. A
+  // conversation opened for a new recipe stays about it, however it's reopened, until the recipe
+  // is published.
   const [recipeFor, setRecipeFor] = useState<{ project: string; n: number } | null>(null);
-  const writing = !!project && recipeFor?.project === project.id;
+  const writing =
+    !!project &&
+    project.status !== 'published' &&
+    (recipeFor?.project === project.id || project.purpose === 'recipe');
   // The start the sheet opened with.
   const [opening] = useState(start);
   const [events, setEvents] = useState<StudioEvent[]>([]);
@@ -649,12 +654,12 @@ export function RecipeStudio({
   // A start's message goes once, as soon as the conversation can take it.
   const prompted = useRef(0);
   useEffect(() => {
-    if (!start.message || prompted.current === start.n || !ready) return;
+    if (!start.message || prompted.current === start.n || !ready || !placed) return;
     prompted.current = start.n;
     void send(start.message, null);
     // Sent once per start; send itself changes every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [start, ready]);
+  }, [start, ready, placed]);
   const groups = mergeEvents(events);
   // The reply that arrives as the thinking bubble goes grows out of it.
   const thinking = !!project?.busy;
