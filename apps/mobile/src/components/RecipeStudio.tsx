@@ -258,13 +258,18 @@ export function RecipeStudio({
   }, []);
   const selectProject = useCallback(
     async (next: StudioProject) => {
+      // Words or a photo the cook added while the first conversation was still loading belong to
+      // it; moving to another conversation starts with an empty composer.
+      const another = projectRef.current !== null && projectRef.current.id !== next.id;
       await stop();
       cursor.current = 0;
       setEvents([]);
-      setAttachment(null);
+      if (another) {
+        setAttachment(null);
+        setText('');
+      }
       setCaption(null);
       setError('');
-      setText('');
       setBrowsing(false);
       pending.current = null;
       loaded.current = false;

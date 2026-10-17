@@ -317,6 +317,29 @@ async function fakeVoice(page: Page) {
   });
 }
 
+test('words typed while the conversation is still loading stay in the box', async ({ page }) => {
+  await mockStudio(page);
+  // Hold the list of conversations, as a slow connection would.
+  let release!: () => void;
+  const loading = new Promise<void>((resolve) => (release = resolve));
+  await page.route('**/v1/recipe-studio', async (route) => {
+    if (route.request().method() === 'GET') await loading;
+    await route.fallback();
+  });
+  await page.goto('/');
+  await startRecipe(page, 'Chat to create a recipe');
+  const composer = page.getByRole('textbox', { name: 'Message your sous-chef' });
+  await composer.fill('I make lemon toast. Make it into a recipe.');
+  release();
+  const send = page.getByRole('button', { name: 'Send message' });
+  await expect(send).toBeEnabled();
+  await expect(composer).toHaveValue('I make lemon toast. Make it into a recipe.');
+  await send.click();
+  await expect(
+    page.getByText('How many slices of bread do you use?', { exact: true }),
+  ).toBeVisible();
+});
+
 test('chat clarifies, saves a complete recipe with both media jobs, and resumes', async ({
   page,
 }, testInfo) => {
