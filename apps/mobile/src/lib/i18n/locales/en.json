@@ -460,7 +460,6 @@
   "AI suggestions can be wrong. Check allergens, doneness and labels yourself.": "AI suggestions can be wrong. Check allergens, doneness and labels yourself.",
   "Sous-chef history": "Sous-chef history",
   "Nothing cooked up yet": "Nothing cooked up yet",
-  "Ask for a swap, a twist or a whole recipe from any recipe, your pantry or the planner.": "Ask for a swap, a twist or a whole recipe from any recipe, your pantry or the planner.",
   "Failed": "Failed",
   "Working": "Working",
   "Get started": "Get started",
@@ -479,7 +478,6 @@
   "Add to cookbook": "Add to cookbook",
   "Watch video": "Watch video",
   "Ask": "Ask",
-  "A {{v0}} version": "A {{v0}} version",
   "Saved to {{v0}}": "Saved to {{v0}}",
   "More protein": "More protein",
   "Quicker": "Quicker",
@@ -1379,5 +1377,6 @@
   "{{v0}} left": "{{v0}} left",
   "Resume voice": "Resume voice",
   "Marked {{title}} as cooked": "Marked {{title}} as cooked",
-  "Reading the page…": "Reading the page…"
+  "Reading the page…": "Reading the page…",
+  "Photos and clips you make in the editor show up here, with photo touch-ups and imported recipes.": "Photos and clips you make in the editor show up here, with photo touch-ups and imported recipes."
 }

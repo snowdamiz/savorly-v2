@@ -29,7 +29,7 @@ func lastReply(t *testing.T, f *fiber.App, p string) (seq int64, effects []recei
 		Failed  bool
 		Effects []receipt
 	}
-	status, b := studioReq(t, f, "GET", "/studio/"+p+"/events", "cook", "", nil)
+	status, b := studioEventsOf(t, f, p, "cook")
 	if status != 200 || json.Unmarshal(b, &events) != nil {
 		t.Fatalf("events %d %s", status, b)
 	}

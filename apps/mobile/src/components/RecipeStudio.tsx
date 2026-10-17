@@ -250,13 +250,10 @@ export function RecipeStudio({
     await current?.close();
   }, []);
   const refresh = useCallback(async (id: string) => {
-    // The conversation comes with what's new in it; an older server sends that separately.
-    const after = cursor.current;
-    const { events: included, ...next } = await api<StudioProject & { events?: StudioEvent[] }>(
-      `/recipe-studio/${id}?after=${after}`,
-    );
-    const incoming =
-      included ?? (await api<StudioEvent[]>(`/recipe-studio/${id}/events?after=${after}`));
+    // The conversation comes with what's new in it.
+    const { events: incoming = [], ...next } = await api<
+      StudioProject & { events?: StudioEvent[] }
+    >(`/recipe-studio/${id}?after=${cursor.current}`);
     if (!live.current || projectRef.current?.id !== id) return;
     projectRef.current = next;
     setProject(next);

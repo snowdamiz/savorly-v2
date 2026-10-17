@@ -11,7 +11,7 @@ import (
 
 func clearModelEnv(t *testing.T) {
 	t.Helper()
-	for _, key := range []string{"OPENROUTER_TEXT_MODEL", "OPENROUTER_RECIPE_MODEL", "OPENROUTER_AGENT_MODEL", "OPENROUTER_VOICE_MODEL", "OPENROUTER_IMAGE_MODEL", "OPENROUTER_IMAGE_EDIT_MODEL"} {
+	for _, key := range []string{"OPENROUTER_RECIPE_MODEL", "OPENROUTER_AGENT_MODEL", "OPENROUTER_VOICE_MODEL", "OPENROUTER_IMAGE_MODEL", "OPENROUTER_IMAGE_EDIT_MODEL"} {
 		t.Setenv(key, "")
 	}
 }
@@ -19,66 +19,50 @@ func clearModelEnv(t *testing.T) {
 func TestModelConfiguration(t *testing.T) {
 	clearModelEnv(t)
 	c := New()
-	if c.TextModel != "openai/gpt-6-luna" || c.RecipeModel != "openai/gpt-6.1-sol" || c.AgentModel != "openai/gpt-6-luna" || c.ImageModel != "openai/gpt-image-2.5-flare" || c.ImageEditModel != "openai/gpt-image-2.5-sunburst" {
+	if c.RecipeModel != "openai/gpt-6.1-sol" || c.AgentModel != "openai/gpt-6-luna" || c.ImageModel != "openai/gpt-image-2.5-flare" || c.ImageEditModel != "openai/gpt-image-2.5-sunburst" {
 		t.Fatal("model defaults drifted from the documented configuration")
 	}
 	t.Setenv("OPENROUTER_VOICE_MODEL", "legacy/agent")
 	if New().AgentModel != "legacy/agent" {
 		t.Fatal("legacy deployments lost their agent override")
 	}
-	t.Setenv("OPENROUTER_TEXT_MODEL", "custom/text")
 	t.Setenv("OPENROUTER_RECIPE_MODEL", "custom/recipe")
 	t.Setenv("OPENROUTER_AGENT_MODEL", "custom/agent")
 	t.Setenv("OPENROUTER_IMAGE_MODEL", "custom/image")
 	t.Setenv("OPENROUTER_IMAGE_EDIT_MODEL", "custom/edit")
 	c = New()
-	if c.TextModel != "custom/text" || c.RecipeModel != "custom/recipe" || c.AgentModel != "custom/agent" || c.ImageModel != "custom/image" || c.ImageEditModel != "custom/edit" {
+	if c.RecipeModel != "custom/recipe" || c.AgentModel != "custom/agent" || c.ImageModel != "custom/image" || c.ImageEditModel != "custom/edit" {
 		t.Fatal("explicit model overrides were ignored")
 	}
 }
 
-func TestTextTasksRouteToConfiguredModels(t *testing.T) {
-	t.Setenv("OPENROUTER_TEXT_MODEL", "configured/fast")
+func TestRecipesUseTheRecipeModel(t *testing.T) {
 	t.Setenv("OPENROUTER_RECIPE_MODEL", "configured/detailed")
-	for _, tc := range []struct {
-		kind, model, effort, sort string
-		tokens                    int
-	}{
-		{"recipe", "configured/detailed", "medium", "throughput", 8192},
-		{"adapt", "configured/detailed", "medium", "throughput", 8192},
-		{"plan", "configured/detailed", "medium", "throughput", 8192},
-		{"substitute", "configured/fast", "low", "latency", 3500},
-		{"nutrition", "configured/fast", "low", "latency", 3500},
-		{"assistant", "configured/fast", "low", "latency", 3500},
-	} {
-		t.Run(tc.kind, func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				var body map[string]any
-				if e := json.NewDecoder(r.Body).Decode(&body); e != nil {
-					t.Error(e)
-					return
-				}
-				if body["model"] != tc.model || body["max_tokens"] != float64(tc.tokens) {
-					t.Errorf("wrong model/token budget: %v", body)
-				}
-				if !reflect.DeepEqual(body["reasoning"], map[string]any{"effort": tc.effort, "exclude": true}) {
-					t.Errorf("wrong reasoning: %v", body["reasoning"])
-				}
-				if !reflect.DeepEqual(body["provider"], map[string]any{"sort": tc.sort, "require_parameters": true}) {
-					t.Errorf("wrong routing: %v", body["provider"])
-				}
-				if body["response_format"].(map[string]any)["type"] != "json_object" {
-					t.Error("JSON mode lost")
-				}
-				w.Write([]byte(`{"choices":[{"message":{"content":"{\"text\":\"Ready.\"}"}}]}`))
-			}))
-			defer server.Close()
-			c := New()
-			c.OpenRouterURL = server.URL
-			if _, e := c.Text(context.Background(), tc.kind, "Make a dinner with lentils."); e != nil {
-				t.Fatal(e)
-			}
-		})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if e := json.NewDecoder(r.Body).Decode(&body); e != nil {
+			t.Error(e)
+			return
+		}
+		if body["model"] != "configured/detailed" || body["max_tokens"] != float64(8192) {
+			t.Errorf("wrong model/token budget: %v", body)
+		}
+		if !reflect.DeepEqual(body["reasoning"], map[string]any{"effort": "medium", "exclude": true}) {
+			t.Errorf("wrong reasoning: %v", body["reasoning"])
+		}
+		if !reflect.DeepEqual(body["provider"], map[string]any{"sort": "throughput", "require_parameters": true}) {
+			t.Errorf("wrong routing: %v", body["provider"])
+		}
+		if body["response_format"].(map[string]any)["type"] != "json_object" {
+			t.Error("JSON mode lost")
+		}
+		w.Write([]byte(`{"choices":[{"message":{"content":"{\"recipe\":{\"title\":\"Lentil soup\"}}"}}]}`))
+	}))
+	defer server.Close()
+	c := New()
+	c.OpenRouterURL = server.URL
+	if _, e := c.Recipe(context.Background(), "Import the recipe on this web page: https://cook.example/soup"); e != nil {
+		t.Fatal(e)
 	}
 }
 

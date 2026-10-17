@@ -115,24 +115,15 @@ export function SousChef({
   onClose: () => void;
   onRecipe: (r: RecipeInput) => void;
 }) {
-  const { t: tr, number, language } = useI18n();
+  const { t: tr, number } = useI18n();
   const app = useApp();
   const { kind } = request;
   const [prompt, setPrompt] = useState(() => tr(request.prompt || ''));
   const [job, setJob] = useState<AIJob | null>(null);
   const [error, setError] = useState('');
-  const enabled =
-    kind === 'video'
-      ? app.capabilities?.videoAI
-      : kind === 'image'
-        ? app.capabilities?.imageAI
-        : app.capabilities?.textAI;
+  const enabled = kind === 'video' ? app.capabilities?.videoAI : app.capabilities?.imageAI;
   const prepare = (ask: string) => {
-    const prefs =
-      kind === 'image' || kind === 'video'
-        ? ''
-        : `\nDietary preferences (always verify ingredient labels): ${JSON.stringify(app.user?.preferences || {})}`;
-    const body = `${ask}\nPlease respond in ${language}.${request.context ? `\n\nContext: ${request.context}` : ''}${prefs}`;
+    const body = `${ask}${request.context ? `\n\nContext: ${request.context}` : ''}`;
     return { kind, prompt: body.slice(0, 12000), key: requestKey() };
   };
   // Capture each submission once, including its idempotency key. Effect replay must not create
@@ -237,10 +228,7 @@ export function SousChef({
               <JobResult
                 bare
                 job={job}
-                // An adaptation keeps a link to the recipe it came from.
-                onRecipe={(r) =>
-                  onRecipe(request.derivedFrom ? { ...r, derivedFrom: request.derivedFrom } : r)
-                }
+                onRecipe={onRecipe}
                 onMedia={
                   request.onMedia &&
                   ((url) => {
@@ -383,7 +371,7 @@ export function SousChefHistory({
         <Empty
           title={tr('Nothing cooked up yet')}
           text={tr(
-            'Ask for a swap, a twist or a whole recipe from any recipe, your pantry or the planner.',
+            'Photos and clips you make in the editor show up here, with photo touch-ups and imported recipes.',
           )}
           icon={Sparkles}
         />

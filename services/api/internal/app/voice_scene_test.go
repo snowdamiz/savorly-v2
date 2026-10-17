@@ -230,16 +230,22 @@ func TestAVoiceTurnThatOnlyMovesTheScreenEndsInOneRound(t *testing.T) {
 	if e := a.DB.QueryRow(ctx, `SELECT actions::text FROM voice_events WHERE project_id=$1 AND role='assistant' ORDER BY seq DESC LIMIT 1`, p).Scan(&actions); e != nil || !strings.Contains(actions, `"start_cooking"`) {
 		t.Fatal(e, actions)
 	}
+	// Models that write nothing beside a tool call put the reply in app_action's say.
+	saying := map[string]any{"action": "start_cooking", "recipe_id": "toast", "step": 1, "say": "Step 1: toast the bread."}
+	if reply, n := turn(true, orderedCalls("app_action", saying)); n != 1 || reply != "Step 1: toast the bread." {
+		t.Fatalf("a call's screen turn said in say: %d rounds, %q", n, reply)
+	}
 	// Anything else takes the usual second round: a typed chat, a screen action that failed,
 	// a reply not written yet, or another tool.
 	for name, c := range map[string]struct {
 		voice   bool
 		message map[string]any
 	}{
-		"typed":        {false, writing("Step 1: toast the bread.", "app_action", cooking)},
-		"failed":       {true, writing("Opening it.", "app_action", map[string]any{"action": "open_recipe", "recipe_id": "missing"})},
-		"no reply yet": {true, orderedCalls("app_action", cooking)},
-		"another tool": {true, writing("Opening it.", "app_action", cooking, "search_recipes", map[string]any{"query": "toast"})},
+		"typed":         {false, writing("Step 1: toast the bread.", "app_action", cooking)},
+		"typed, saying": {false, orderedCalls("app_action", saying)},
+		"failed":        {true, writing("Opening it.", "app_action", map[string]any{"action": "open_recipe", "recipe_id": "missing"})},
+		"no reply yet":  {true, orderedCalls("app_action", cooking)},
+		"another tool":  {true, writing("Opening it.", "app_action", cooking, "search_recipes", map[string]any{"query": "toast"})},
 	} {
 		if reply, n := turn(c.voice, c.message); n != 2 || reply != "Second round." {
 			t.Errorf("%s: %d rounds, %q", name, n, reply)

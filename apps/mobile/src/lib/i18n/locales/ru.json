@@ -460,7 +460,6 @@
   "AI suggestions can be wrong. Check allergens, doneness and labels yourself.": "ИИ может ошибаться. Проверяйте аллергены, готовность и этикетки самостоятельно.",
   "Sous-chef history": "История помощника",
   "Nothing cooked up yet": "Пока ничего не придумано",
-  "Ask for a swap, a twist or a whole recipe from any recipe, your pantry or the planner.": "Попросите замену, вариацию или целый рецепт на странице блюда, запасов или плана.",
   "Failed": "Ошибка",
   "Working": "В работе",
   "Get started": "Начать",
@@ -479,7 +478,6 @@
   "Add to cookbook": "Добавить в сборник",
   "Watch video": "Смотреть видео",
   "Ask": "Спросить",
-  "A {{v0}} version": "Вариант: {{v0}}",
   "Saved to {{v0}}": "Сохранено в {{v0}}",
   "More protein": "Больше белка",
   "Quicker": "Быстрее",
@@ -1379,5 +1377,6 @@
   "{{v0}} left": "Осталось {{v0}}",
   "Resume voice": "Продолжить голосовой режим",
   "Marked {{title}} as cooked": "Отмечено как приготовленное: {{title}}",
-  "Reading the page…": "Читаю страницу…"
+  "Reading the page…": "Читаю страницу…",
+  "Photos and clips you make in the editor show up here, with photo touch-ups and imported recipes.": "Здесь появятся фото и клипы, которые вы создаёте в редакторе, а также улучшенные фото и импортированные рецепты."
 }

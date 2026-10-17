@@ -98,7 +98,10 @@ func jobServer(db *pgxpool.Pool) *fiber.App {
 	return f
 }
 func jobRequest(f *fiber.App, user, key, prompt string) (int, map[string]any, error) {
-	req := httptest.NewRequest("POST", "/jobs", bytes.NewReader(jsonBytes(fiber.Map{"kind": "recipe", "prompt": prompt})))
+	return jobOf(f, user, key, "image", prompt)
+}
+func jobOf(f *fiber.App, user, key, kind, prompt string) (int, map[string]any, error) {
+	req := httptest.NewRequest("POST", "/jobs", bytes.NewReader(jsonBytes(fiber.Map{"kind": kind, "prompt": prompt})))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Test-User", user)
 	req.Header.Set("Idempotency-Key", key)
@@ -118,7 +121,7 @@ func TestJobIdempotencyAndConcurrentUserLimit(t *testing.T) {
 	testUser(t, db, "cook")
 	free := plans[0]
 	t.Cleanup(func() { plans[0] = free })
-	plans[0].Assistant, plans[0].SpendCap = 2, 100
+	plans[0].Images, plans[0].SpendCap = 2, 100
 	f := jobServer(db)
 	status, first, e := jobRequest(f, "cook", "same-request-key", "Make a lovely lemon pasta")
 	if e != nil || status != 202 {
@@ -165,8 +168,8 @@ func TestJobIdempotencyAndConcurrentUserLimit(t *testing.T) {
 	}
 }
 func TestGlobalGenerationBudgetAcrossAccounts(t *testing.T) {
-	// One full-recipe job now reserves $0.25 for the stronger reasoning model.
-	t.Setenv("AI_DAILY_BUDGET_USD", "0.25")
+	// One photo reserves $0.05.
+	t.Setenv("AI_DAILY_BUDGET_USD", "0.05")
 	db := isolatedDB(t)
 	testUser(t, db, "one")
 	testUser(t, db, "two")
@@ -266,5 +269,22 @@ func TestRecipeGalleryKeptByWritersThatOmitIt(t *testing.T) {
 	}
 	if got := photos(); got != `[]` {
 		t.Fatalf("explicit empty gallery not saved: %s", got)
+	}
+}
+
+// Questions, twists, swaps, nutrition, meal plans and new recipes are the sous-chef's
+// conversation now; only photos and clips are made as jobs.
+func TestJobsMakeOnlyPhotosAndClips(t *testing.T) {
+	t.Setenv("AI_DAILY_BUDGET_USD", "100")
+	db := isolatedDB(t)
+	testUser(t, db, "cook")
+	f := jobServer(db)
+	for _, kind := range []string{"recipe", "adapt", "substitute", "nutrition", "plan", "assistant"} {
+		if status, _, e := jobOf(f, "cook", "key-"+kind, kind, "Make a lovely lemon pasta"); e != nil || status != 400 {
+			t.Errorf("%s job: %d %v", kind, status, e)
+		}
+	}
+	if status, _, e := jobOf(f, "cook", "key-image", "image", "Steam rising from a bowl of soup"); e != nil || status != 202 {
+		t.Fatalf("image job: %d %v", status, e)
 	}
 }

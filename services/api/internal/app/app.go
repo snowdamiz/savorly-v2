@@ -149,7 +149,7 @@ func NewWithContext(ctx context.Context, db *pgxpool.Pool, config Config) *fiber
 			"voiceAI": a.Live.Enabled() && a.AI.TextEnabled(), "voiceModel": a.Live.ModelID(),
 			"voicePerMinuteUSD": 0.05,
 			"recipeChat":        a.AI.TextEnabled(), "recipePhotos": a.AI.TextEnabled() && a.Media.S3 != nil,
-			"textAI": a.AI.TextEnabled(), "textModel": a.AI.TextModel, "recipeModel": a.AI.RecipeModel, "agentModel": a.AI.AgentModel,
+			"textAI": a.AI.TextEnabled(), "recipeModel": a.AI.RecipeModel, "agentModel": a.AI.AgentModel,
 			"imageAI": a.AI.TextEnabled(), "imageModel": a.AI.ImageModel, "imageEditModel": a.AI.ImageEditModel,
 			"videoAI": a.AI.VideoEnabled(), "videoProvider": "reAPI", "videoModel": a.AI.VideoModel, "videoEstimateUSD": 1.005,
 			"passwordRecovery": emailEnabled(),
@@ -215,7 +215,6 @@ func NewWithContext(ctx context.Context, db *pgxpool.Pool, config Config) *fiber
 	v.Post("/recipe-studio", a.requireAuth, a.studioCreate)
 	v.Get("/recipe-studio/:id", a.requireAuth, a.studioGet)
 	v.Delete("/recipe-studio/:id", a.requireAuth, a.studioDelete)
-	v.Get("/recipe-studio/:id/events", a.requireAuth, a.studioEvents)
 	v.Post("/recipe-studio/:id/messages", a.requireAuth, a.studioMessage)
 	v.Put("/recipe-studio/:id/context", a.requireAuth, a.studioContext)
 	v.Post("/recipe-studio/:id/images", a.requireAuth, a.studioImage)

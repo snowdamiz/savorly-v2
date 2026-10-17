@@ -97,7 +97,6 @@ OPENROUTER_API_KEY=YOUR_OPENROUTER_KEY
 4. Keep the existing model and voice settings:
 
 ```dotenv
-OPENROUTER_TEXT_MODEL=openai/gpt-6-luna
 OPENROUTER_RECIPE_MODEL=openai/gpt-6.1-sol
 OPENROUTER_AGENT_MODEL=openai/gpt-6-luna
 OPENROUTER_IMAGE_MODEL=openai/gpt-image-2.5-flare

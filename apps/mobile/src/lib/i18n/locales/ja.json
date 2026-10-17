@@ -460,7 +460,6 @@
   "AI suggestions can be wrong. Check allergens, doneness and labels yourself.": "AIの提案には誤りがあり得ます。アレルゲン、火の通り、表示はご自身で確認してください。",
   "Sous-chef history": "アシスタント履歴",
   "Nothing cooked up yet": "まだ履歴はありません",
-  "Ask for a swap, a twist or a whole recipe from any recipe, your pantry or the planner.": "レシピ、食材庫、献立から代替案、アレンジ、レシピを依頼できます。",
   "Failed": "失敗",
   "Working": "処理中",
   "Get started": "始める",
@@ -479,7 +478,6 @@
   "Add to cookbook": "レシピ集に追加",
   "Watch video": "動画を見る",
   "Ask": "質問",
-  "A {{v0}} version": "{{v0}}のアレンジ",
   "Saved to {{v0}}": "{{v0}}に保存しました",
   "More protein": "たんぱく質を増やす",
   "Quicker": "時短",
@@ -1379,5 +1377,6 @@
   "{{v0}} left": "残り{{v0}}",
   "Resume voice": "音声を再開",
   "Marked {{title}} as cooked": "作った記録：{{title}}",
-  "Reading the page…": "ページを読んでいます…"
+  "Reading the page…": "ページを読んでいます…",
+  "Photos and clips you make in the editor show up here, with photo touch-ups and imported recipes.": "エディターで作った写真やクリップは、写真の補正やインポートしたレシピと一緒にここに表示されます。"
 }
