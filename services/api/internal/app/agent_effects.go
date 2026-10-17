@@ -321,23 +321,14 @@ func (a *App) undoneSummary(ctx context.Context, project string) []string {
 	return out
 }
 
-// turnSteps names what a running turn is doing, for the app's caption under the thinking dots.
-var turnSteps = map[string]string{
-	"search_recipes": "looking", "get_recipe": "looking", "show_recipes": "looking", "find_cooks": "looking", "get_reviews": "looking",
-	"get_kitchen": "checking", "get_cookbooks": "checking",
-	"plan_meal": "kitchen", "add_groceries": "kitchen", "add_recipe_groceries": "kitchen", "add_plan_groceries": "kitchen", "check_grocery": "kitchen", "set_pantry_item": "kitchen", "remove": "kitchen",
-	"save_recipe": "saving", "create_cookbook": "saving", "follow_cook": "saving", "update_profile": "saving", "review_recipe": "saving", "report_recipe": "saving", "mark_cooked": "saving",
-	"import_recipe": "reading",
-	"edit_recipe":   "recipe", "delete_recipe": "recipe", "save_recipe_draft": "recipe", "read_back_draft": "recipe", "publish_draft": "recipe",
-	"generate_recipe_media": "media", "retry_draft_media": "media",
-}
-
 // step records what the turn is doing now, and reports whether the member asked to stop it.
 func (a *App) step(ctx context.Context, run *agentRun, tool string) bool {
 	if run.action == "" {
 		return false
 	}
-	name := turnSteps[tool]
+	// What the app shows while it runs (the caption under the thinking dots); a tool without
+	// one keeps the last.
+	name := agentToolNamed[tool].step
 	if name == "" {
 		name = run.step
 	}

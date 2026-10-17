@@ -304,6 +304,33 @@ export type AdminJob = {
   prompt?: string;
   result?: { text?: string; url?: string; recipe?: { title?: string } };
 };
+/** A sous-chef turn, as the console lists it; one turn's own read adds trace, step and reply. */
+export type AdminTurn = {
+  id: string;
+  status: 'queued' | 'running' | 'completed' | 'failed';
+  channel: 'text' | 'voice';
+  cost: number;
+  createdAt: string;
+  startedAt: string | null;
+  updatedAt: string;
+  project: string;
+  model: string;
+  /** How long the worker spent on it, once it settled. */
+  ms: number | null;
+  rounds: number;
+  tools: string[];
+  toolErrors: number;
+  user: Person;
+  trace?: {
+    model?: string;
+    channel?: string;
+    ms: number;
+    error?: string;
+    rounds: { ms: number; cost: number; tools?: { name: string; ms: number; error?: string }[] }[];
+  };
+  step?: string;
+  reply?: string;
+};
 export type AdminAI = {
   voice: {
     id: string;
