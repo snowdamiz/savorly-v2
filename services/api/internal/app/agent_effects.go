@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
+	"time"
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/jackc/pgx/v5"
@@ -90,6 +92,29 @@ func (a *App) planSlot(ctx context.Context, owner, day, meal string) *planSlot {
 		return nil
 	}
 	return &s
+}
+
+// cookEntry is what the member had recorded about cooking a recipe.
+type cookEntry struct {
+	Photo string    `json:"photo"`
+	Note  string    `json:"note"`
+	At    time.Time `json:"at"`
+}
+
+func (a *App) cookEntry(ctx context.Context, owner, recipe string) *cookEntry {
+	var k cookEntry
+	if a.DB.QueryRow(ctx, `SELECT photo,note,created_at FROM cooks WHERE user_id=$1 AND recipe_id=$2`, owner, recipe).Scan(&k.Photo, &k.Note, &k.At) != nil {
+		return nil
+	}
+	return &k
+}
+
+// sharedByUser reports whether the member gave the page's address in the conversation.
+func (a *App) sharedByUser(ctx context.Context, project, page string) bool {
+	host := strings.TrimPrefix(strings.ToLower(hostOf(page)), "www.")
+	var shared bool
+	_ = a.DB.QueryRow(ctx, `SELECT $2<>'' AND EXISTS(SELECT 1 FROM voice_events WHERE project_id=$1 AND role='user' AND strpos(lower(content),$2)>0)`, project, host).Scan(&shared)
+	return shared
 }
 
 // pantryEntry is what the pantry held under a name before a tool set it.
@@ -188,6 +213,20 @@ func undoEffect(ctx context.Context, tx pgx.Tx, owner string, f effect) error {
 		}
 		// Its recipes stay saved, as when the member deletes a cookbook themselves.
 		_, e = tx.Exec(ctx, `DELETE FROM collections WHERE id=$1 AND user_id=$2`, u.ID, owner)
+	case "cooked":
+		var u struct {
+			Recipe   string
+			Previous *cookEntry
+		}
+		if e = json.Unmarshal(f.Undo, &u); e != nil {
+			return e
+		}
+		// A recipe cooked before goes back to how it was recorded then.
+		if u.Previous == nil {
+			_, e = tx.Exec(ctx, `DELETE FROM cooks WHERE user_id=$1 AND recipe_id=$2`, owner, u.Recipe)
+		} else {
+			_, e = tx.Exec(ctx, `UPDATE cooks SET photo=$3,note=$4,created_at=$5 WHERE user_id=$1 AND recipe_id=$2`, owner, u.Recipe, u.Previous.Photo, u.Previous.Note, u.Previous.At)
+		}
 	case "checked", "unchecked":
 		var u struct {
 			ID      string
@@ -286,9 +325,10 @@ func (a *App) undoneSummary(ctx context.Context, project string) []string {
 var turnSteps = map[string]string{
 	"search_recipes": "looking", "get_recipe": "looking", "show_recipes": "looking", "find_cooks": "looking", "get_reviews": "looking",
 	"get_kitchen": "checking", "get_cookbooks": "checking",
-	"plan_meal": "kitchen", "add_groceries": "kitchen", "add_recipe_groceries": "kitchen", "check_grocery": "kitchen", "set_pantry_item": "kitchen", "remove": "kitchen",
-	"save_recipe": "saving", "create_cookbook": "saving", "follow_cook": "saving", "update_profile": "saving", "review_recipe": "saving", "report_recipe": "saving",
-	"edit_recipe": "recipe", "delete_recipe": "recipe", "save_recipe_draft": "recipe", "read_back_draft": "recipe", "publish_draft": "recipe",
+	"plan_meal": "kitchen", "add_groceries": "kitchen", "add_recipe_groceries": "kitchen", "add_plan_groceries": "kitchen", "check_grocery": "kitchen", "set_pantry_item": "kitchen", "remove": "kitchen",
+	"save_recipe": "saving", "create_cookbook": "saving", "follow_cook": "saving", "update_profile": "saving", "review_recipe": "saving", "report_recipe": "saving", "mark_cooked": "saving",
+	"import_recipe": "reading",
+	"edit_recipe":   "recipe", "delete_recipe": "recipe", "save_recipe_draft": "recipe", "read_back_draft": "recipe", "publish_draft": "recipe",
 	"generate_recipe_media": "media", "retry_draft_media": "media",
 }
 

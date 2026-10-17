@@ -167,7 +167,8 @@ func (a *App) plan(c fiber.Ctx) error {
 	if (in.Meal != "Breakfast" && in.Meal != "Lunch" && in.Meal != "Dinner") || in.Servings < 1 || in.Servings > 100 {
 		return fiber.NewError(400, "Choose a meal and 1–100 servings.")
 	}
-	r, e := a.DB.Exec(c.Context(), `INSERT INTO meal_plans(id,user_id,recipe_id,day,meal,servings) SELECT $1,$2,id,$4,$5,$6 FROM recipes WHERE id=$3 AND published ON CONFLICT(user_id,day,meal) DO UPDATE SET recipe_id=excluded.recipe_id,servings=excluded.servings`, uuid.NewString(), userID(c), in.RecipeID, in.Day, in.Meal, in.Servings)
+	// A published recipe, or one of the member's own: plans are theirs alone, never shown to others.
+	r, e := a.DB.Exec(c.Context(), `INSERT INTO meal_plans(id,user_id,recipe_id,day,meal,servings) SELECT $1,$2,id,$4,$5,$6 FROM recipes WHERE id=$3 AND (published OR author_id=$2) ON CONFLICT(user_id,day,meal) DO UPDATE SET recipe_id=excluded.recipe_id,servings=excluded.servings`, uuid.NewString(), userID(c), in.RecipeID, in.Day, in.Meal, in.Servings)
 	if e != nil {
 		return e
 	}
@@ -241,7 +242,9 @@ func (a *App) recipeGroceries(c fiber.Ctx) error {
 	}
 	var ingredients []Ingredient
 	var servings int
-	if e := a.DB.QueryRow(c.Context(), `SELECT ingredients,servings FROM recipes WHERE id=$1 AND published`, c.Params("id")).Scan(&ingredients, &servings); e != nil {
+	// Like planning: a published recipe or one of the member's own. Only the ingredients reach
+	// the list, so a household sees what to buy, not the private recipe.
+	if e := a.DB.QueryRow(c.Context(), `SELECT ingredients,servings FROM recipes WHERE id=$1 AND (published OR author_id=$2)`, c.Params("id"), userID(c)).Scan(&ingredients, &servings); e != nil {
 		return fiber.NewError(404, "Recipe not found.")
 	}
 	added, merged, e := a.addGroceries(c.Context(), userID(c), scaledLines(ingredients, in.Servings, servings))

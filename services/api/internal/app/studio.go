@@ -769,8 +769,8 @@ func (a *App) settleTurn(ctx context.Context, id, project string, run *agentRun,
 func (a *App) agentInput(ctx context.Context, state studioState) (any, error) {
 	var user json.RawMessage
 	var view studioView
-	var awaiting string
-	e := a.DB.QueryRow(ctx, `SELECT jsonb_build_object('name',u.name,'bio',u.bio,'diets',u.preferences->'diets','allergies',u.preferences->'allergies'),p.context,COALESCE(p.pending->>'description','') FROM users u JOIN voice_projects p ON p.user_id=u.id WHERE p.id=$1`, state.ID).Scan(&user, &view, &awaiting)
+	var awaiting, units string
+	e := a.DB.QueryRow(ctx, `SELECT jsonb_build_object('name',u.name,'bio',u.bio,'diets',u.preferences->'diets','allergies',u.preferences->'allergies'),p.context,COALESCE(p.pending->>'description',''),COALESCE(u.preferences->>'units','') FROM users u JOIN voice_projects p ON p.user_id=u.id WHERE p.id=$1`, state.ID).Scan(&user, &view, &awaiting, &units)
 	if e != nil {
 		return nil, e
 	}
@@ -800,7 +800,33 @@ func (a *App) agentInput(ctx context.Context, state studioState) (any, error) {
 	if state.Recipe != nil {
 		draft = fiber.Map{"recipeId": state.RecipeID, "recipe": state.Recipe, "revision": state.Revision, "status": state.Status, "media": state.Assets}
 	}
-	input := fiber.Map{"now": time.Now().In(loc).Format("Monday 2006-01-02 15:04"), "timeZone": loc.String(), "user": user, "screen": screen, "conversation": state.Conversation, "draft": draft}
+	now := time.Now().In(loc)
+	input := fiber.Map{"now": now.Format("Monday 2006-01-02 15:04"), "timeZone": loc.String(), "user": user, "screen": screen, "conversation": state.Conversation, "draft": draft}
+	if view.Language != "" {
+		input["appLanguage"] = view.Language
+	}
+	if units != "" {
+		input["units"] = units
+	}
+	// What the member's plan has left, so the assistant doesn't offer what would be refused.
+	if paidPlans() {
+		plan, e := planOf(ctx, a.DB, state.Owner)
+		used, e2 := usageOf(ctx, a.DB, state.Owner)
+		if e == nil && e2 == nil {
+			input["allowances"] = fiber.Map{"plan": plan.ID, "sousChefTurnsLeft": max(0, plan.Assistant-used.Assistant), "photosLeft": max(0, plan.Images-used.Images), "videosLeft": max(0, plan.Videos-used.Videos), "voiceMinutesLeft": max(0, plan.VoiceMinutes*60-used.VoiceSeconds) / 60}
+		}
+	}
+	var kitchen, shown []byte
+	if e = a.DB.QueryRow(ctx, kitchenGlanceSQL, state.Owner, now.Format("2006-01-02")).Scan(&kitchen); e != nil {
+		return nil, e
+	}
+	input["kitchen"] = json.RawMessage(kitchen)
+	if e = a.DB.QueryRow(ctx, shownRecipesSQL, state.ID, state.Owner, state.Through).Scan(&shown); e != nil {
+		return nil, e
+	}
+	if string(shown) != "[]" {
+		input["shownRecipes"] = json.RawMessage(shown)
+	}
 	if state.Omitted > 0 {
 		input["earlierMessagesOmitted"] = state.Omitted
 	}
@@ -813,6 +839,25 @@ func (a *App) agentInput(ctx context.Context, state studioState) (any, error) {
 	}
 	return input, nil
 }
+
+// kitchenGlanceSQL is the member's ($1) week from their day $2: meals planned for the next
+// seven days, groceries still to buy, and pantry items about to expire. get_kitchen has the
+// rest, with ids.
+var kitchenGlanceSQL = `SELECT jsonb_build_object(
+ 'planned',COALESCE((SELECT jsonb_agg(jsonb_build_object('day',p.day,'meal',p.meal,'recipe',r.title,'recipeId',r.id,'servings',p.servings) ORDER BY p.day,array_position(ARRAY['Breakfast','Lunch','Dinner'],p.meal))
+   FROM meal_plans p JOIN recipes r ON r.id=p.recipe_id JOIN users u ON u.id=r.author_id AND u.suspended_at IS NULL WHERE p.user_id=$1 AND p.day BETWEEN $2::date AND $2::date+6),'[]'),
+ 'toBuyCount',(SELECT count(*) FROM groceries g WHERE NOT g.checked AND ` + groceryScope(1) + `),
+ 'toBuy',COALESCE((SELECT jsonb_agg(name ORDER BY created_at,id) FROM (SELECT g.name,g.created_at,g.id FROM groceries g WHERE NOT g.checked AND ` + groceryScope(1) + ` ORDER BY g.created_at,g.id LIMIT 30) x),'[]'),
+ 'pantryCount',(SELECT count(*) FROM pantry WHERE user_id=$1),
+ 'expiringSoon',COALESCE((SELECT jsonb_agg(name||' ('||to_char(expires_on,'YYYY-MM-DD')||')' ORDER BY expires_on,name) FROM (SELECT name,expires_on FROM pantry WHERE user_id=$1 AND expires_on BETWEEN $2::date AND $2::date+3 ORDER BY expires_on,name LIMIT 10) x),'[]'))`
+
+// shownRecipesSQL is the recipe cards conversation $1's replies through event $3 showed, newest
+// first and each once, as the member ($2) may see them, so "the second one" resolves.
+const shownRecipesSQL = `WITH cards AS (
+ SELECT DISTINCT ON (x.id) x.id,e.seq,x.n FROM voice_events e CROSS JOIN LATERAL jsonb_array_elements_text(e.recipes) WITH ORDINALITY x(id,n)
+ WHERE e.project_id=$1 AND e.role='assistant' AND jsonb_typeof(e.recipes)='array' AND ($3::bigint=0 OR e.seq<=$3) ORDER BY x.id,e.seq DESC
+), recent AS (SELECT * FROM cards ORDER BY seq DESC,n LIMIT 12)
+SELECT COALESCE(jsonb_agg(jsonb_build_object('id',r.id,'title',r.title) ORDER BY c.seq DESC,c.n),'[]') FROM recent c JOIN recipes r ON r.id=c.id AND (r.published OR r.author_id=$2) JOIN users u ON u.id=r.author_id AND u.suspended_at IS NULL`
 
 // studioView is what the app reports the user has open. It is untrusted: the page is
 // an allowlisted name and the recipe is shown only when the owner may see it.

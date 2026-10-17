@@ -1377,5 +1377,7 @@
   "Speaking…": "Sta parlando…",
   "Working on it…": "Ci sto lavorando…",
   "{{v0}} left": "Restano {{v0}}",
-  "Resume voice": "Riprendi la voce"
+  "Resume voice": "Riprendi la voce",
+  "Marked {{title}} as cooked": "Segnato come preparato: {{title}}",
+  "Reading the page…": "Leggo la pagina…"
 }

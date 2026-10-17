@@ -339,7 +339,8 @@ export type StudioEffect = {
     | 'profile'
     | 'review'
     | 'report'
-    | 'media';
+    | 'media'
+    | 'cooked';
   count?: number;
   title?: string;
   /** A recipe to open from the receipt. */

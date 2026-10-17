@@ -775,6 +775,7 @@ test('a reply shows what it did, which can be seen and undone', async ({ page })
         undoable: true,
       },
       { kind: 'removed', count: 1, page: 'planner' },
+      { kind: 'cooked', title: 'Lemon toast', recipe: 'voice-toast', undoable: true },
     ],
   }));
   await page.goto('/');
@@ -784,8 +785,9 @@ test('a reply shows what it did, which can be seen and undone', async ({ page })
   await expect(page.getByText('Added 2 items to your groceries', { exact: true })).toBeVisible();
   await expect(page.getByText('Planned Lemon toast', { exact: true })).toBeVisible();
   await expect(page.getByText('Removed 1 item', { exact: true })).toBeVisible();
+  await expect(page.getByText('Marked Lemon toast as cooked', { exact: true })).toBeVisible();
   // Only what the server can take back offers Undo.
-  await expect(page.getByRole('button', { name: /^Undo: / })).toHaveCount(2);
+  await expect(page.getByRole('button', { name: /^Undo: / })).toHaveCount(3);
   await page
     .getByRole('button', { name: 'Undo: Added 2 items to your groceries', exact: true })
     .click();

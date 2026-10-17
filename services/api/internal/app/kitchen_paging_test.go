@@ -240,3 +240,35 @@ func TestLibraryPages(t *testing.T) {
 		t.Fatalf("unknown scope: %d", status)
 	}
 }
+
+func TestMembersPlanAndShopTheirOwnPrivateRecipes(t *testing.T) {
+	db := isolatedDB(t)
+	ctx := context.Background()
+	testUser(t, db, "cook")
+	testUser(t, db, "other")
+	publishRecipe(t, db, "cook", "my-draft", func(r *RecipeInput) {
+		r.Published = false
+		r.Servings = 2
+		r.Ingredients = []Ingredient{{Name: "Leeks", Amount: 2}}
+	})
+	f := recipesApp(db, false)
+	cook, other := bearerFor(t, db, "cook"), bearerFor(t, db, "other")
+	plan := map[string]any{"recipeId": "my-draft", "day": "2026-10-19", "meal": "Dinner", "servings": 4}
+	if status, b := callAPI(t, f, "POST", "/v1/planner", cook, plan); status != 200 {
+		t.Fatalf("plan own draft: %d %s", status, b)
+	}
+	if status, b := callAPI(t, f, "POST", "/v1/recipes/my-draft/groceries", cook, map[string]int{"servings": 4}); status != 200 {
+		t.Fatalf("shop own draft: %d %s", status, b)
+	}
+	var quantity string
+	if e := db.QueryRow(ctx, `SELECT quantity FROM groceries WHERE user_id='cook' AND name='Leeks'`).Scan(&quantity); e != nil || quantity != "4" {
+		t.Fatalf("scaled groceries: %q %v", quantity, e)
+	}
+	// Someone else's private recipe stays out of reach.
+	if status, _ := callAPI(t, f, "POST", "/v1/planner", other, plan); status != 404 {
+		t.Fatalf("planned another cook's draft: %d", status)
+	}
+	if status, _ := callAPI(t, f, "POST", "/v1/recipes/my-draft/groceries", other, map[string]int{"servings": 2}); status != 404 {
+		t.Fatalf("shopped another cook's draft: %d", status)
+	}
+}
