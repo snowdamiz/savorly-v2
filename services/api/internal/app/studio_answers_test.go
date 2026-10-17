@@ -196,6 +196,33 @@ func TestRemovingABatchOrACookbookAndProfileChangesWaitForAYes(t *testing.T) {
 	}
 }
 
+// More than three removals in one turn wait for a yes, however the model splits them.
+func TestABatchSplitAcrossCallsStillWaitsForAYes(t *testing.T) {
+	a, p := studioFixture(t)
+	ctx := context.Background()
+	if _, e := a.DB.Exec(ctx, `INSERT INTO groceries(id,user_id,name) VALUES('g1','cook','Milk'),('g2','cook','Eggs'),('g3','cook','Apples'),('g4','cook','Bread'),('g5','cook','Rice')`); e != nil {
+		t.Fatal(e)
+	}
+	left := func() (n int) {
+		a.DB.QueryRow(ctx, `SELECT count(*) FROM groceries WHERE user_id='cook'`).Scan(&n)
+		return n
+	}
+	run := agentTurn(t, a, p)
+	remove := func(run *agentRun, ids ...string) string {
+		return a.agentTool(ctx, run, "remove", jsonBytes(map[string]any{"kind": "grocery", "ids": ids}))
+	}
+	if out := remove(run, "g1", "g2", "g3"); !strings.Contains(out, `"removed":3`) {
+		t.Fatalf("a small removal waited or failed: %s", out)
+	}
+	if out := remove(run, "g4", "g5"); !strings.Contains(out, "needsConfirmation") || left() != 2 {
+		t.Fatalf("the rest of a split batch didn't wait: %s", out)
+	}
+	// The next turn counts afresh.
+	if out := remove(agentTurn(t, a, p), "g4"); !strings.Contains(out, `"removed":1`) {
+		t.Fatalf("a later turn's removal waited: %s", out)
+	}
+}
+
 func TestADraftOnlyPromisesTheMediaThatsComing(t *testing.T) {
 	t.Setenv("PAID_PLANS", "true")
 	a, _ := studioFixture(t)

@@ -33,7 +33,7 @@ func choice(description string, values ...string) props {
 func list(items any, max int) props { return props{"type": "array", "items": items, "maxItems": max} }
 
 var draftRecipe = object([]string{"title", "description", "cuisine", "minutes", "servings", "difficulty", "ingredients", "steps"}, props{
-	"title": field("string", ""), "description": field("string", "10+ characters"), "cuisine": field("string", ""),
+	"title": field("string", ""), "description": field("string", "10+ characters"), "cuisine": field("string", "e.g. Italian; Other when none fits"),
 	"minutes": field("integer", "1–1440"), "servings": field("integer", "1–100"), "difficulty": choice("", "Easy", "Medium", "Advanced"),
 	"tags": list(field("string", ""), 12), "calories": field("integer", "Estimated per serving"),
 	"ingredients": list(object([]string{"name", "amount", "unit", "category"}, props{"name": field("string", ""), "amount": field("number", ""), "unit": field("string", ""), "category": field("string", "e.g. Produce, Dairy, Pantry")}), 80),
@@ -67,15 +67,15 @@ var agentToolDefs = []agentToolDef{
 	{tool("get_reviews", "Recent reviews of a published recipe.", object([]string{"recipe_id"}, props{"recipe_id": recipeID()})), "looking", (*toolTurn).getReviews},
 	{tool("get_kitchen", "The user's meal plan, grocery list and pantry, with ids.", none), "checking", (*toolTurn).getKitchen},
 	{tool("get_cookbooks", "The user's cookbooks, saved recipes, their own recipes and followed cooks, with ids.", none), "checking", (*toolTurn).getCookbooks},
-	{tool("save_recipe", "Save a published recipe, optionally into a cookbook, or unsave it.", object([]string{"recipe_id"}, props{"recipe_id": recipeID(), "cookbook_id": field("string", "Optional"), "unsave": field("boolean", "")})), "saving", (*toolTurn).saveRecipe},
+	{tool("save_recipe", "Save a published recipe, optionally into a cookbook, or unsave it.", object([]string{"recipe_id"}, props{"recipe_id": recipeID(), "cookbook_id": field("string", "Optional; a saved recipe stays in its cookbook when left out"), "unsave": field("boolean", "")})), "saving", (*toolTurn).saveRecipe},
 	{tool("create_cookbook", "Create a named cookbook and return its id.", object([]string{"name"}, props{"name": field("string", "")})), "saving", (*toolTurn).createCookbook},
-	{tool("plan_meal", "Put a published recipe, or one of the user's own, on the meal plan, replacing whatever is planned for that day and meal.", object([]string{"recipe_id", "day", "meal", "servings"}, props{"recipe_id": recipeID(), "day": field("string", "YYYY-MM-DD"), "meal": choice("", "Breakfast", "Lunch", "Dinner"), "servings": field("integer", "")})), "kitchen", (*toolTurn).planMeal},
+	{tool("plan_meal", "Put a published recipe, or one of the user's own, on the meal plan, replacing whatever is planned for that day and meal.", object([]string{"recipe_id", "day", "meal"}, props{"recipe_id": recipeID(), "day": field("string", "YYYY-MM-DD"), "meal": choice("", "Breakfast", "Lunch", "Dinner"), "servings": field("integer", "Leave out for the recipe's own")})), "kitchen", (*toolTurn).planMeal},
 	{tool("add_groceries", "Add items to the grocery list.", object([]string{"items"}, props{"items": list(object([]string{"name"}, props{"name": field("string", ""), "quantity": field("string", "e.g. 2 cups"), "category": field("string", "e.g. Produce")}), 40)})), "kitchen", (*toolTurn).addGroceries},
-	{tool("add_recipe_groceries", "Add every ingredient of a published recipe, or one of the user's own, to the grocery list, scaled to servings.", object([]string{"recipe_id", "servings"}, props{"recipe_id": recipeID(), "servings": field("integer", "")})), "kitchen", (*toolTurn).addRecipeGroceries},
+	{tool("add_recipe_groceries", "Add every ingredient of a published recipe, or one of the user's own, to the grocery list, scaled to servings.", object([]string{"recipe_id"}, props{"recipe_id": recipeID(), "servings": field("integer", "Leave out for the recipe's own")})), "kitchen", (*toolTurn).addRecipeGroceries},
 	{tool("add_plan_groceries", "Add the ingredients of every meal planned from one day to another (both included, up to 62 days) to the grocery list, scaled to each meal's servings and merged with what's already there.", object([]string{"from", "to"}, props{"from": field("string", "YYYY-MM-DD"), "to": field("string", "YYYY-MM-DD")})), "kitchen", (*toolTurn).addPlanGroceries},
 	{tool("check_grocery", "Check off or uncheck a grocery item.", object([]string{"grocery_id", "checked"}, props{"grocery_id": field("string", ""), "checked": field("boolean", "")})), "kitchen", (*toolTurn).checkGrocery},
-	{tool("set_pantry_item", "Add a pantry item, or update its quantity and expiry.", object([]string{"name"}, props{"name": field("string", ""), "quantity": field("string", ""), "expires_on": field("string", "YYYY-MM-DD, optional")})), "kitchen", (*toolTurn).setPantryItem},
-	{tool("remove", "Delete meal plan entries, grocery items, pantry items or cookbooks by id. Deleting a cookbook, or more than 3 items at once, needs confirmation.", object([]string{"kind", "ids"}, props{"kind": choice("", "plan", "grocery", "pantry", "cookbook"), "ids": list(field("string", ""), 40)})), "kitchen", (*toolTurn).remove},
+	{tool("set_pantry_item", "Add a pantry item, or update its quantity or expiry; what you leave out stays as it is.", object([]string{"name"}, props{"name": field("string", ""), "quantity": field("string", "Leave out to keep the current quantity"), "expires_on": field("string", "YYYY-MM-DD; leave out to keep the current expiry")})), "kitchen", (*toolTurn).setPantryItem},
+	{tool("remove", "Delete meal plan entries, grocery items, pantry items or cookbooks by id. Deleting a cookbook, or more than 3 items in a turn, needs confirmation.", object([]string{"kind", "ids"}, props{"kind": choice("", "plan", "grocery", "pantry", "cookbook"), "ids": list(field("string", ""), 40)})), "kitchen", (*toolTurn).remove},
 	{tool("mark_cooked", "Record that the user cooked a published recipe, with an optional note of theirs; it shows on the recipe and in what they've cooked.", object([]string{"recipe_id"}, props{"recipe_id": recipeID(), "note": field("string", "The user's own words, up to 500 characters")})), "saving", (*toolTurn).markCooked},
 	{tool("import_recipe", "Read a recipe from a web page the user shared: its recipe when the page describes one, otherwise the page's text to transcribe. Nothing is saved; to keep it, save it with save_recipe_draft and its source_url.", object([]string{"url"}, props{"url": field("string", "The page's address")})), "reading", (*toolTurn).importRecipe},
 	{tool("follow_cook", "Follow or unfollow a cook.", object([]string{"cook_id"}, props{"cook_id": field("string", ""), "unfollow": field("boolean", "")})), "saving", (*toolTurn).followCook},
@@ -133,8 +133,8 @@ type agentRun struct {
 	voice  bool
 	screen int
 	say    string
-	// imports counts the web pages it read.
-	imports int
+	// imports counts the web pages it read; removed, the items it removed without asking.
+	imports, removed int
 	// trace is what the turn did, for the admin console.
 	trace turnTrace
 }
@@ -258,7 +258,10 @@ func (a *App) agentTool(ctx context.Context, run *agentRun, name string, raw jso
 			}
 		}
 	}
-	if e := json.Unmarshal(raw, &in); e != nil {
+	// Models fill in fields they don't mean to set ("" or null), and an empty one never asks
+	// for a change, so the arguments tools read leave them out. update_profile, which compares
+	// each field with the profile the model was given, reads them as sent.
+	if e := json.Unmarshal(withoutBlanks(raw), &in); e != nil {
 		return toolError("Arguments must be a JSON object matching the tool schema.")
 	}
 	if a.step(ctx, run, name) {
@@ -331,6 +334,35 @@ func (t *toolTurn) result(status int, b []byte) string {
 		return toolError("That action didn't work.")
 	}
 	return string(b)
+}
+
+// withoutBlanks drops a tool call's arguments that are "" or null.
+func withoutBlanks(raw json.RawMessage) json.RawMessage {
+	var args map[string]json.RawMessage
+	if json.Unmarshal(raw, &args) != nil || args == nil {
+		return raw
+	}
+	for k, v := range args {
+		if s := strings.TrimSpace(string(v)); s == `""` || s == "null" {
+			delete(args, k)
+		}
+	}
+	return jsonBytes(args)
+}
+
+// blank reports whether a value says nothing: empty text, null, zero, or an empty list or
+// object.
+func blank(v json.RawMessage) bool {
+	switch strings.TrimSpace(string(v)) {
+	case "null", "[]", "{}":
+		return true
+	}
+	var s string
+	if json.Unmarshal(v, &s) == nil {
+		return strings.TrimSpace(s) == ""
+	}
+	var n float64
+	return json.Unmarshal(v, &n) == nil && n == 0
 }
 
 // pathID is an id as one segment of a route's path.
@@ -447,7 +479,12 @@ func (t *toolTurn) getCookbooks() string {
 func (t *toolTurn) saveRecipe() string {
 	var collection *string
 	saved := t.a.DB.QueryRow(t.ctx, `SELECT collection_id FROM saves WHERE user_id=$1 AND recipe_id=$2`, t.owner, t.in.RecipeID).Scan(&collection) == nil
-	method, body := "PUT", any(fiber.Map{"collectionId": t.in.CookbookID})
+	// Saving again without naming a cookbook keeps it in the one it's in.
+	cookbook := t.in.CookbookID
+	if cookbook == nil && saved {
+		cookbook = collection
+	}
+	method, body := "PUT", any(fiber.Map{"collectionId": cookbook})
 	if t.in.Unsave {
 		method, body = "DELETE", nil
 	}
@@ -468,9 +505,24 @@ func (t *toolTurn) createCookbook() string {
 	return t.result(status, b)
 }
 
+// servings is what the member asked for, or the recipe's own when they didn't say: 0 when the
+// recipe isn't one they may see.
+func (t *toolTurn) servings() int {
+	if t.in.Servings > 0 {
+		return t.in.Servings
+	}
+	var n int
+	_ = t.a.DB.QueryRow(t.ctx, `SELECT servings FROM recipes WHERE id=$1 AND (published OR author_id=$2)`, strings.TrimSpace(t.in.RecipeID), t.owner).Scan(&n)
+	return n
+}
+
 func (t *toolTurn) planMeal() string {
+	servings := t.servings()
+	if servings == 0 {
+		return toolError("Recipe not found.")
+	}
 	previous := t.a.planSlot(t.ctx, t.owner, t.in.Day, t.in.Meal)
-	status, b := t.call("POST", "/planner", fiber.Map{"recipeId": t.in.RecipeID, "day": t.in.Day, "meal": t.in.Meal, "servings": t.in.Servings})
+	status, b := t.call("POST", "/planner", fiber.Map{"recipeId": t.in.RecipeID, "day": t.in.Day, "meal": t.in.Meal, "servings": servings})
 	if status < 300 {
 		t.run.note(effect{Kind: "plan", Title: t.a.recipeTitle(t.ctx, t.in.RecipeID), Recipe: t.in.RecipeID, Page: "planner", Undo: jsonBytes(fiber.Map{"day": t.in.Day, "meal": t.in.Meal, "recipe": t.in.RecipeID, "previous": previous})})
 	}
@@ -495,9 +547,13 @@ func (t *toolTurn) addGroceries() string {
 }
 
 func (t *toolTurn) addRecipeGroceries() string {
+	servings := t.servings()
+	if servings == 0 {
+		return toolError("Recipe not found.")
+	}
 	before, _ := t.a.groceryList(t.ctx, t.owner)
 	defer t.a.noteGroceries(t.ctx, t.run, before)
-	return t.result(t.call("POST", "/recipes/"+pathID(t.in.RecipeID)+"/groceries", fiber.Map{"servings": t.in.Servings}))
+	return t.result(t.call("POST", "/recipes/"+pathID(t.in.RecipeID)+"/groceries", fiber.Map{"servings": servings}))
 }
 
 func (t *toolTurn) addPlanGroceries() string {
@@ -561,7 +617,17 @@ func (t *toolTurn) checkGrocery() string {
 func (t *toolTurn) setPantryItem() string {
 	name := strings.ToLower(strings.TrimSpace(t.in.Name))
 	previous := t.a.pantryEntry(t.ctx, t.owner, name)
-	status, b := t.call("POST", "/pantry", fiber.Map{"name": t.in.Name, "quantity": t.in.Quantity, "expiresOn": t.in.ExpiresOn})
+	// What the model leaves out stays as it was.
+	quantity, expires := strings.TrimSpace(t.in.Quantity), t.in.ExpiresOn
+	if previous != nil {
+		if quantity == "" {
+			quantity = previous.Quantity
+		}
+		if expires == nil {
+			expires = previous.ExpiresOn
+		}
+	}
+	status, b := t.call("POST", "/pantry", fiber.Map{"name": t.in.Name, "quantity": quantity, "expiresOn": expires})
 	if status < 300 {
 		t.run.note(effect{Kind: "pantry", Title: name, Page: "pantry", Undo: jsonBytes(fiber.Map{"name": name, "previous": previous})})
 	}
@@ -573,8 +639,9 @@ func (t *toolTurn) remove() string {
 	if paths[t.in.Kind] == "" || len(t.in.IDs) == 0 || len(t.in.IDs) > 40 {
 		return toolError("Choose plan, grocery, pantry or cookbook, and 1–40 ids.")
 	}
-	// A cookbook, or a batch, goes only once the user has seen what it is.
-	if (t.in.Kind == "cookbook" || len(t.in.IDs) > 3) && !t.run.approving {
+	// A cookbook, or a batch, goes only once the user has seen what it is. A batch is more than
+	// three items in a turn, so splitting one into several calls asks all the same.
+	if (t.in.Kind == "cookbook" || t.run.removed+len(t.in.IDs) > 3) && !t.run.approving {
 		what, e := t.a.removalDescription(t.ctx, t.owner, t.in.Kind, t.in.IDs)
 		if e != nil {
 			return toolError(publicError(e))
@@ -586,6 +653,9 @@ func (t *toolTurn) remove() string {
 	defer func() {
 		if removed > 0 {
 			t.run.note(effect{Kind: "removed", Count: removed, Page: page})
+		}
+		if !t.run.approving {
+			t.run.removed += removed
 		}
 	}()
 	for _, x := range t.in.IDs {
@@ -663,6 +733,13 @@ func (t *toolTurn) editRecipe() string {
 		for _, k := range []string{"image", "photos", "video", "aiGenerated", "published"} {
 			delete(changes, k)
 		}
+		// Models resend the whole recipe with what they don't know left empty: an empty field
+		// keeps what the recipe has.
+		for k, v := range changes {
+			if blank(v) {
+				delete(changes, k)
+			}
+		}
 		if json.Unmarshal(jsonBytes(changes), &next) != nil {
 			return toolError("Check the recipe fields.")
 		}
@@ -677,7 +754,9 @@ func (t *toolTurn) editRecipe() string {
 	if summary == "" {
 		return toolError("That wouldn't change anything.")
 	}
-	if next.Published && !t.run.approving {
+	// What others can see changes only once the user has seen how: publishing a recipe,
+	// changing a published one, or making it private.
+	if (next.Published || current.Published) && !t.run.approving {
 		what := fmt.Sprintf("Update your published recipe “%s”: %s.", next.Title, summary)
 		if !current.Published {
 			what = fmt.Sprintf("Publish “%s” so everyone can see it (%s).", next.Title, summary)
@@ -767,7 +846,8 @@ func (t *toolTurn) updateProfile() string {
 	// Diets and allergies decide what's safe to suggest, and the name and bio are public, so
 	// each change waits for the user's yes to exactly what it says.
 	changes := []string{}
-	if p.Name != nil && strings.TrimSpace(*p.Name) != me.Name {
+	// A name can't be blank, so a blank one isn't a change; a blank bio clears it.
+	if p.Name != nil && strings.TrimSpace(*p.Name) != "" && strings.TrimSpace(*p.Name) != me.Name {
 		me.Name = strings.TrimSpace(*p.Name)
 		changes = append(changes, fmt.Sprintf("your name to “%s”", me.Name))
 	}
@@ -870,6 +950,11 @@ func (t *toolTurn) appAction() string {
 
 func (t *toolTurn) draftAction() string {
 	action := map[string]string{"save_recipe_draft": "build", "read_back_draft": "review", "publish_draft": "publish", "retry_draft_media": "retry_media"}[t.name]
+	// A recipe needs a cuisine for its shelf; one the model leaves empty goes on Other, as an
+	// imported page without one does.
+	if t.in.Recipe != nil && strings.TrimSpace(t.in.Recipe.Cuisine) == "" {
+		t.in.Recipe.Cuisine = "Other"
+	}
 	if t.in.SourceURL != "" && t.in.Recipe != nil {
 		// Credit only a page the user shared: the model has no other way to know one.
 		source, ok := importURL(t.in.SourceURL)
