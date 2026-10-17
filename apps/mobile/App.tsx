@@ -48,6 +48,7 @@ import {
   RecipeInput,
   Screen,
   StudioMode,
+  StudioStart,
 } from './src/lib/types';
 import { LanguagePreference } from './src/lib/i18n/core';
 import { color, font, maxFontScale, radius, s, shadow } from './src/lib/theme';
@@ -193,8 +194,9 @@ function Shell({ onReady }: { onReady: (ready: boolean) => void }) {
       ? app.recipes.filter((r) => app.library.followingIds.includes(r.author.id))
       : asked;
   // Each explicit start counts, so Speak or Scan reaches a sous-chef that is already open. A start
-  // from a screen's prompt (the home's ideas, the planner) carries the message to send.
-  const [studio, setStudio] = useState<{ mode: StudioMode; n: number; message?: string } | null>(
+  // from a screen's prompt (the home's ideas, the planner) carries the message to send, and one
+  // from Create a recipe says the conversation is for writing a new recipe.
+  const [studio, setStudio] = useState<({ mode: StudioMode; n: number } & StudioStart) | null>(
     null,
   );
   // Minimized keeps the conversation (and any live voice) while the user looks at the app.
@@ -202,23 +204,22 @@ function Shell({ onReady }: { onReady: (ready: boolean) => void }) {
   const [studioLive, setStudioLive] = useState(false);
   const [cookingStep, setCookingStep] = useState<number | null>(null);
   const [cookCommand, setCookCommand] = useState<CookCommand | null>(null);
-  const [pendingStudio, setPendingStudio] = useState<{
-    mode: StudioMode;
-    message?: string;
-  } | null>(null);
+  const [pendingStudio, setPendingStudio] = useState<({ mode: StudioMode } & StudioStart) | null>(
+    null,
+  );
   const [creating, setCreating] = useState(false);
   const welcoming = useWelcomePending();
   // Signing in, from the welcome or anywhere else, counts as having been welcomed.
   useEffect(() => {
     if (app.user && welcoming) finishWelcome();
   }, [app.user, welcoming]);
-  const startStudio = (mode: StudioMode, message?: string) => {
+  const startStudio = (mode: StudioMode, start: StudioStart = {}) => {
     if (!app.user) {
-      setPendingStudio({ mode, message });
+      setPendingStudio({ mode, ...start });
       app.setAuthOpen(true);
     } else {
       track('studio_start', { mode });
-      setStudio((old) => ({ mode, n: (old?.n || 0) + 1, message }));
+      setStudio((old) => ({ mode, n: (old?.n || 0) + 1, ...start }));
       setStudioHidden(false);
     }
   };
@@ -290,7 +291,7 @@ function Shell({ onReady }: { onReady: (ready: boolean) => void }) {
     setCreating(false);
     if (choice === 'write') go('create');
     // Same tick, so the shared sheet morphs from the menu straight into the studio.
-    else startStudio(choice);
+    else startStudio(choice, { recipe: true });
   };
   // Where a recipe is opened from, for the recipe_open event: the screen, or a search on it.
   const place = useRef({ screen, query, cookbook });
@@ -386,9 +387,10 @@ function Shell({ onReady }: { onReady: (ready: boolean) => void }) {
     return () => sub.remove();
   }, [openById, openCookbook, toTop]);
   const openSousChef = () => (studio ? setStudioHidden(false) : startStudio('chat'));
-  // The screens' sous-chef cards open the same conversation, with their prompt as the message.
-  const askSousChef = (message?: string) =>
-    message ? startStudio('chat', message) : openSousChef();
+  // The screens' sous-chef cards open the same conversation, with their prompt as the message;
+  // one that asks for a new recipe opens it for writing one.
+  const askSousChef = (message?: string, recipe?: boolean) =>
+    message ? startStudio('chat', { message, recipe }) : openSousChef();
   const recipeAt = (id: string) => api<Recipe>(`/recipes/${encodeURIComponent(id)}`);
   const act = (action: AppAction) => {
     if (action.type === 'set_language') void setLanguage(action.language as LanguagePreference);

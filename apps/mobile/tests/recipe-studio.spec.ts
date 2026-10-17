@@ -130,7 +130,8 @@ async function mockStudio(
   respond?: (text: string) => { content: string; actions?: AppAction[] } | null,
 ) {
   let project: StudioProject | null = null;
-  const events: StudioEvent[] = [];
+  let events: StudioEvent[] = [];
+  let conversations = 0;
   const messages: string[] = [];
   const sessionCloses: string[] = [];
   let uploads = 0;
@@ -167,8 +168,11 @@ async function mockStudio(
     if (path.startsWith('/recipes/')) return fulfill(recipe);
     if (path === '/recipe-studio' && method === 'GET') return fulfill(project ? [project] : []);
     if (path === '/recipe-studio' && method === 'POST') {
+      // Each conversation has its own messages; the first keeps the id the tests know.
+      conversations++;
+      events = [];
       project = {
-        id: 'test-project',
+        id: conversations === 1 ? 'test-project' : `test-project-${conversations}`,
         recipeId: null,
         recipe: null,
         revision: 0,
@@ -188,12 +192,16 @@ async function mockStudio(
       return fulfill({ id: 'private-image' }, 201);
     }
     if (path.endsWith('/context') && method === 'PUT') {
-      contexts.push(route.request().postDataJSON());
+      const context = route.request().postDataJSON();
+      contexts.push(context);
+      // As the server does, the conversation keeps what it was last opened for.
+      if (project && path.includes(project.id)) project.purpose = context.purpose || '';
       return route.fulfill({ status: 204 });
     }
     if (path.endsWith('/messages') && respond) {
       const data = route.request().postDataJSON();
       messages.push(data.text);
+      if (!project!.title) project!.title = data.text;
       events.push({ seq: events.length + 1, role: 'user', content: data.text, imageCount: 0 });
       const reply = respond(data.text);
       if (reply)
@@ -204,6 +212,7 @@ async function mockStudio(
     if (path.endsWith('/messages')) {
       const data = route.request().postDataJSON();
       messages.push(data.text);
+      if (!project!.title) project!.title = data.text;
       events.push({
         seq: events.length + 1,
         role: 'user',
@@ -363,7 +372,8 @@ test('chat clarifies, saves a complete recipe with both media jobs, and resumes'
   expect(state.messages).toHaveLength(2);
   await page.screenshot({ path: testInfo.outputPath('recipe-studio-chat.png') });
   await page.getByRole('button', { name: 'Close the sous-chef', exact: true }).click();
-  await startRecipe(page, 'Chat to create a recipe');
+  // The launcher picks the conversation up again, draft and all.
+  await page.getByRole('button', { name: 'Ask your sous-chef' }).click();
   await expect(page.getByText('Two slices, for two people.', { exact: true })).toBeVisible();
   await page.setViewportSize({ width: 390, height: 844 });
   // On a phone the conversation moves into the shared sheet, which springs into place; the
@@ -376,6 +386,51 @@ test('chat clarifies, saves a complete recipe with both media jobs, and resumes'
     animations: 'disabled',
   });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  // With this draft saved, Create a recipe starts the next recipe afresh.
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.getByRole('button', { name: 'Close the sous-chef', exact: true }).click();
+  await startRecipe(page, 'Chat to create a recipe');
+  await expect(page.getByText('Tell me your recipe', { exact: true })).toBeVisible();
+  await expect(page.getByText('Two slices, for two people.', { exact: true })).toHaveCount(0);
+});
+
+test('Chat it writes a new recipe in a conversation of its own, and the sous-chef knows', async ({
+  page,
+}) => {
+  const state = await mockStudio(page, true, false, (text) => ({ content: `Noted: ${text}` }));
+  await page.goto('/');
+  // A conversation about something else is under way.
+  await page.getByRole('button', { name: 'Ask your sous-chef' }).click();
+  await page.getByRole('button', { name: 'Find me a quick dinner', exact: true }).click();
+  await expect(page.getByText('Noted: Find me a quick dinner', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Close the sous-chef', exact: true }).click();
+  await startRecipe(page, 'Chat to create a recipe');
+  await expect(page.getByText('Tell me your recipe', { exact: true })).toBeVisible();
+  await expect(page.getByText('New recipe', { exact: true })).toBeVisible();
+  await expect(page.getByText('Noted: Find me a quick dinner', { exact: true })).toHaveCount(0);
+  const composer = page.getByRole('textbox', { name: 'Message your sous-chef' });
+  await expect(composer).toHaveAttribute('placeholder', 'Type your recipe…');
+  await expect.poll(() => state.contexts.at(-1)).toMatchObject({ purpose: 'recipe' });
+  await composer.fill('Grandma’s lemon toast, for two.');
+  await page.getByRole('button', { name: 'Send message' }).click();
+  await expect(
+    page.getByText('Noted: Grandma’s lemon toast, for two.', { exact: true }),
+  ).toBeVisible();
+  // Coming back to Create a recipe carries on with the unfinished recipe.
+  await page.getByRole('button', { name: 'Close the sous-chef', exact: true }).click();
+  await startRecipe(page, 'Chat to create a recipe');
+  await expect(
+    page.getByText('Noted: Grandma’s lemon toast, for two.', { exact: true }),
+  ).toBeVisible();
+  // The launcher picks it up too, still about the new recipe until it's published.
+  await page.getByRole('button', { name: 'Close the sous-chef', exact: true }).click();
+  await page.getByRole('button', { name: 'Ask your sous-chef' }).click();
+  await expect(
+    page.getByText('Noted: Grandma’s lemon toast, for two.', { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText('New recipe', { exact: true })).toBeVisible();
+  await expect.poll(() => state.contexts.at(-1)).toMatchObject({ purpose: 'recipe' });
+  expect(state.messages).toEqual(['Find me a quick dinner', 'Grandma’s lemon toast, for two.']);
 });
 
 test('photo upload is normalized and sent for clarification automatically', async ({ page }) => {

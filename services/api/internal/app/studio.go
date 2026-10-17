@@ -23,7 +23,8 @@ import (
 	_ "time/tzdata" // Alpine images ship no zoneinfo; users' time zones must still resolve.
 )
 
-const projectJSON = `jsonb_build_object('id',p.id,'recipeId',p.recipe_id,
+// purpose is what the app last opened the conversation for ("recipe" from Create a recipe).
+const projectJSON = `jsonb_build_object('id',p.id,'recipeId',p.recipe_id,'purpose',COALESCE(p.context->>'purpose',''),
  'title',(SELECT left(content,60) FROM voice_events WHERE project_id=p.id AND role='user' ORDER BY seq LIMIT 1),'revision',p.revision,'status',p.status,'reply',p.reply,'error',p.error,'updatedAt',p.updated_at,
  'recipe',(SELECT ` + recipeJSON + recipeFrom + ` WHERE r.id=p.recipe_id),
  'voiceSession',(SELECT jsonb_build_object('id',id,'status',status) FROM voice_sessions WHERE project_id=p.id AND reserved_seconds>0 ORDER BY created_at DESC LIMIT 1),
@@ -635,6 +636,9 @@ func (a *App) agentInput(ctx context.Context, state studioState) (any, error) {
 		loc = time.UTC
 	}
 	screen := fiber.Map{"page": view.Screen}
+	if view.Purpose == "recipe" {
+		screen["purpose"] = "newRecipe"
+	}
 	if view.RecipeID != "" {
 		var b []byte
 		if a.DB.QueryRow(ctx, `SELECT `+recipeJSON+recipeFrom+`WHERE r.id=$1 AND (r.published OR r.author_id=$2)`, view.RecipeID, state.Owner).Scan(&b) == nil {
@@ -673,6 +677,9 @@ type studioView struct {
 	TimeZone    string `json:"timeZone"`
 	// The app's interface language, for the few replies the server writes itself.
 	Language string `json:"language,omitempty"`
+	// Why the app opened the conversation, when it knows: "recipe" from Create a recipe, to add
+	// a new recipe of the user's own.
+	Purpose string `json:"purpose,omitempty"`
 }
 
 var studioScreens = map[string]bool{"discover": true, "explore": true, "saved": true, "planner": true, "pantry": true, "profile": true, "create": true, "community": true}
@@ -696,6 +703,9 @@ func (a *App) studioContext(c fiber.Ctx) error {
 	}
 	if _, known := interruptedReplies[v.Language]; !known {
 		v.Language = ""
+	}
+	if v.Purpose != "recipe" {
+		v.Purpose = ""
 	}
 	r, e := a.DB.Exec(c.Context(), `UPDATE voice_projects SET context=$3 WHERE id=$1 AND user_id=$2 AND deleted_at IS NULL`, c.Params("id"), userID(c), jsonBytes(v))
 	if e != nil {

@@ -504,9 +504,19 @@ func TestAssistantSeesScreenAndLocalTime(t *testing.T) {
 	if screen["page"] != "planner" || open["title"] != "Lemon toast" || open["steps"] == nil || screen["cookingStep"] != 1 {
 		t.Fatalf("screen %#v", screen)
 	}
-	in = view(map[string]any{"screen": "admin", "recipeId": "secret", "cookingStep": 3, "timeZone": "Local"})
+	// Opened from Create a recipe, the assistant knows it's there to write a new recipe, and the
+	// conversation says so to the app.
+	in = view(map[string]any{"screen": "discover", "purpose": "recipe"})
+	if screen := in["screen"].(fiber.Map); screen["purpose"] != "newRecipe" {
+		t.Fatalf("purpose %#v", screen)
+	}
+	var listed struct{ Purpose string }
+	if status, b := studioReq(t, f, "GET", "/studio/"+p, "cook", "", nil); status != 200 || json.Unmarshal(b, &listed) != nil || listed.Purpose != "recipe" {
+		t.Fatalf("conversation %d %s", status, b)
+	}
+	in = view(map[string]any{"screen": "admin", "recipeId": "secret", "cookingStep": 3, "timeZone": "Local", "purpose": "admin"})
 	screen = in["screen"].(fiber.Map)
-	if screen["page"] != "" || screen["openRecipe"] != nil || in["timeZone"] != "UTC" {
+	if screen["page"] != "" || screen["openRecipe"] != nil || screen["purpose"] != nil || in["timeZone"] != "UTC" {
 		t.Fatalf("untrusted context leaked: %#v %v", screen, in["timeZone"])
 	}
 }
