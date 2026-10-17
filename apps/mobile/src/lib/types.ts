@@ -295,6 +295,13 @@ export const emptyRecipe = (): RecipeInput => ({
 });
 
 export type StudioMode = 'voice' | 'photo' | 'chat';
+/** What a start of the sous-chef brings besides its mode. */
+export type StudioStart = {
+  /** A screen's prompt (the home's ideas, the planner), sent as the first message. */
+  message?: string;
+  /** From Create a recipe: the conversation is for writing a new recipe. */
+  recipe?: boolean;
+};
 export type StudioEvent = {
   seq: number;
   role: 'user' | 'assistant';
@@ -329,6 +336,8 @@ export type StudioProject = {
   id: string;
   /** The conversation's first message. */
   title?: string | null;
+  /** What the app last opened it for: "recipe" from Create a recipe. Older servers leave it out. */
+  purpose?: string;
   recipeId: string | null;
   recipe: Recipe | null;
   revision: number;

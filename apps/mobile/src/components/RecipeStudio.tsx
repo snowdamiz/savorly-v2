@@ -27,6 +27,7 @@ import {
   Mic,
   MicOff,
   Minimize2,
+  PenLine,
   Send,
   Square,
   SquarePen,
@@ -43,6 +44,7 @@ import {
   StudioEvent,
   StudioMode,
   StudioProject,
+  StudioStart,
 } from '../lib/types';
 import { color, radius, s, shadow } from '../lib/theme';
 import { Button, Dialog, FoodImage, IconButton, Pill, Press, animate, motionReduced } from './ui';
@@ -132,6 +134,9 @@ const cookingSuggestions = [
 ];
 // A conversation this recent is picked up again; older ones stay in the history row.
 const RESUME_MS = 6 * 60 * 60 * 1000;
+// A new recipe is written in a conversation where nothing's been said yet, or one already
+// writing a new recipe that has no draft so far; anything else starts a conversation of its own.
+const takesNewRecipe = (p: StudioProject) => !p.recipeId && (!p.title || p.purpose === 'recipe');
 const timeZone = (() => {
   try {
     return Intl.DateTimeFormat().resolvedOptions().timeZone || '';
@@ -155,9 +160,10 @@ export function RecipeStudio({
 }: {
   /**
    * Each explicit start (Speak, Scan, the launcher) asks for its mode, even while already open; a
-   * screen's prompt (the home's ideas, the planner) also brings the message to send.
+   * screen's prompt (the home's ideas, the planner) also brings the message to send, and Create a
+   * recipe says it's for writing a new one.
    */
-  start: { mode: StudioMode; n: number; message?: string };
+  start: { mode: StudioMode; n: number } & StudioStart;
   /** Minimized: the panel folds into the launcher, or a pill keeps a live conversation going. */
   hidden: boolean;
   onHide: (hidden: boolean) => void;
@@ -175,6 +181,11 @@ export function RecipeStudio({
   const dock = useSousChefDock();
   const floating = !!dock.panel;
   const [project, setProject] = useState<StudioProject | null>(null);
+  // The conversation a start from Create a recipe writes its new recipe in, and that start.
+  const [recipeFor, setRecipeFor] = useState<{ project: string; n: number } | null>(null);
+  const writing = !!project && recipeFor?.project === project.id;
+  // The start the sheet opened with.
+  const [opening] = useState(start);
   const [events, setEvents] = useState<StudioEvent[]>([]);
   const [history, setHistory] = useState<StudioProject[]>([]);
   const [browsing, setBrowsing] = useState(false);
@@ -292,8 +303,10 @@ export function RecipeStudio({
       });
       await selectProject(next);
       setHistory((old) => [next, ...old]);
+      return next.id;
     } catch (e) {
       setError((e as Error).message);
+      return null;
     } finally {
       setBusy(false);
     }
@@ -304,7 +317,11 @@ export function RecipeStudio({
       .then(async (items) => {
         if (!live.current) return;
         setHistory(items);
-        const resumable = items.find((p) => Date.now() - Date.parse(p.updatedAt) < RESUME_MS);
+        const resumable = items.find(
+          (p) =>
+            Date.now() - Date.parse(p.updatedAt) < RESUME_MS &&
+            (!opening.recipe || takesNewRecipe(p)),
+        );
         if (resumable) await selectProject(resumable);
         else {
           const next = await api<StudioProject>('/recipe-studio', {
@@ -323,7 +340,21 @@ export function RecipeStudio({
       attempt.current?.abort();
       void connection.current?.close();
     };
-  }, [selectProject]);
+  }, [selectProject, opening]);
+  // A start from Create a recipe writes in the open conversation when it can take a new recipe,
+  // or else in a new one.
+  const placing = useRef(0);
+  useEffect(() => {
+    if (!start.recipe || !project || placing.current === start.n) return;
+    const n = (placing.current = start.n);
+    if (takesNewRecipe(project) || (writing && !project.recipeId))
+      setRecipeFor({ project: project.id, n });
+    else void create().then((id) => id && setRecipeFor({ project: id, n }));
+    // Placed once per start; create changes every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [start, project]);
+  // What a start does next (Speak it's call) waits until its conversation is chosen.
+  const placed = !start.recipe || recipeFor?.n === start.n;
   useEffect(() => {
     if (!project?.id || !watching) return;
     let done = false;
@@ -370,9 +401,16 @@ export function RecipeStudio({
     if (!project?.id || !attending) return;
     contextSent.current = api(`/recipe-studio/${project.id}/context`, {
       method: 'PUT',
-      body: { screen, recipeId: viewing || '', cookingStep: cookingStep || 0, timeZone, language },
+      body: {
+        screen,
+        recipeId: viewing || '',
+        cookingStep: cookingStep || 0,
+        timeZone,
+        language,
+        purpose: writing ? 'recipe' : '',
+      },
     }).catch(() => {});
-  }, [project?.id, screen, viewing, cookingStep, attending, language]);
+  }, [project?.id, screen, viewing, cookingStep, attending, language, writing]);
   useEffect(() => {
     handlers.current = {
       changed: onChanged,
@@ -454,6 +492,8 @@ export function RecipeStudio({
       }
     };
     try {
+      // The voice model greets for what the conversation is for, a new recipe or anything.
+      await contextSent.current;
       const c = await openVoice({
         projectId: projectRef.current.id,
         signal: controller.signal,
@@ -483,13 +523,13 @@ export function RecipeStudio({
     }
   }
   useEffect(() => {
-    if (start.mode === 'voice' && project && voiceAsked.current !== start.n) {
+    if (start.mode === 'voice' && project && placed && voiceAsked.current !== start.n) {
       voiceAsked.current = start.n;
       void startVoice();
     }
     // One automatic start per explicit Speak action; switching conversations doesn't restart it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [start, project?.id]);
+  }, [start, project?.id, placed]);
   const send = async (message = text, image = attachment, fromUpload = false) => {
     if (!project || (busy && !fromUpload) || project.busy || (!message.trim() && !image)) return;
     const value =
@@ -727,15 +767,21 @@ export function RecipeStudio({
       </View>
     </View>
   );
-  // Speak it starts with what to say; the transcript fills in above the controls as you talk.
+  // Writing a new recipe starts with what to tell; as you talk, Speak it's transcript fills in
+  // above the controls.
+  const voiced = runningVoice && start.mode === 'voice';
   const telling = (
     <View style={{ paddingVertical: floating ? 6 : 10, gap: 14 }}>
       <View style={{ gap: 6 }}>
         <Text style={s.h2}>{tr('Tell me your recipe')}</Text>
         <Text style={s.muted}>
-          {tr(
-            'Talk it through like you would to a friend. I’ll write it up and ask about anything I missed.',
-          )}
+          {voiced
+            ? tr(
+                'Talk it through like you would to a friend. I’ll write it up and ask about anything I missed.',
+              )
+            : tr(
+                'Type it out like you would to a friend. I’ll write it up and ask about anything I missed.',
+              )}
         </Text>
       </View>
       <View style={[s.card, { padding: 16, gap: 14 }]}>
@@ -757,13 +803,17 @@ export function RecipeStudio({
           </View>
         ))}
       </View>
-      <Text style={s.small}>{tr('Say “that’s everything” when you’re done.')}</Text>
+      <Text style={s.small}>
+        {voiced
+          ? tr('Say “that’s everything” when you’re done.')
+          : tr('Paste it all in, or send it a bit at a time.')}
+      </Text>
     </View>
   );
   const messages = (
     <>
-      {!groups.length && runningVoice && start.mode === 'voice' && telling}
-      {!groups.length && !(runningVoice && start.mode === 'voice') && (
+      {!groups.length && (voiced || writing) && telling}
+      {!groups.length && !(voiced || writing) && (
         <View style={{ paddingVertical: floating ? 6 : 14, gap: 10 }}>
           <ChefHat size={28} color={color.ink} />
           <Text style={s.h2}>{tr('How can I help in the kitchen?')}</Text>
@@ -876,19 +926,25 @@ export function RecipeStudio({
       {/* It follows what's open, so "this" means the page or recipe in front of you. */}
       <View style={{ gap: 8 }}>
         <View style={[s.row, { gap: 6, paddingHorizontal: 6 }]}>
-          <Eye size={15} color={color.muted} />
+          {writing ? (
+            <PenLine size={15} color={color.muted} />
+          ) : (
+            <Eye size={15} color={color.muted} />
+          )}
           <Text numberOfLines={1} style={[s.small, { flex: 1 }]}>
-            {context.recipe
-              ? context.cookingStep
-                ? tr('Cooking {{v0}} · step {{v1}}', {
-                    v0: context.recipe.title,
-                    v1: context.cookingStep,
-                  })
-                : tr('Viewing {{v0}}', { v0: context.recipe.title })
-              : tr('Viewing {{v0}}', { v0: context.title })}
+            {writing
+              ? tr('New recipe')
+              : context.recipe
+                ? context.cookingStep
+                  ? tr('Cooking {{v0}} · step {{v1}}', {
+                      v0: context.recipe.title,
+                      v1: context.cookingStep,
+                    })
+                  : tr('Viewing {{v0}}', { v0: context.recipe.title })
+                : tr('Viewing {{v0}}', { v0: context.title })}
           </Text>
         </View>
-        {!!nearby.length && !runningVoice && (
+        {!!nearby.length && !runningVoice && !writing && (
           <ScrollView
             horizontal
             keyboardShouldPersistTaps="handled"
@@ -945,7 +1001,13 @@ export function RecipeStudio({
         </View>
         <TextInput
           accessibilityLabel={tr('Message your sous-chef')}
-          placeholder={attachment ? tr('Add a note (optional)…') : tr('Ask anything…')}
+          placeholder={
+            attachment
+              ? tr('Add a note (optional)…')
+              : writing
+                ? tr('Type your recipe…')
+                : tr('Ask anything…')
+          }
           placeholderTextColor={color.soft}
           value={text}
           onChangeText={setText}

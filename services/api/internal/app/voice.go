@@ -101,7 +101,15 @@ func (a *App) voiceCreate(c fiber.Ctx) error {
 	}
 	handshake, cancel := context.WithTimeout(c.Context(), 24*time.Second)
 	defer cancel()
-	answer, e := a.Live.Create(handshake, in.SDP, state.Conversation, fmt.Sprintf("Current draft revision: %d. Status: %s. Continue from the conversation; do not repeat completed actions.", state.Revision, state.Status))
+	opening := fmt.Sprintf("Current draft revision: %d. Status: %s. Continue from the conversation; do not repeat completed actions.", state.Revision, state.Status)
+	// Opened from Create a recipe, the call starts by asking for the recipe. Best effort: without
+	// the purpose it greets as usual.
+	var purpose string
+	_ = a.DB.QueryRow(c.Context(), `SELECT COALESCE(context->>'purpose','') FROM voice_projects WHERE id=$1`, project).Scan(&purpose)
+	if purpose == "recipe" && state.Recipe == nil {
+		opening += " The user opened this call from Create a recipe to add a new recipe of their own: greet them briefly and ask them to tell you the recipe."
+	}
+	answer, e := a.Live.Create(handshake, in.SDP, state.Conversation, opening)
 	if e != nil {
 		failed(false)
 		slog.Warn("voice handshake failed", "error", e)
