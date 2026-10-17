@@ -24,13 +24,16 @@ func (a *App) jobs(c fiber.Ctx) error {
 func (a *App) job(c fiber.Ctx) error {
 	return a.queryOne(c, `SELECT `+jobJSON+` FROM ai_jobs WHERE id=$1 AND user_id=$2`, c.Params("id"), userID(c))
 }
+
+// createJob makes a photo or a clip from a description (the editor's Create a cover photo and
+// Create a short clip). Questions, twists, swaps, nutrition, meal plans and new recipes are the
+// sous-chef's conversation; a recipe job is made only by importing a page.
 func (a *App) createJob(c fiber.Ctx) error {
 	var in struct{ Kind, Prompt string }
 	if e := decode(c, &in); e != nil {
 		return e
 	}
-	kinds := map[string]bool{"recipe": true, "adapt": true, "substitute": true, "nutrition": true, "plan": true, "assistant": true, "image": true, "video": true}
-	if !kinds[in.Kind] || !validText(in.Prompt, 8, 12000) {
+	if (in.Kind != "image" && in.Kind != "video") || !validText(in.Prompt, 8, 12000) {
 		return fiber.NewError(400, "Choose a tool and describe what you would like (8–12,000 characters).")
 	}
 	if in.Kind == "video" && !a.AI.VideoEnabled() {
@@ -217,35 +220,29 @@ func (a *App) processJob(parent context.Context, id, owner, kind, prompt, source
 				return
 			}
 		}
-	default:
-		result, err = a.AI.Text(ctx, kind, prompt)
+	case "recipe":
+		result, err = a.AI.Recipe(ctx, prompt)
 		if err == nil {
-			if kind == "recipe" || kind == "adapt" {
-				var out struct {
-					Recipe RecipeInput `json:"recipe"`
-				}
-				err = json.Unmarshal(result, &out)
-				if err == nil {
-					out.Recipe.AIGenerated = true
-					out.Recipe.Published = false
-					// An import credits its page; nothing else a model writes sets a source or an original.
-					out.Recipe.SourceURL, out.Recipe.DerivedFrom = importedFrom(prompt), RecipeRef{}
-					err = out.Recipe.Validate()
-					result = jsonBytes(out)
-				}
-				if err != nil && importedFrom(prompt) != nil {
-					err = errors.Join(errNoRecipe, err)
-				}
-			} else {
-				var out struct {
-					Text string `json:"text"`
-				}
-				err = json.Unmarshal(result, &out)
-				if err == nil && !validText(out.Text, 1, 20000) {
-					err = errors.New("empty response")
-				}
+			var out struct {
+				Recipe RecipeInput `json:"recipe"`
+			}
+			err = json.Unmarshal(result, &out)
+			if err == nil {
+				out.Recipe.AIGenerated = true
+				out.Recipe.Published = false
+				// An import credits its page; nothing a model writes sets an original.
+				out.Recipe.SourceURL, out.Recipe.DerivedFrom = importedFrom(prompt), RecipeRef{}
+				err = out.Recipe.Validate()
+				result = jsonBytes(out)
+			}
+			if err != nil && importedFrom(prompt) != nil {
+				err = errors.Join(errNoRecipe, err)
 			}
 		}
+	default:
+		// A question, twist, swap, nutrition or meal-plan job left from before they moved to the
+		// sous-chef's conversation.
+		err = errors.New("unsupported job kind " + kind)
 	}
 	if err != nil {
 		slog.Error("generation failed", "job", id, "error", err)

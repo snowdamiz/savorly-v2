@@ -86,7 +86,7 @@ var agentToolDefs = []agentToolDef{
 	{tool("generate_recipe_media", "Make a new AI cover photo and/or short video for one of the user's own recipes; it replaces the current one when ready. Each costs a generation.", object([]string{"recipe_id", "kinds"}, props{"recipe_id": recipeID(), "kinds": list(choice("", "image", "video"), 2)})), "media", (*toolTurn).generateRecipeMedia},
 	{tool("update_profile", "Change the user's display name, bio, diets or allergies. diets and allergies replace the whole list. Needs confirmation.", object(nil, props{"name": field("string", ""), "bio": field("string", ""), "diets": list(field("string", ""), 12), "allergies": list(field("string", ""), 20)})), "saving", (*toolTurn).updateProfile},
 	{tool("confirm_action", "Carry out the action the user was asked to confirm, once their latest message clearly says yes. Only as the turn's first tool call.", none), "", (*toolTurn).confirmAction},
-	{tool("app_action", "Do something on the user's screen when your reply arrives: open a recipe, start cooking mode (optionally at a step), go to a step or start that step's timer in cooking mode, open a page, or change the interface language.", object([]string{"action"}, props{"action": choice("", "open_recipe", "start_cooking", "cooking_step", "start_timer", "go_to", "set_language"), "recipe_id": field("string", "For open_recipe and start_cooking"), "step": field("integer", "1-based, for start_cooking or cooking_step"), "page": choice("For go_to", pages...), "language": choice("For set_language", languages...)})), "", (*toolTurn).appAction},
+	{tool("app_action", "Do something on the user's screen when your reply arrives: open a recipe, start cooking mode (optionally at a step), go to a step or start that step's timer in cooking mode, open a page, or change the interface language.", object([]string{"action"}, props{"action": choice("", "open_recipe", "start_cooking", "cooking_step", "start_timer", "go_to", "set_language"), "recipe_id": field("string", "For open_recipe and start_cooking"), "step": field("integer", "1-based, for start_cooking or cooking_step"), "page": choice("For go_to", pages...), "language": choice("For set_language", languages...), "say": field("string", "Your reply to the user, in their language. In a live call, when this is all they asked for, write it here: it is spoken at once and the turn ends. For a cooking step, say what the step says. Leave it empty when other tools come first or after")})), "", (*toolTurn).appAction},
 	{tool("save_recipe_draft", "Create a new recipe, or revise an unpublished one created in this conversation, with the complete recipe; saves it privately and generates its AI cover photo and short video. Never include media URLs. Use edit_recipe for published and other existing recipes.", object([]string{"recipe"}, props{"recipe": draftRecipe, "new_recipe": field("boolean", "Start a different recipe instead of revising the current draft"), "source_url": field("string", "For a recipe from a web page the user shared: the sourceUrl import_recipe gave, to credit it"), "derived_from": field("string", "For a version of another recipe (a twist, a swap): the original's id, which the new recipe credits")})), "recipe", (*toolTurn).draftAction},
 	{tool("read_back_draft", "Read back the current saved draft so the user can approve publishing it.", none), "recipe", (*toolTurn).draftAction},
 	{tool("publish_draft", "Publish the current draft after the user approved its read-back. Only as the turn's first tool call.", none), "recipe", (*toolTurn).draftAction},
@@ -128,9 +128,11 @@ type agentRun struct {
 	// action is the turn's voice_actions id; step is what it's doing; cancel stops it.
 	action, step string
 	cancel       func()
-	// voice is a turn delegated from a live call; screen counts the screen actions it made.
+	// voice is a turn delegated from a live call; screen counts the screen actions it made, and
+	// say is the spoken reply the latest round's actions carried.
 	voice  bool
 	screen int
+	say    string
 	// imports counts the web pages it read.
 	imports int
 	// trace is what the turn did, for the admin console.
@@ -275,7 +277,7 @@ func (a *App) agentTool(ctx context.Context, run *agentRun, name string, raw jso
 // toolArgs is every tool's arguments; each tool reads its own.
 type toolArgs struct {
 	Query, Cuisine, Tag, Sort, Day, Meal, Name, Quantity, Kind, Text, Reason, Action, Page, Language string
-	URL, From, To, Note                                                                              string
+	URL, From, To, Note, Say                                                                         string
 	MaxMinutes                                                                                       int      `json:"max_minutes"`
 	AuthorID                                                                                         string   `json:"author_id"`
 	RecipeID                                                                                         string   `json:"recipe_id"`
@@ -860,6 +862,9 @@ func (t *toolTurn) appAction() string {
 	}
 	t.run.actions = append(t.run.actions, act)
 	t.run.screen++
+	if say := strings.TrimSpace(t.in.Say); say != "" {
+		t.run.say = strings.TrimSpace(t.run.say + " " + say)
+	}
 	return `{"ok":true,"note":"This happens on the user's screen when your reply arrives."}`
 }
 

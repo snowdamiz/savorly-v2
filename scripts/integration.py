@@ -90,7 +90,7 @@ try:
  assert len(request('/kitchen',token=b)['plans'])==0
  request('/recipes/'+rid,expected=404)
  request('/me','DELETE',{'password':'bad'},b,403)  # still signed in: a 401 would mean signed out
- if not caps['textAI']:request('/ai/jobs','POST',{'kind':'recipe','prompt':'Make a nice pasta recipe'},a,503)
+ if not caps['textAI']:request('/ai/jobs','POST',{'kind':'image','prompt':'A bowl of fresh pasta, overhead'},a,503)
  print(f'PASS: {passed} API checks, including authentication, sign-out, billing guards, admin access, ownership, drafts, search, collections, reviews, planning, groceries, pantry, follows, and cascading deletes.')
 finally:
  for token in accounts:

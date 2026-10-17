@@ -279,7 +279,7 @@ func TestRepliesSayWhetherTheyChangedTheMembersData(t *testing.T) {
 		Role    string
 		Changed bool
 	}
-	if status, b := studioReq(t, f, "GET", "/studio/"+p+"/events", "cook", "", nil); status != 200 || json.Unmarshal(b, &events) != nil {
+	if status, b := studioEventsOf(t, f, p, "cook"); status != 200 || json.Unmarshal(b, &events) != nil {
 		t.Fatalf("events %d %s", status, b)
 	}
 	got := []bool{}

@@ -78,8 +78,6 @@ test('a swap asks the sous-chef, which sees the recipe, in its one conversation'
   expect(state.messages).toEqual(['What can I use instead of Bread, and how much?']);
   // It was told the recipe is open before it was asked.
   expect(state.contexts.at(-1)).toMatchObject({ recipeId: 'voice-toast' });
-  // Each look at the conversation is one request.
-  expect(state.eventReads()).toBe(0);
 });
 
 test('twists and a nutrition estimate go to the same conversation', async ({ page }) => {
@@ -148,7 +146,6 @@ async function mockStudio(
   const bodies: Record<string, unknown>[] = [];
   const undos: { seq: number; index: number }[] = [];
   let cancels = 0;
-  let eventReads = 0;
   const sessionCloses: string[] = [];
   let uploads = 0;
   let starts = 0;
@@ -202,10 +199,6 @@ async function mockStudio(
         updatedAt: new Date().toISOString(),
       };
       return fulfill(project);
-    }
-    if (path.endsWith('/events')) {
-      eventReads++;
-      return fulfill(events.filter((e) => e.seq > Number(url.searchParams.get('after') || 0)));
     }
     if (path.endsWith('/images')) {
       uploads++;
@@ -334,7 +327,6 @@ async function mockStudio(
     },
     undos,
     cancels: () => cancels,
-    eventReads: () => eventReads,
     conversations: () => conversations,
   };
 }

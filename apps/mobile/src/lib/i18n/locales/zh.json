@@ -460,7 +460,6 @@
   "AI suggestions can be wrong. Check allergens, doneness and labels yourself.": "AI 建议可能有误。请自行核对过敏原、熟度和标签。",
   "Sous-chef history": "助手历史",
   "Nothing cooked up yet": "还没有记录",
-  "Ask for a swap, a twist or a whole recipe from any recipe, your pantry or the planner.": "在食谱、食材库或计划页询问替代食材、改编方案或完整食谱。",
   "Failed": "失败",
   "Working": "处理中",
   "Get started": "开始",
@@ -479,7 +478,6 @@
   "Add to cookbook": "加入食谱集",
   "Watch video": "观看视频",
   "Ask": "提问",
-  "A {{v0}} version": "{{v0}}版本",
   "Saved to {{v0}}": "已保存到{{v0}}",
   "More protein": "更多蛋白质",
   "Quicker": "更快",
@@ -1379,5 +1377,6 @@
   "{{v0}} left": "剩余 {{v0}}",
   "Resume voice": "继续语音",
   "Marked {{title}} as cooked": "已标记为做过：{{title}}",
-  "Reading the page…": "正在读取网页…"
+  "Reading the page…": "正在读取网页…",
+  "Photos and clips you make in the editor show up here, with photo touch-ups and imported recipes.": "你在编辑器中制作的照片和短视频，以及照片润色和导入的食谱，都会显示在这里。"
 }

@@ -114,7 +114,7 @@ func TestSuspendedCooksRecipesLeaveTheSousChef(t *testing.T) {
 	if out := tool(run, "app_action", map[string]any{"action": "start_cooking", "recipe_id": "mine", "step": 1}); !strings.Contains(out, `"ok":true`) {
 		t.Fatal(out)
 	}
-	status, b := studioReq(t, studioServer(a), "GET", "/studio/"+p+"/events", "cook", "", nil)
+	status, b := studioEventsOf(t, studioServer(a), p, "cook")
 	var events []struct{ Recipes []struct{ ID string } }
 	if status != 200 || json.Unmarshal(b, &events) != nil || len(events) != 1 || len(events[0].Recipes) != 1 || events[0].Recipes[0].ID != "mine" {
 		t.Fatalf("cards %d %s", status, b)

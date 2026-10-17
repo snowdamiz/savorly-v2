@@ -460,7 +460,6 @@
   "AI suggestions can be wrong. Check allergens, doneness and labels yourself.": "A IA pode errar. Confira alérgenos, cozimento e rótulos.",
   "Sous-chef history": "Histórico do assistente",
   "Nothing cooked up yet": "Nada preparado ainda",
-  "Ask for a swap, a twist or a whole recipe from any recipe, your pantry or the planner.": "Peça substituições, variações ou receitas em uma receita, despensa ou planejador.",
   "Failed": "Falha",
   "Working": "Em andamento",
   "Get started": "Começar",
@@ -479,7 +478,6 @@
   "Add to cookbook": "Adicionar ao livro",
   "Watch video": "Assistir vídeo",
   "Ask": "Perguntar",
-  "A {{v0}} version": "Uma versão: {{v0}}",
   "Saved to {{v0}}": "Salvo em {{v0}}",
   "More protein": "Mais proteína",
   "Quicker": "Mais rápida",
@@ -1379,5 +1377,6 @@
   "{{v0}} left": "Restam {{v0}}",
   "Resume voice": "Retomar voz",
   "Marked {{title}} as cooked": "Marcado como preparado: {{title}}",
-  "Reading the page…": "Lendo a página…"
+  "Reading the page…": "Lendo a página…",
+  "Photos and clips you make in the editor show up here, with photo touch-ups and imported recipes.": "As fotos e os clipes que você cria no editor aparecem aqui, com os retoques de foto e as receitas importadas."
 }

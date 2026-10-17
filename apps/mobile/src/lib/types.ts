@@ -222,16 +222,15 @@ export type AIJob = {
   createdAt: string;
 };
 // One request to the sous-chef sheet. `prompt` runs immediately; `suggestions` run on one tap.
+/** A photo or clip to make from a description (the editor's Create a cover photo or clip). */
 export type AIRequest = {
-  kind: AIKind;
+  kind: 'image' | 'video';
   title: string;
   context?: string;
   prompt?: string;
   suggestions?: string[];
   placeholder?: string;
   onMedia?: (url: string) => void;
-  /** The recipe an adaptation starts from, credited on the recipe it becomes. */
-  derivedFrom?: string;
 };
 export type Announcement = { text: string; tone: 'info' | 'warning' };
 export type Capabilities = {

@@ -45,17 +45,13 @@ func (a *App) studioList(c fiber.Ctx) error {
 }
 
 // studioGet reads a conversation. With ?after=<seq> it also carries the events after it
-// (events), so a polling app makes one request rather than two.
+// (events): the app reads a conversation and what's new in it with one request.
 func (a *App) studioGet(c fiber.Ctx) error {
 	if after := c.Query("after"); after != "" {
 		seq, _ := strconv.Atoi(after)
 		return a.queryOne(c, `SELECT `+projectJSON+`||jsonb_build_object('events',(SELECT COALESCE(jsonb_agg(ev.event ORDER BY ev.seq),'[]') FROM (`+studioEventsSQL+`) ev)) FROM voice_projects p WHERE p.id=$1 AND p.user_id=$2 AND p.deleted_at IS NULL`, c.Params("id"), userID(c), seq)
 	}
 	return a.queryOne(c, `SELECT `+projectJSON+` FROM voice_projects p WHERE p.id=$1 AND p.user_id=$2 AND p.deleted_at IS NULL`, c.Params("id"), userID(c))
-}
-func (a *App) studioEvents(c fiber.Ctx) error {
-	after, _ := strconv.Atoi(c.Query("after", "0"))
-	return a.queryMany(c, `SELECT ev.event FROM (`+studioEventsSQL+`) ev ORDER BY ev.seq`, c.Params("id"), userID(c), after)
 }
 
 // studioEventsSQL is conversation $1's events after seq $3, as its owner $2 sees them: up to
@@ -650,13 +646,19 @@ func (a *App) processVoiceAction(ctx context.Context, id, project string, throug
 }
 
 // screenOnly ends a live call's turn after a round that only drove the screen, when the model
-// already wrote what to say alongside it: the voice model says it a model round sooner.
+// already said what to tell the user: in app_action's say, or alongside the calls (models that
+// write nothing beside a tool call still fill in its arguments). The voice model says it a model
+// round sooner.
 func screenOnly(run *agentRun) func(string) (string, bool) {
 	calls, screen := run.calls, run.screen
 	return func(content string) (string, bool) {
 		only := run.calls > calls && run.calls-calls == run.screen-screen
-		calls, screen = run.calls, run.screen
-		return content, run.voice && only && content != ""
+		reply := run.say
+		if reply == "" {
+			reply = content
+		}
+		calls, screen, run.say = run.calls, run.screen, ""
+		return reply, run.voice && only && reply != ""
 	}
 }
 
