@@ -8,7 +8,6 @@ import (
 
 func TestCapabilitiesExposeConfiguredModels(t *testing.T) {
 	settings := map[string]string{
-		"OPENROUTER_TEXT_MODEL":   "textModel",
 		"OPENROUTER_RECIPE_MODEL": "recipeModel",
 		"OPENROUTER_AGENT_MODEL":  "agentModel",
 		"OPENROUTER_IMAGE_MODEL":  "imageModel",

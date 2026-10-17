@@ -250,7 +250,7 @@ func (a *App) systemStatus() fiber.Map {
 		"paidPlans": paidPlans(), "billing": billingEnabled(), "media": a.Media != nil && a.Media.S3 != nil,
 		"email": emailEnabled(), "appleSignIn": len(oauthAudiences("apple")) > 0, "googleSignIn": len(oauthAudiences("google")) > 0,
 		"textAI": a.AI.TextEnabled(), "videoAI": a.AI.VideoEnabled(), "voiceAI": voice, "narration": a.Narrator.Enabled(),
-		"models": fiber.Map{"text": a.AI.TextModel, "recipe": a.AI.RecipeModel, "agent": a.AI.AgentModel, "image": a.AI.ImageModel, "imageEdit": a.AI.ImageEditModel, "video": a.AI.VideoModel, "voice": voiceModel, "narration": narration.Model},
+		"models": fiber.Map{"recipe": a.AI.RecipeModel, "agent": a.AI.AgentModel, "image": a.AI.ImageModel, "imageEdit": a.AI.ImageEditModel, "video": a.AI.VideoModel, "voice": voiceModel, "narration": narration.Model},
 	}
 }
 

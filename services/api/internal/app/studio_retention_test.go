@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net/http/httptest"
 	"savorly/api/internal/ai"
-	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -66,11 +65,8 @@ func TestDeletingAConversationErasesItButKeepsItsAccounting(t *testing.T) {
 	if status != 200 || json.Unmarshal(b, &listed) != nil || len(listed) != 0 {
 		t.Fatalf("listed: %d %s", status, b)
 	}
-	if status, b = studioReq(t, f, "GET", "/studio/"+p+"/events", "cook", "", nil); status != 200 || strings.TrimSpace(string(b)) != "[]" {
-		t.Fatalf("events: %d %s", status, b)
-	}
 	startFakeLive(t, a, 201, 0)
-	for _, request := range []struct{ method, path, key string }{{"GET", "/studio/" + p, ""}, {"POST", "/studio/" + p + "/messages", "after-delete"}, {"PUT", "/studio/" + p + "/context", ""}, {"POST", "/studio/" + p + "/voice", ""}, {"DELETE", "/studio/" + p, ""}} {
+	for _, request := range []struct{ method, path, key string }{{"GET", "/studio/" + p, ""}, {"GET", "/studio/" + p + "?after=0", ""}, {"POST", "/studio/" + p + "/messages", "after-delete"}, {"PUT", "/studio/" + p + "/context", ""}, {"POST", "/studio/" + p + "/voice", ""}, {"DELETE", "/studio/" + p, ""}} {
 		if status, _ := studioReq(t, f, request.method, request.path, "cook", request.key, map[string]any{"text": "Hello", "screen": "planner", "sdp": "v=0"}); status != 404 {
 			t.Fatalf("%s %s on a deleted conversation: %d", request.method, request.path, status)
 		}

@@ -40,7 +40,6 @@ func studioServer(a *App) *fiber.App {
 	f := fiber.New()
 	f.Use(func(c fiber.Ctx) error { c.Locals("userID", c.Get("Test-User")); return c.Next() })
 	f.Get("/studio/:id", a.studioGet)
-	f.Get("/studio/:id/events", a.studioEvents)
 	f.Post("/studio/:id/messages", a.studioMessage)
 	f.Delete("/studio/:id", a.studioDelete)
 	f.Put("/studio/:id/context", a.studioContext)
@@ -52,6 +51,20 @@ func studioServer(a *App) *fiber.App {
 	f.Post("/studio/:id/undo", a.studioUndo)
 	f.Post("/studio/:id/cancel", a.studioCancel)
 	return f
+}
+
+// studioEventsOf reads a conversation's events as the app does, with the conversation itself.
+func studioEventsOf(t *testing.T, f *fiber.App, p, who string) (int, []byte) {
+	t.Helper()
+	status, b := studioReq(t, f, "GET", "/studio/"+p+"?after=0", who, "", nil)
+	if status != 200 {
+		return status, b
+	}
+	var out struct{ Events json.RawMessage }
+	if e := json.Unmarshal(b, &out); e != nil {
+		t.Fatal(e)
+	}
+	return status, out.Events
 }
 func studioReq(t *testing.T, f *fiber.App, method, path, owner, key string, body any) (int, []byte) {
 	t.Helper()
@@ -106,8 +119,8 @@ func TestStudioConversationOwnershipIdempotencyAndBusy(t *testing.T) {
 	if status != 200 || !bytes.Contains(bytes.ReplaceAll(b, []byte(" "), nil), []byte(`"busy":true`)) {
 		t.Fatalf("project shape %d %s", status, b)
 	}
-	status, _ = studioReq(t, f, "GET", "/studio/"+p+"/events", "other", "", nil)
-	if status != 200 {
+	status, _ = studioEventsOf(t, f, p, "other")
+	if status != 404 {
 		t.Fatal(status)
 	}
 	var count int
@@ -436,7 +449,7 @@ func TestAssistantActsThroughAppHandlers(t *testing.T) {
 	if n := 0; a.DB.QueryRow(ctx, `SELECT count(*) FROM meal_plans WHERE recipe_id='secret'`).Scan(&n) == nil && n != 0 {
 		t.Fatal("planned another cook's private recipe")
 	}
-	status, b = studioReq(t, f, "GET", "/studio/"+p+"/events", "cook", "", nil)
+	status, b = studioEventsOf(t, f, p, "cook")
 	var events []struct {
 		Role, Content string
 		Recipes       []struct{ ID string }

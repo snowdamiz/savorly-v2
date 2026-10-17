@@ -26,7 +26,7 @@ func TestProviderContracts(t *testing.T) {
 			if body["response_format"].(map[string]any)["type"] != "json_object" {
 				t.Error("missing JSON mode")
 			}
-			w.Write([]byte(`{"choices":[{"message":{"content":"{\"text\":\"Try a little lemon.\"}"}}]}`))
+			w.Write([]byte(`{"choices":[{"message":{"content":"{\"recipe\":{\"title\":\"Lemon pasta\"}}"}}]}`))
 		case "/images":
 			// A touch-up sends the photo as a reference to the edit model and keeps its framing; a new
 			// cover is 4:3.
@@ -66,9 +66,9 @@ func TestProviderContracts(t *testing.T) {
 	c.VideoKey = "test-key"
 	c.VideoModel = "doubao-seedance-2.5-eco"
 	ctx := context.Background()
-	text, e := c.Text(ctx, "assistant", "Help with dinner")
-	if e != nil || string(text) != `{"text":"Try a little lemon."}` {
-		t.Fatalf("text: %s %v", text, e)
+	recipe, e := c.Recipe(ctx, "Import the recipe on this web page: https://cook.example/pasta")
+	if e != nil || string(recipe) != `{"recipe":{"title":"Lemon pasta"}}` {
+		t.Fatalf("recipe: %s %v", recipe, e)
 	}
 	b, mime, e := c.Image(ctx, "pasta")
 	if e != nil || string(b) != "image" || mime != "image/jpeg" {
@@ -97,7 +97,7 @@ func TestProviderFailureAndMalformedResponses(t *testing.T) {
 			defer s.Close()
 			c := New()
 			c.OpenRouterURL = s.URL
-			if _, e := c.Text(context.Background(), "assistant", "hello"); e == nil {
+			if _, e := c.Recipe(context.Background(), "hello"); e == nil {
 				t.Fatal("expected error")
 			}
 		})
