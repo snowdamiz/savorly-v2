@@ -8,6 +8,10 @@ export type VoiceEvent = {
 };
 export type VoiceConnection = {
   id: string;
+  /** How long the session can last, in seconds. */
+  maxSeconds: number;
+  /** The plan's live voice time runs out with this session, so it ends rather than renewing. */
+  planEnds: boolean;
   mute: (muted: boolean) => void;
   close: () => Promise<void>;
   enableAudio: () => Promise<void>;
@@ -155,10 +159,15 @@ export async function connectVoice(
       options.signal.addEventListener('abort', cancelled, { once: true });
     });
     if (closed) throw new Error('Connection cancelled.');
-    const answer = await api<{ id: string; sdp: string; maxSeconds: number }>(
-      `/recipe-studio/${options.projectId}/voice`,
-      { method: 'POST', body: { sdp: peer.localDescription?.sdp } },
-    );
+    const answer = await api<{
+      id: string;
+      sdp: string;
+      maxSeconds: number;
+      remainingSeconds?: number;
+    }>(`/recipe-studio/${options.projectId}/voice`, {
+      method: 'POST',
+      body: { sdp: peer.localDescription?.sdp },
+    });
     sessionId = answer.id;
     if (closed) {
       void api(`/recipe-studio/voice/${sessionId}`, { method: 'DELETE' }).catch(() => {});
@@ -166,15 +175,21 @@ export async function connectVoice(
     }
     await peer.setRemoteDescription({ type: 'answer', sdp: answer.sdp });
     // Renew long dictation in bounded sessions, retaining the full conversation on the server.
+    // A session that uses up the plan's voice time ends with it instead (older servers don't
+    // say, so theirs renew as before).
+    const planEnds =
+      answer.remainingSeconds !== undefined && answer.remainingSeconds <= answer.maxSeconds;
     lease = setTimeout(
       () => {
-        options.onEvent({ type: 'connection.renew' });
+        options.onEvent({ type: planEnds ? 'connection.limit' : 'connection.renew' });
         void close();
       },
-      Math.max(10, answer.maxSeconds - 10) * 1000,
+      Math.max(10, answer.maxSeconds - (planEnds ? 1 : 10)) * 1000,
     );
     return {
       id: sessionId,
+      maxSeconds: answer.maxSeconds,
+      planEnds,
       close,
       mute: (muted) => {
         isMuted = muted;

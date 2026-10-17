@@ -99,8 +99,11 @@ export function Discover({
   onOpen: (r: Recipe) => void;
   navigate: (s: Screen) => void;
   onCreator: (c: Creator) => void;
-  /** Opens the sous-chef's conversation, sending `message` when there is one. */
-  onAsk: (message?: string) => void;
+  /**
+   * Opens the sous-chef's conversation, sending `message` when there is one; `recipe` when it asks
+   * for a new recipe.
+   */
+  onAsk: (message?: string, recipe?: boolean) => void;
   onActivity: () => void;
   onAccount: () => void;
   /** Height of the phone's black header, so the shell can turn the status bar light past it. */
@@ -387,7 +390,7 @@ export function Discover({
                     variant="secondary"
                     small
                     // In the cook's language: it's their own message, and the model's cue.
-                    onPress={() => onAsk(tr('Create a recipe for {{v0}}.', { v0: query }))}
+                    onPress={() => onAsk(tr('Create a recipe for {{v0}}.', { v0: query }), true)}
                   />
                 )}
               </View>

@@ -295,6 +295,13 @@ export const emptyRecipe = (): RecipeInput => ({
 });
 
 export type StudioMode = 'voice' | 'photo' | 'chat';
+/** What a start of the sous-chef brings besides its mode. */
+export type StudioStart = {
+  /** A screen's prompt (the home's ideas, the planner), sent as the first message. */
+  message?: string;
+  /** From Create a recipe: the conversation is for writing a new recipe. */
+  recipe?: boolean;
+};
 export type StudioEvent = {
   seq: number;
   role: 'user' | 'assistant';
@@ -304,6 +311,44 @@ export type StudioEvent = {
   recipes?: { id: string; title: string; image: string; minutes: number; cuisine: string }[];
   /** Things the sous-chef does on screen when this reply arrives. */
   actions?: AppAction[];
+  /** The reply's turn changed the member's data. Older servers leave it out. */
+  changed?: boolean;
+  /** What the reply's turn did, as receipts under it. Older servers leave it out. */
+  effects?: StudioEffect[];
+  /** The reply says its turn failed (or was stopped). */
+  failed?: boolean;
+};
+/** Something a sous-chef reply did to the member's data, shown as a receipt under it. */
+export type StudioEffect = {
+  kind:
+    | 'groceries'
+    | 'plan'
+    | 'pantry'
+    | 'saved'
+    | 'unsaved'
+    | 'followed'
+    | 'unfollowed'
+    | 'cookbook'
+    | 'checked'
+    | 'unchecked'
+    | 'removed'
+    | 'recipe'
+    | 'deleted'
+    | 'draft'
+    | 'published'
+    | 'profile'
+    | 'review'
+    | 'report'
+    | 'media'
+    | 'cooked';
+  count?: number;
+  title?: string;
+  /** A recipe to open from the receipt. */
+  recipe?: string;
+  /** A page to open from the receipt. */
+  page?: Screen;
+  undoable?: boolean;
+  undone?: boolean;
 };
 export type AppAction =
   | { type: 'open_recipe'; recipeId: string }
@@ -329,6 +374,15 @@ export type StudioProject = {
   id: string;
   /** The conversation's first message. */
   title?: string | null;
+  /** What the app last opened it for: "recipe" from Create a recipe. Older servers leave it out. */
+  purpose?: string;
+  /**
+   * What the sous-chef waits for a yes to: an action it proposed, or publishing the draft it just
+   * read back. Answering with a tap sends `answer` and this `seq`. Older servers leave it out.
+   */
+  question?: { kind: 'action' | 'publish'; seq: number; description?: string } | null;
+  /** The reply on its way: what it's doing now, and whether it was asked to stop. */
+  turn?: { step: string; stopping: boolean } | null;
   recipeId: string | null;
   recipe: Recipe | null;
   revision: number;

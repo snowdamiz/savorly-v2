@@ -167,6 +167,35 @@ test('long dictation renews ten seconds before the session limit', async () => {
   expect(f.peer.close).toHaveBeenCalled();
 });
 
+test('a session that uses up the plan’s voice time ends at its limit instead of renewing', async () => {
+  jest.useFakeTimers();
+  jest
+    .mocked(api)
+    .mockImplementation(
+      (path: string, init?: { method?: string }) =>
+        Promise.resolve(
+          init?.method === 'POST'
+            ? { id: 'session-1', sdp: 'answer-sdp', maxSeconds: 90, remainingSeconds: 90 }
+            : undefined,
+        ) as never,
+    );
+  const f = fakes();
+  const voice = await connectVoice(f.env, options());
+  expect(voice).toMatchObject({ maxSeconds: 90, planEnds: true });
+  await jest.advanceTimersByTimeAsync(88_000);
+  expect(events.map((e) => e.type)).not.toContain('connection.limit');
+  await jest.advanceTimersByTimeAsync(1_500);
+  expect(events.map((e) => e.type)).toEqual(expect.arrayContaining(['connection.limit']));
+  expect(events.map((e) => e.type)).not.toContain('connection.renew');
+});
+
+test('a server that doesn’t say how much voice time is left renews as before', async () => {
+  jest.useFakeTimers();
+  const f = fakes();
+  const voice = await connectVoice(f.env, options());
+  expect(voice).toMatchObject({ maxSeconds: 600, planEnds: false });
+});
+
 test('a failed connection is reported and cleaned up', async () => {
   const f = fakes();
   await connectVoice(f.env, options());

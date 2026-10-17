@@ -115,12 +115,13 @@ type usage struct {
 	Spend        float64 `json:"-"`
 }
 
-// usageOf counts the last 30 days. Jobs that never reserved a cost (refused up front)
-// don't count; provider failures do, since they may still be billed.
+// usageOf counts the last 30 days. Jobs that never reserved a cost (refused up front), and
+// sous-chef turns that failed before reaching the model, don't count; provider failures do,
+// since they may still be billed.
 func usageOf(ctx context.Context, q querier, owner string) (usage, error) {
 	var u usage
 	e := q.QueryRow(ctx, `SELECT
- (SELECT count(*) FROM voice_actions a JOIN voice_projects p ON p.id=a.project_id WHERE p.user_id=$1 AND a.created_at>now()-interval '30 days')
+ (SELECT count(*) FROM voice_actions a JOIN voice_projects p ON p.id=a.project_id WHERE p.user_id=$1 AND a.estimated_cost>0 AND a.created_at>now()-interval '30 days')
   +(SELECT count(*) FROM ai_jobs WHERE user_id=$1 AND kind NOT IN ('image','video') AND estimated_cost>0 AND created_at>now()-interval '30 days'),
  (SELECT COALESCE(sum(CASE WHEN finalized THEN seconds ELSE reserved_seconds END),0)::int FROM voice_sessions WHERE user_id=$1 AND reserved_seconds>0 AND created_at>now()-interval '30 days'),
  (SELECT count(*) FROM ai_jobs WHERE user_id=$1 AND kind='image' AND estimated_cost>0 AND created_at>now()-interval '30 days'),

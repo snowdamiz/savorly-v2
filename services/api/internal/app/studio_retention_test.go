@@ -106,12 +106,12 @@ func TestDeletingAConversationStopsItsTurns(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	reply, cost, e := a.AI.Agent(ctx, input, nil, agentTools, func(name string, args json.RawMessage) string { return a.agentTool(ctx, run, name, args) })
+	reply, cost, e := a.AI.Agent(ctx, input, nil, agentTools, func(name string, args json.RawMessage) string { return a.agentTool(ctx, run, name, args) }, nil)
 	if e != nil || deleted != 204 {
 		t.Fatalf("turn %v, delete %d", e, deleted)
 	}
 	// Its answer arrives after the deletion and is not written back.
-	if e = a.settleTurn(ctx, "running", p, run, reply, cost, false); e != nil {
+	if e = a.settleTurn(ctx, "running", p, run, reply, cost, false, false); e != nil {
 		t.Fatal(e)
 	}
 	var events int

@@ -23,24 +23,48 @@ import (
 	_ "time/tzdata" // Alpine images ship no zoneinfo; users' time zones must still resolve.
 )
 
-const projectJSON = `jsonb_build_object('id',p.id,'recipeId',p.recipe_id,
+// purpose is what the app last opened the conversation for ("recipe" from Create a recipe).
+// question is what the sous-chef waits for a yes to, which the app can answer with a tap: an
+// action it proposed, or publishing the draft it just read back. turn is the reply on its
+// way: what it is doing (step) and whether the member asked to stop it.
+const projectJSON = `jsonb_build_object('id',p.id,'recipeId',p.recipe_id,'purpose',COALESCE(p.context->>'purpose',''),
+ 'question',` + questionSQL + `,
+ 'turn',(SELECT jsonb_build_object('step',a.progress,'stopping',a.cancel_requested) FROM voice_actions a WHERE a.project_id=p.id AND a.status IN ('queued','running') ORDER BY a.created_at LIMIT 1),
  'title',(SELECT left(content,60) FROM voice_events WHERE project_id=p.id AND role='user' ORDER BY seq LIMIT 1),'revision',p.revision,'status',p.status,'reply',p.reply,'error',p.error,'updatedAt',p.updated_at,
  'recipe',(SELECT ` + recipeJSON + recipeFrom + ` WHERE r.id=p.recipe_id),
  'voiceSession',(SELECT jsonb_build_object('id',id,'status',status) FROM voice_sessions WHERE project_id=p.id AND reserved_seconds>0 ORDER BY created_at DESC LIMIT 1),
  'busy',EXISTS(SELECT 1 FROM voice_actions WHERE project_id=p.id AND status IN ('queued','running')),
  'assets',COALESCE((SELECT jsonb_agg(jsonb_build_object('kind',v.kind,'status',j.status,'error',j.error,'url',j.result->>'url')) FROM voice_assets v JOIN ai_jobs j ON j.id=v.job_id WHERE v.project_id=p.id AND v.revision=p.revision),'[]'::jsonb))`
 
+// questionSQL is the question waiting in voice_projects p, if any; seq identifies it.
+const questionSQL = `CASE WHEN p.pending IS NOT NULL THEN jsonb_build_object('kind','action','seq',p.pending_seq,'description',p.pending->>'description')
+ WHEN p.recipe_id IS NOT NULL AND p.confirmed_revision=p.revision AND p.status<>'published' THEN jsonb_build_object('kind','publish','seq',p.confirmation_seq) END`
+
 func (a *App) studioList(c fiber.Ctx) error {
 	return a.queryMany(c, `SELECT `+projectJSON+` FROM voice_projects p WHERE p.user_id=$1 AND p.deleted_at IS NULL ORDER BY p.updated_at DESC LIMIT 20`, userID(c))
 }
+
+// studioGet reads a conversation. With ?after=<seq> it also carries the events after it
+// (events), so a polling app makes one request rather than two.
 func (a *App) studioGet(c fiber.Ctx) error {
+	if after := c.Query("after"); after != "" {
+		seq, _ := strconv.Atoi(after)
+		return a.queryOne(c, `SELECT `+projectJSON+`||jsonb_build_object('events',(SELECT COALESCE(jsonb_agg(ev.event ORDER BY ev.seq),'[]') FROM (`+studioEventsSQL+`) ev)) FROM voice_projects p WHERE p.id=$1 AND p.user_id=$2 AND p.deleted_at IS NULL`, c.Params("id"), userID(c), seq)
+	}
 	return a.queryOne(c, `SELECT `+projectJSON+` FROM voice_projects p WHERE p.id=$1 AND p.user_id=$2 AND p.deleted_at IS NULL`, c.Params("id"), userID(c))
 }
 func (a *App) studioEvents(c fiber.Ctx) error {
 	after, _ := strconv.Atoi(c.Query("after", "0"))
-	return a.queryMany(c, `SELECT jsonb_build_object('seq',e.seq,'role',e.role,'content',e.content,'imageCount',jsonb_array_length(e.images),'actions',e.actions,
- 'recipes',(SELECT COALESCE(jsonb_agg(jsonb_build_object('id',r.id,'title',r.title,'image',r.image,'minutes',r.minutes,'cuisine',r.cuisine) ORDER BY x.n),'[]') FROM jsonb_array_elements_text(e.recipes) WITH ORDINALITY x(id,n) JOIN recipes r ON r.id=x.id AND (r.published OR r.author_id=p.user_id) JOIN users u ON u.id=r.author_id AND u.suspended_at IS NULL)) FROM voice_events e JOIN voice_projects p ON p.id=e.project_id WHERE p.id=$1 AND p.user_id=$2 AND p.deleted_at IS NULL AND e.seq>$3 ORDER BY e.seq LIMIT 1000`, c.Params("id"), userID(c), after)
+	return a.queryMany(c, `SELECT ev.event FROM (`+studioEventsSQL+`) ev ORDER BY ev.seq`, c.Params("id"), userID(c), after)
 }
+
+// studioEventsSQL is conversation $1's events after seq $3, as its owner $2 sees them: up to
+// 1,000, oldest first.
+const studioEventsSQL = `SELECT e.seq,jsonb_build_object('seq',e.seq,'role',e.role,'content',e.content,'imageCount',jsonb_array_length(e.images),'actions',e.actions,'changed',e.changed,
+ 'effects',` + publicEffectsSQL + `,
+ 'failed',starts_with(e.event_id,'result_') AND EXISTS(SELECT 1 FROM voice_actions a WHERE a.id=substr(e.event_id,8) AND a.status='failed'),
+ 'recipes',(SELECT COALESCE(jsonb_agg(jsonb_build_object('id',r.id,'title',r.title,'image',r.image,'minutes',r.minutes,'cuisine',r.cuisine) ORDER BY x.n),'[]') FROM jsonb_array_elements_text(e.recipes) WITH ORDINALITY x(id,n) JOIN recipes r ON r.id=x.id AND (r.published OR r.author_id=p.user_id) JOIN users u ON u.id=r.author_id AND u.suspended_at IS NULL)) event
+ FROM voice_events e JOIN voice_projects p ON p.id=e.project_id WHERE p.id=$1 AND p.user_id=$2 AND p.deleted_at IS NULL AND e.seq>$3 ORDER BY e.seq LIMIT 1000`
 
 // maxConversations bounds each member's conversations. Past it, a new one erases the oldest
 // that have been idle for 30 days, as deleting them would: the app lists only the 20 most
@@ -167,12 +191,18 @@ func (a *App) studioMessage(c fiber.Ctx) error {
 	var in struct {
 		Text   string   `json:"text"`
 		Images []string `json:"images"`
+		// A tap on the app's Yes or No for the question waiting at Question.
+		Answer   string `json:"answer"`
+		Question int64  `json:"question"`
 	}
 	if e := decode(c, &in); e != nil {
 		return e
 	}
 	if !validText(in.Text, 1, 24000) || len(in.Images) > 4 {
 		return fiber.NewError(400, "Write a message of up to 24,000 characters and attach up to four images.")
+	}
+	if in.Answer != "" && in.Answer != "yes" && in.Answer != "no" {
+		return fiber.NewError(400, "Answer yes or no.")
 	}
 	key := c.Get("Idempotency-Key")
 	if len(key) < 8 || len(key) > 100 {
@@ -228,12 +258,26 @@ func (a *App) studioMessage(c fiber.Ctx) error {
 	if busy {
 		return fiber.NewError(409, "Your sous-chef is still working. Send your next message when the reply arrives.")
 	}
+	if in.Answer != "" {
+		var asked bool
+		if e = tx.QueryRow(ctx, `SELECT COALESCE((`+questionSQL+`)->>'seq'=$2::text,false) FROM voice_projects p WHERE p.id=$1`, project, strconv.FormatInt(in.Question, 10)).Scan(&asked); e != nil && !errors.Is(e, pgx.ErrNoRows) {
+			return e
+		}
+		if !asked {
+			return fiber.NewError(409, "That question has changed. Answer the latest one.")
+		}
+	}
 	var seq int64
 	if e = tx.QueryRow(ctx, `INSERT INTO voice_events(project_id,session_id,event_id,role,content,images) VALUES($1,$2,$3,'user',$4,$5) RETURNING seq`, project, session, key, in.Text, normalizedJSON(in.Images)).Scan(&seq); e != nil {
 		return e
 	}
 	if e = a.enqueueVoiceAction(ctx, tx, owner, project, session, key, seq); e != nil {
 		return e
+	}
+	if in.Answer != "" {
+		if _, e = tx.Exec(ctx, `UPDATE voice_actions SET answer=$3,answer_seq=$4 WHERE session_id=$1 AND delegation_id=$2`, session, key, in.Answer, in.Question); e != nil {
+			return e
+		}
 	}
 	if _, e = tx.Exec(ctx, `UPDATE voice_projects SET error='',updated_at=now() WHERE id=$1`, project); e != nil {
 		return e
@@ -525,8 +569,10 @@ func publicError(e error) string {
 	if errors.As(e, &f) {
 		return f.Message
 	}
-	return "Your sous-chef couldn't finish that step. Your conversation is saved. Please try again."
+	return turnFailed
 }
+
+const turnFailed = "Your sous-chef couldn't finish that step. Your conversation is saved. Please try again."
 
 // A failed turn that already changed data says so, so the next turn checks before repeating.
 const turnFailedAfterChanges = "Your sous-chef couldn't finish that step, but some changes were already saved. Check them before asking again."
@@ -534,42 +580,140 @@ const turnFailedAfterChanges = "Your sous-chef couldn't finish that step, but so
 func (a *App) processVoiceAction(ctx context.Context, id, project string, through int64) {
 	turn, cancel := context.WithTimeout(ctx, 3*time.Minute)
 	defer cancel()
+	// The member can stop it (studioCancel) while it runs here.
+	a.turns.Store(id, cancel)
+	defer a.turns.Delete(id)
 	state, e := a.studioState(turn, project, through)
-	run := &agentRun{state: state}
+	run := &agentRun{state: state, action: id, cancel: cancel}
 	var data []string
 	var input any
+	if e == nil {
+		// Text turns come from the conversation's own chat session; the rest from a live call.
+		var session string
+		e = a.DB.QueryRow(turn, `SELECT session_id FROM voice_actions WHERE id=$1`, id).Scan(&session)
+		run.voice = session != "chat_"+project
+	}
 	if e == nil {
 		data, e = a.sourceData(turn, project, state.Images)
 	}
 	if e == nil {
 		input, e = a.agentInput(turn, state)
 	}
-	reply, cost := "", 0.0
+	if in, ok := input.(fiber.Map); ok {
+		in["channel"] = map[bool]string{true: "voice", false: "text"}[run.voice]
+	}
 	if e == nil {
-		reply, cost, e = a.AI.Agent(turn, input, data, agentTools, func(name string, args json.RawMessage) string { return a.agentTool(turn, run, name, args) })
+		e = a.applyAnswer(turn, id, run, input)
+	}
+	// A turn that fails before reaching the model costs nothing and doesn't count.
+	reply, cost, called := "", 0.0, false
+	if e == nil {
+		called = true
+		reply, cost, e = a.AI.Agent(turn, input, data, agentTools, func(name string, args json.RawMessage) string { return a.agentTool(turn, run, name, args) }, screenOnly(run))
 	}
 	if e == nil && reply == "" {
 		e = errors.New("empty assistant reply")
 	}
 	if e != nil {
-		slog.Warn("assistant turn failed", "action", id, "error", e)
-		reply = publicError(e)
-		if run.changed {
+		var stopped bool
+		_ = a.DB.QueryRow(context.WithoutCancel(ctx), `SELECT cancel_requested FROM voice_actions WHERE id=$1`, id).Scan(&stopped)
+		switch {
+		case stopped:
+			reply = turnStopped
+		case run.changed:
 			reply = turnFailedAfterChanges
+		default:
+			slog.Warn("assistant turn failed", "action", id, "error", e)
+			reply = publicError(e)
 		}
 	}
 	// The turn's own deadline (or the worker stopping) must not keep it from settling, or it
 	// would stay running, refusing new messages, until the stalled-turn sweep.
 	settle, done := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
 	defer done()
-	if err := a.settleTurn(settle, id, project, run, truncate(reply, 12000), cost, e != nil); err != nil {
+	if err := a.settleTurn(settle, id, project, run, truncate(reply, 12000), cost, e != nil, e != nil && !called); err != nil {
 		slog.Error("settle assistant turn", "action", id, "error", err)
 	}
 }
 
+// screenOnly ends a live call's turn after a round that only drove the screen, when the model
+// already wrote what to say alongside it: the voice model says it a model round sooner.
+func screenOnly(run *agentRun) func(string) (string, bool) {
+	calls, screen := run.calls, run.screen
+	return func(content string) (string, bool) {
+		only := run.calls > calls && run.calls-calls == run.screen-screen
+		calls, screen = run.calls, run.screen
+		return content, run.voice && only && content != ""
+	}
+}
+
+// applyAnswer carries out the member's tapped answer to the question waiting for it before the
+// model replies, so a yes does what was described whatever the model makes of it. The model
+// then only tells the member how it went (input.answered).
+func (a *App) applyAnswer(ctx context.Context, id string, run *agentRun, input any) error {
+	var answer string
+	var question int64
+	if e := a.DB.QueryRow(ctx, `SELECT answer,answer_seq FROM voice_actions WHERE id=$1`, id).Scan(&answer, &question); e != nil || answer == "" {
+		return e
+	}
+	in, _ := input.(fiber.Map)
+	if in == nil {
+		return nil
+	}
+	var kind, description string
+	var seq int64
+	var raw []byte
+	if e := a.DB.QueryRow(ctx, `SELECT COALESCE(q->>'kind',''),COALESCE((q->>'seq')::bigint,0),COALESCE(q->>'description',''),p.pending FROM voice_projects p,LATERAL (SELECT `+questionSQL+` q) x WHERE p.id=$1`, run.state.ID).Scan(&kind, &seq, &description, &raw); e != nil {
+		return e
+	}
+	delete(in, "awaitingConfirmation")
+	if kind == "" || seq != question {
+		in["answered"] = fiber.Map{"answer": answer, "result": "That question had already changed, so nothing was done. Ask what the user would like now."}
+		return nil
+	}
+	if kind == "publish" {
+		description = "Publish the draft you just read back"
+		if answer == "no" {
+			_, e := a.DB.Exec(ctx, `UPDATE voice_projects SET confirmed_revision=-1 WHERE id=$1`, run.state.ID)
+			in["answered"] = fiber.Map{"answer": answer, "action": description}
+			return e
+		}
+		was, revision := run.state.Status, run.state.Revision
+		result, e := a.applyDraftAction(ctx, run.state, "publish", nil, false)
+		if e != nil {
+			result = publicError(e)
+		}
+		run.reviewed = true
+		a.refreshRun(ctx, run)
+		a.noteDraft(run, "publish", was, revision)
+		in["answered"] = fiber.Map{"answer": answer, "action": description, "result": result}
+		return nil
+	}
+	if _, e := a.DB.Exec(ctx, `UPDATE voice_projects SET pending=NULL WHERE id=$1`, run.state.ID); e != nil {
+		return e
+	}
+	if answer == "no" {
+		in["answered"] = fiber.Map{"answer": answer, "action": description}
+		return nil
+	}
+	var p struct {
+		Tool string
+		Args json.RawMessage
+	}
+	if json.Unmarshal(raw, &p) != nil {
+		return errors.New("unreadable pending action")
+	}
+	run.approving = true
+	result := a.agentTool(ctx, run, p.Tool, p.Args)
+	run.approving = false
+	in["answered"] = fiber.Map{"answer": answer, "action": description, "result": json.RawMessage(result)}
+	return nil
+}
+
 // settleTurn keeps the reply durable and usable in text even if the microphone was closed,
-// and settles the reservation to what the provider reported for the whole tool loop.
-func (a *App) settleTurn(ctx context.Context, id, project string, run *agentRun, reply string, cost float64, failed bool) error {
+// and settles the reservation to what the provider reported for the whole tool loop. A turn
+// that never reached the provider (released) costs nothing and doesn't count as a turn.
+func (a *App) settleTurn(ctx context.Context, id, project string, run *agentRun, reply string, cost float64, failed, released bool) error {
 	tx, e := a.DB.Begin(ctx)
 	if e != nil {
 		return e
@@ -585,7 +729,7 @@ func (a *App) settleTurn(ctx context.Context, id, project string, run *agentRun,
 		status, message = "failed", reply
 		cost = 0 // A partial run keeps its conservative reservation.
 	}
-	r, e := tx.Exec(ctx, `UPDATE voice_actions SET status=$2,reply=$3,estimated_cost=COALESCE(NULLIF($4::numeric,0),estimated_cost),updated_at=now() WHERE id=$1 AND status='running'`, id, status, reply, cost)
+	r, e := tx.Exec(ctx, `UPDATE voice_actions SET status=$2,reply=$3,estimated_cost=CASE WHEN $5 THEN 0 ELSE COALESCE(NULLIF($4::numeric,0),estimated_cost) END,updated_at=now() WHERE id=$1 AND status='running'`, id, status, reply, cost, released)
 	if e != nil || r.RowsAffected() == 0 {
 		return e // The stalled-turn sweep already answered for it.
 	}
@@ -607,7 +751,11 @@ func (a *App) settleTurn(ctx context.Context, id, project string, run *agentRun,
 	if run.actions == nil {
 		actions = []byte(`[]`)
 	}
-	if _, e = tx.Exec(ctx, `INSERT INTO voice_events(project_id,session_id,event_id,role,content,recipes,actions) SELECT project_id,session_id,'result_'||id,'assistant',$2,$3,$4 FROM voice_actions WHERE id=$1 ON CONFLICT DO NOTHING`, id, reply, normalizedJSON(run.recipes), actions); e != nil {
+	effects := jsonBytes(run.effects)
+	if run.effects == nil {
+		effects = []byte(`[]`)
+	}
+	if _, e = tx.Exec(ctx, `INSERT INTO voice_events(project_id,session_id,event_id,role,content,recipes,actions,changed,effects) SELECT project_id,session_id,'result_'||id,'assistant',$2,$3,$4,$5,$6 FROM voice_actions WHERE id=$1 ON CONFLICT DO NOTHING`, id, reply, normalizedJSON(run.recipes), actions, run.changed || len(run.effects) > 0, effects); e != nil {
 		return e
 	}
 	if _, e = tx.Exec(ctx, `UPDATE voice_projects SET reply=$2,error=$3,updated_at=now() WHERE id=$1`, project, reply, message); e != nil {
@@ -618,15 +766,23 @@ func (a *App) settleTurn(ctx context.Context, id, project string, run *agentRun,
 			return e
 		}
 	}
-	return tx.Commit(ctx)
+	// A live call on another replica hears the reply as soon as this commits.
+	if _, e = tx.Exec(ctx, `SELECT pg_notify($1,$2) FROM voice_sessions WHERE project_id=$3 AND status IN ('active','closing') LIMIT 1`, workChannel, replyPrefix+project, project); e != nil {
+		return e
+	}
+	if e = tx.Commit(ctx); e != nil {
+		return e
+	}
+	repliesReady(project)
+	return nil
 }
 
 // agentInput is everything the assistant knows at the start of a turn.
 func (a *App) agentInput(ctx context.Context, state studioState) (any, error) {
 	var user json.RawMessage
 	var view studioView
-	var awaiting string
-	e := a.DB.QueryRow(ctx, `SELECT jsonb_build_object('name',u.name,'bio',u.bio,'diets',u.preferences->'diets','allergies',u.preferences->'allergies'),p.context,COALESCE(p.pending->>'description','') FROM users u JOIN voice_projects p ON p.user_id=u.id WHERE p.id=$1`, state.ID).Scan(&user, &view, &awaiting)
+	var awaiting, units string
+	e := a.DB.QueryRow(ctx, `SELECT jsonb_build_object('name',u.name,'bio',u.bio,'diets',u.preferences->'diets','allergies',u.preferences->'allergies'),p.context,COALESCE(p.pending->>'description',''),COALESCE(u.preferences->>'units','') FROM users u JOIN voice_projects p ON p.user_id=u.id WHERE p.id=$1`, state.ID).Scan(&user, &view, &awaiting, &units)
 	if e != nil {
 		return nil, e
 	}
@@ -635,6 +791,9 @@ func (a *App) agentInput(ctx context.Context, state studioState) (any, error) {
 		loc = time.UTC
 	}
 	screen := fiber.Map{"page": view.Screen}
+	if view.Purpose == "recipe" {
+		screen["purpose"] = "newRecipe"
+	}
 	if view.RecipeID != "" {
 		var b []byte
 		if a.DB.QueryRow(ctx, `SELECT `+recipeJSON+recipeFrom+`WHERE r.id=$1 AND (r.published OR r.author_id=$2)`, view.RecipeID, state.Owner).Scan(&b) == nil {
@@ -653,7 +812,33 @@ func (a *App) agentInput(ctx context.Context, state studioState) (any, error) {
 	if state.Recipe != nil {
 		draft = fiber.Map{"recipeId": state.RecipeID, "recipe": state.Recipe, "revision": state.Revision, "status": state.Status, "media": state.Assets}
 	}
-	input := fiber.Map{"now": time.Now().In(loc).Format("Monday 2006-01-02 15:04"), "timeZone": loc.String(), "user": user, "screen": screen, "conversation": state.Conversation, "draft": draft}
+	now := time.Now().In(loc)
+	input := fiber.Map{"now": now.Format("Monday 2006-01-02 15:04"), "timeZone": loc.String(), "user": user, "screen": screen, "conversation": state.Conversation, "draft": draft}
+	if view.Language != "" {
+		input["appLanguage"] = view.Language
+	}
+	if units != "" {
+		input["units"] = units
+	}
+	// What the member's plan has left, so the assistant doesn't offer what would be refused.
+	if paidPlans() {
+		plan, e := planOf(ctx, a.DB, state.Owner)
+		used, e2 := usageOf(ctx, a.DB, state.Owner)
+		if e == nil && e2 == nil {
+			input["allowances"] = fiber.Map{"plan": plan.ID, "sousChefTurnsLeft": max(0, plan.Assistant-used.Assistant), "photosLeft": max(0, plan.Images-used.Images), "videosLeft": max(0, plan.Videos-used.Videos), "voiceMinutesLeft": max(0, plan.VoiceMinutes*60-used.VoiceSeconds) / 60}
+		}
+	}
+	var kitchen, shown []byte
+	if e = a.DB.QueryRow(ctx, kitchenGlanceSQL, state.Owner, now.Format("2006-01-02")).Scan(&kitchen); e != nil {
+		return nil, e
+	}
+	input["kitchen"] = json.RawMessage(kitchen)
+	if e = a.DB.QueryRow(ctx, shownRecipesSQL, state.ID, state.Owner, state.Through).Scan(&shown); e != nil {
+		return nil, e
+	}
+	if string(shown) != "[]" {
+		input["shownRecipes"] = json.RawMessage(shown)
+	}
 	if state.Omitted > 0 {
 		input["earlierMessagesOmitted"] = state.Omitted
 	}
@@ -661,8 +846,30 @@ func (a *App) agentInput(ctx context.Context, state studioState) (any, error) {
 	if awaiting != "" {
 		input["awaitingConfirmation"] = awaiting
 	}
+	if undone := a.undoneSummary(ctx, state.ID); len(undone) > 0 {
+		input["undoneByUser"] = undone
+	}
 	return input, nil
 }
+
+// kitchenGlanceSQL is the member's ($1) week from their day $2: meals planned for the next
+// seven days, groceries still to buy, and pantry items about to expire. get_kitchen has the
+// rest, with ids.
+var kitchenGlanceSQL = `SELECT jsonb_build_object(
+ 'planned',COALESCE((SELECT jsonb_agg(jsonb_build_object('day',p.day,'meal',p.meal,'recipe',r.title,'recipeId',r.id,'servings',p.servings) ORDER BY p.day,array_position(ARRAY['Breakfast','Lunch','Dinner'],p.meal))
+   FROM meal_plans p JOIN recipes r ON r.id=p.recipe_id JOIN users u ON u.id=r.author_id AND u.suspended_at IS NULL WHERE p.user_id=$1 AND p.day BETWEEN $2::date AND $2::date+6),'[]'),
+ 'toBuyCount',(SELECT count(*) FROM groceries g WHERE NOT g.checked AND ` + groceryScope(1) + `),
+ 'toBuy',COALESCE((SELECT jsonb_agg(name ORDER BY created_at,id) FROM (SELECT g.name,g.created_at,g.id FROM groceries g WHERE NOT g.checked AND ` + groceryScope(1) + ` ORDER BY g.created_at,g.id LIMIT 30) x),'[]'),
+ 'pantryCount',(SELECT count(*) FROM pantry WHERE user_id=$1),
+ 'expiringSoon',COALESCE((SELECT jsonb_agg(name||' ('||to_char(expires_on,'YYYY-MM-DD')||')' ORDER BY expires_on,name) FROM (SELECT name,expires_on FROM pantry WHERE user_id=$1 AND expires_on BETWEEN $2::date AND $2::date+3 ORDER BY expires_on,name LIMIT 10) x),'[]'))`
+
+// shownRecipesSQL is the recipe cards conversation $1's replies through event $3 showed, newest
+// first and each once, as the member ($2) may see them, so "the second one" resolves.
+const shownRecipesSQL = `WITH cards AS (
+ SELECT DISTINCT ON (x.id) x.id,e.seq,x.n FROM voice_events e CROSS JOIN LATERAL jsonb_array_elements_text(e.recipes) WITH ORDINALITY x(id,n)
+ WHERE e.project_id=$1 AND e.role='assistant' AND jsonb_typeof(e.recipes)='array' AND ($3::bigint=0 OR e.seq<=$3) ORDER BY x.id,e.seq DESC
+), recent AS (SELECT * FROM cards ORDER BY seq DESC,n LIMIT 12)
+SELECT COALESCE(jsonb_agg(jsonb_build_object('id',r.id,'title',r.title) ORDER BY c.seq DESC,c.n),'[]') FROM recent c JOIN recipes r ON r.id=c.id AND (r.published OR r.author_id=$2) JOIN users u ON u.id=r.author_id AND u.suspended_at IS NULL`
 
 // studioView is what the app reports the user has open. It is untrusted: the page is
 // an allowlisted name and the recipe is shown only when the owner may see it.
@@ -673,6 +880,9 @@ type studioView struct {
 	TimeZone    string `json:"timeZone"`
 	// The app's interface language, for the few replies the server writes itself.
 	Language string `json:"language,omitempty"`
+	// Why the app opened the conversation, when it knows: "recipe" from Create a recipe, to add
+	// a new recipe of the user's own.
+	Purpose string `json:"purpose,omitempty"`
 }
 
 var studioScreens = map[string]bool{"discover": true, "explore": true, "saved": true, "planner": true, "pantry": true, "profile": true, "create": true, "community": true}
@@ -696,6 +906,9 @@ func (a *App) studioContext(c fiber.Ctx) error {
 	}
 	if _, known := interruptedReplies[v.Language]; !known {
 		v.Language = ""
+	}
+	if v.Purpose != "recipe" {
+		v.Purpose = ""
 	}
 	r, e := a.DB.Exec(c.Context(), `UPDATE voice_projects SET context=$3 WHERE id=$1 AND user_id=$2 AND deleted_at IS NULL`, c.Params("id"), userID(c), jsonBytes(v))
 	if e != nil {
@@ -789,7 +1002,8 @@ func (a *App) applyDraftAction(ctx context.Context, state studioState, action st
 		// Saving text never depends on media availability or a remaining media allowance.
 		state.Recipe = &r
 		state.Revision = revision
-		reply = fmt.Sprintf("Saved %s as a private draft for %d servings, taking about %d minutes. The cover photo and short video are being prepared. The user can make changes, ask for a read-back, or publish.", r.Title, r.Servings, r.Minutes)
+		// What media is coming, and what the user can do next, follow once the media is queued.
+		reply = fmt.Sprintf("Saved %s as a private draft for %d servings, taking about %d minutes.", r.Title, r.Servings, r.Minutes)
 		if keep {
 			reply = fmt.Sprintf("Saved %s as a private draft for %d servings, taking about %d minutes, keeping its photos and video. The user can make changes, ask for a read-back, or publish.", r.Title, r.Servings, r.Minutes)
 		}
@@ -797,7 +1011,13 @@ func (a *App) applyDraftAction(ctx context.Context, state studioState, action st
 		if state.Recipe == nil {
 			return "There's no saved draft yet. Ask for the recipe and save it first.", nil
 		}
-		if action == "publish" && confirmed == revision && lastUser > confirmationSeq {
+		answered := false
+		if action == "publish" && confirmed == revision {
+			if answered, e = answeredAfter(ctx, tx, state.ID, confirmationSeq, state.Through); e != nil {
+				return "", e
+			}
+		}
+		if answered {
 			// An admin's unpublish holds the recipe private; say so instead of failing the turn.
 			var held *fiber.Error
 			if e = moderationHold(ctx, tx, state.RecipeID, state.Owner, true); errors.As(e, &held) && held.Code == 403 {
@@ -839,13 +1059,75 @@ func (a *App) applyDraftAction(ctx context.Context, state studioState, action st
 			redo = "failed"
 		}
 		if e = a.queueStudioAssets(ctx, state, redo); e != nil {
-			return "The recipe is saved, but its media needs attention: " + publicError(e), nil
+			return reply + " Its media needs attention: " + publicError(e) + draftNext, nil
 		}
 		if action == "retry_media" {
 			reply = "The failed media is queued again. The recipe stays saved while it finishes."
 		}
 	}
+	if action == "build" && !keep {
+		note, e := a.draftMediaNote(ctx, state.ID, state.Revision)
+		if e != nil {
+			return "", e
+		}
+		reply += note + draftNext
+	}
 	return reply, nil
+}
+
+const draftNext = " The user can make changes, ask for a read-back, or publish."
+
+// draftMediaNote says which of a draft's media is on its way, from the jobs that actually
+// started for that revision: a plan without video, or a used-up allowance, gets no promise.
+func (a *App) draftMediaNote(ctx context.Context, project string, revision int) (string, error) {
+	rows, e := a.DB.Query(ctx, `SELECT v.kind,j.status,j.error FROM voice_assets v JOIN ai_jobs j ON j.id=v.job_id WHERE v.project_id=$1 AND v.revision=$2 ORDER BY v.kind`, project, revision)
+	if e != nil {
+		return "", e
+	}
+	defer rows.Close()
+	coming, refused := []string{}, []string{}
+	for rows.Next() {
+		var kind, status, reason string
+		if e = rows.Scan(&kind, &status, &reason); e != nil {
+			return "", e
+		}
+		name := map[string]string{"image": "cover photo", "video": "short video"}[kind]
+		if status == "failed" {
+			refused = append(refused, fmt.Sprintf("No %s is being made: %s", name, reason))
+		} else {
+			coming = append(coming, name)
+		}
+	}
+	if e = rows.Err(); e != nil {
+		return "", e
+	}
+	note := ""
+	switch len(coming) {
+	case 1:
+		note = fmt.Sprintf(" Its %s is being prepared.", coming[0])
+	case 2:
+		note = " Its cover photo and short video are being prepared."
+	}
+	for _, r := range refused {
+		note += " " + strings.TrimSuffix(r, ".") + "."
+	}
+	if note == "" {
+		note = " No AI photo or video is being made for it."
+	}
+	return note, nil
+}
+
+// answeredAfter reports whether the member spoke after hearing a question the turn that ended
+// at since put to them, up to through. The answer must follow the reply that asked; in a live
+// call it must also follow the start of the assistant reading that reply out, so words said
+// while it was still working, or before it spoke, aren't taken as a yes.
+func answeredAfter(ctx context.Context, q querier, project string, since, through int64) (bool, error) {
+	var answered bool
+	e := q.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM voice_events u,
+ (SELECT min(seq) r FROM voice_events WHERE project_id=$1 AND role='assistant' AND starts_with(event_id,'result_') AND seq>$2) asked
+ WHERE u.project_id=$1 AND u.role='user' AND u.seq>asked.r AND u.seq<=$3
+ AND (starts_with(u.session_id,'chat_') OR EXISTS(SELECT 1 FROM voice_events s WHERE s.project_id=$1 AND s.role='assistant' AND s.seq>asked.r AND s.seq<u.seq)))`, project, since, through).Scan(&answered)
+	return answered, e
 }
 func truncate(s string, n int) string {
 	r := []rune(s)

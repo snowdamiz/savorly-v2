@@ -240,6 +240,7 @@ const storedMessages = [
   'Connect R2 or local SeaweedFS to generate recipe media.',
   "Your sous-chef couldn't finish that step. Your conversation is saved. Please try again.",
   "Your sous-chef couldn't finish that step, but some changes were already saved. Check them before asking again.",
+  'Stopped. Your conversation is saved.',
   'Savorly is starting up. Please try again in a moment.',
   'Savorly is restarting. Please try again in a moment.',
 ];

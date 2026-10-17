@@ -101,7 +101,23 @@ func (a *App) voiceCreate(c fiber.Ctx) error {
 	}
 	handshake, cancel := context.WithTimeout(c.Context(), 24*time.Second)
 	defer cancel()
-	answer, e := a.Live.Create(handshake, in.SDP, state.Conversation, fmt.Sprintf("Current draft revision: %d. Status: %s. Continue from the conversation; do not repeat completed actions.", state.Revision, state.Status))
+	opening := fmt.Sprintf("Current draft revision: %d. Status: %s. Continue from the conversation; do not repeat completed actions.", state.Revision, state.Status)
+	// What the user has open, so the voice model can answer about it straight away. Best effort:
+	// without it the call starts as before, and the monitor sends the scene once it can.
+	scene, e := a.voiceScene(c.Context(), project, owner)
+	if e != nil {
+		slog.Warn("voice scene", "error", e)
+		scene = voiceScene{}
+	}
+	// Opened from Create a recipe, the call starts by asking for the recipe.
+	if scene.view.Purpose == "recipe" && state.Recipe == nil {
+		opening += " The user opened this call from Create a recipe to add a new recipe of their own: greet them briefly and ask them to tell you the recipe."
+	}
+	brief := ""
+	if scene.key != "" {
+		brief = scene.brief()
+	}
+	answer, e := a.Live.Create(handshake, in.SDP, state.Conversation, opening, brief)
 	if e != nil {
 		failed(false)
 		slog.Warn("voice handshake failed", "error", e)
@@ -132,9 +148,11 @@ func (a *App) voiceCreate(c fiber.Ctx) error {
 	running.Add(1)
 	go func() {
 		defer running.Add(-1)
-		a.monitorVoice(parent, conn, id, answer.Session.ID, project, owner, seconds)
+		a.monitorVoice(parent, conn, id, answer.Session.ID, project, owner, seconds, scene)
 	}()
-	return c.Status(201).JSON(fiber.Map{"id": id, "sdp": answer.Transport.SDP, "maxSeconds": seconds, "model": a.Live.ModelID()})
+	// remainingSeconds is the plan's voice time left when the call started: when it is no more
+	// than maxSeconds, the call ends with the plan's time rather than renewing.
+	return c.Status(201).JSON(fiber.Map{"id": id, "sdp": answer.Transport.SDP, "maxSeconds": seconds, "remainingSeconds": remaining, "model": a.Live.ModelID()})
 }
 
 // Voice monitors run on the API's App, but the worker's shutdown waits for them too (see
@@ -178,11 +196,12 @@ func endStaleVoice(ctx context.Context, q execer, user string) error {
 }
 
 // monitorVoice is the server's side of a live session: it records transcripts, runs
-// delegations, relays replies and ends the session. It bills what was used whenever that can
-// be known: the provider's final usage, or the connected time it observed once the session is
-// known to be over. A session it can neither observe nor end keeps its reservation, which the
-// stale sweep finalizes once heartbeats stop.
-func (a *App) monitorVoice(parent context.Context, conn *websocket.Conn, id, provider, project, owner string, maxSeconds int) {
+// delegations, relays replies, keeps the voice model up to date with what the user has open,
+// and ends the session. It bills what was used whenever that can be known: the provider's
+// final usage, or the connected time it observed once the session is known to be over. A
+// session it can neither observe nor end keeps its reservation, which the stale sweep
+// finalizes once heartbeats stop. scene is what the session was told the user has open.
+func (a *App) monitorVoice(parent context.Context, conn *websocket.Conn, id, provider, project, owner string, maxSeconds int, scene voiceScene) {
 	// The sideband outlives a stop request long enough to end the session properly.
 	ctx, cancel := context.WithCancel(context.WithoutCancel(parent))
 	defer cancel()
@@ -204,10 +223,16 @@ func (a *App) monitorVoice(parent context.Context, conn *websocket.Conn, id, pro
 		}
 	}
 	go read(conn)
-	tick := time.NewTicker(2 * time.Second)
+	tick := time.NewTicker(voiceTick)
 	defer tick.Stop()
+	// A turn that settles wakes the monitor, so its reply is said at once.
+	replies, done := awaitReplies(project)
+	defer done()
 	started := time.Now()
 	lastSpeech := started
+	// When the assistant last spoke: context updates wait until it has finished, since an
+	// instruction can cut its speech short.
+	var lastSaid time.Time
 	closing := time.Time{}
 	var giveUp <-chan time.Time
 	sent := false // session.close reached the provider
@@ -300,6 +325,8 @@ func (a *App) monitorVoice(parent context.Context, conn *websocket.Conn, id, pro
 				if ev.Type == "session.input_transcript.delta" {
 					role = "user"
 					lastSpeech = time.Now()
+				} else {
+					lastSaid = time.Now()
 				}
 				_, e := a.DB.Exec(ctx, `INSERT INTO voice_events(project_id,session_id,event_id,role,content) VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING`, project, id, ev.ID, role, ev.Delta)
 				if e != nil {
@@ -340,6 +367,13 @@ func (a *App) monitorVoice(parent context.Context, conn *websocket.Conn, id, pro
 			case "error":
 				slog.Warn("voice provider event error", "session", id)
 			}
+		case <-replies:
+			if !closing.IsZero() {
+				continue
+			}
+			if e := a.deliverVoiceReplies(ctx, conn, id, scene.view.Language); e != nil {
+				slog.Warn("voice reply delivery", "error", e)
+			}
 		case <-tick.C:
 			if !closing.IsZero() {
 				continue // Waiting for session.closed, or giveUp.
@@ -348,7 +382,7 @@ func (a *App) monitorVoice(parent context.Context, conn *websocket.Conn, id, pro
 			e := a.DB.QueryRow(ctx, `UPDATE voice_sessions SET heartbeat_at=now(),seconds=greatest(seconds,$2) WHERE id=$1 RETURNING close_requested`, id, time.Since(started).Seconds()).Scan(&stop)
 			if stop && e == nil {
 				if endAfter.IsZero() {
-					_ = a.deliverVoiceReplies(ctx, conn, id)
+					_ = a.deliverVoiceReplies(ctx, conn, id, scene.view.Language)
 					endAfter = time.Now().Add(6 * time.Second)
 				}
 				if time.Now().Before(endAfter) {
@@ -359,28 +393,51 @@ func (a *App) monitorVoice(parent context.Context, conn *websocket.Conn, id, pro
 				closeCall(8 * time.Second)
 				continue
 			}
+			language := scene.view.Language
 			if time.Since(lastSpeech) > 3*time.Minute {
-				_ = live.Append(ctx, conn, "commentary", "", "I'll pause the microphone now to save your voice time. Our conversation is saved; you can resume whenever you're ready.")
+				_ = live.Append(ctx, conn, "commentary", "", voiceNote(language, notePause))
 				closeCall(8 * time.Second)
 				continue
 			}
-			if e = a.deliverVoiceReplies(ctx, conn, id); e != nil {
+			if e = a.deliverVoiceReplies(ctx, conn, id, language); e != nil {
 				slog.Warn("voice reply delivery", "error", e)
 			}
-			var status string
-			e = a.DB.QueryRow(ctx, `SELECT status FROM voice_projects WHERE id=$1`, project).Scan(&status)
+			var status, key string
+			e = a.DB.QueryRow(ctx, `SELECT status,`+sceneKeySQL+` FROM voice_projects p WHERE id=$1`, project).Scan(&status, &key)
 			if e == nil && status != lastProgress {
 				if status == "ready" {
-					_ = live.Append(ctx, conn, "commentary", "", "Your recipe's cover photo and video are ready and attached to the saved draft. You can review, change, or publish it.")
+					// Only what was made: a plan without video gets a photo, and says so.
+					var kinds []string
+					if a.DB.QueryRow(ctx, `SELECT COALESCE(array_agg(v.kind ORDER BY v.kind),'{}') FROM voice_assets v JOIN voice_projects p ON p.id=v.project_id AND p.revision=v.revision WHERE v.project_id=$1 AND v.applied`, project).Scan(&kinds) == nil && len(kinds) > 0 {
+						note := map[string]string{"image": notePhoto, "video": noteVideo}[kinds[0]]
+						if len(kinds) == 2 {
+							note = notePhotoVideo
+						}
+						_ = live.Append(ctx, conn, "commentary", "", voiceNote(language, note))
+					}
 				}
 				if status == "needs_attention" {
-					_ = live.Append(ctx, conn, "commentary", "", "Your recipe is saved. Some media couldn't finish. You can keep the draft, publish it as it is, or ask to retry the media.")
+					_ = live.Append(ctx, conn, "commentary", "", voiceNote(language, noteMedia))
 				}
 				lastProgress = status
+			}
+			// The user moved on (another recipe, page or cooking step, or the open recipe was
+			// edited): tell the voice model quietly, once it isn't speaking.
+			if e == nil && key != scene.key && time.Since(lastSaid) > 1500*time.Millisecond {
+				if next, e := a.voiceScene(ctx, project, owner); e == nil {
+					if note := next.changes(scene); note != "" {
+						_ = live.Append(ctx, conn, "instructions", "", note)
+					}
+					scene = next
+				}
 			}
 		}
 	}
 }
+
+// voiceTick paces a monitor's heartbeat and checks. Tests lengthen it to show what doesn't
+// wait for it.
+var voiceTick = 2 * time.Second
 
 // reattachVoice rejoins a session whose sideband dropped, if the provider allows it, and gives
 // up when the server stops.
@@ -402,7 +459,10 @@ func (a *App) reattachVoice(ctx context.Context, provider string) (*websocket.Co
 	}
 	return nil, false
 }
-func (a *App) deliverVoiceReplies(ctx context.Context, conn *websocket.Conn, session string) error {
+
+// deliverVoiceReplies gives the voice model the replies it hasn't said yet; the ones the server
+// wrote itself (a failure, a stop) in the app's language.
+func (a *App) deliverVoiceReplies(ctx context.Context, conn *websocket.Conn, session, language string) error {
 	rows, e := a.DB.Query(ctx, `SELECT id,CASE WHEN session_id=$1 THEN delegation_id ELSE '' END,reply FROM voice_actions WHERE project_id=(SELECT project_id FROM voice_sessions WHERE id=$1) AND (session_id=$1 OR updated_at>(SELECT created_at FROM voice_sessions WHERE id=$1)) AND status IN ('completed','failed') AND NOT delivered ORDER BY created_at`, session)
 	if e != nil {
 		return e
@@ -423,7 +483,7 @@ func (a *App) deliverVoiceReplies(ctx context.Context, conn *websocket.Conn, ses
 		return e
 	}
 	for _, r := range list {
-		if e = live.Append(ctx, conn, "commentary", r.delegation, r.text); e != nil {
+		if e = live.Append(ctx, conn, "commentary", r.delegation, voiceNote(language, r.text)); e != nil {
 			return e
 		}
 		if _, e = a.DB.Exec(ctx, `UPDATE voice_actions SET delivered=true WHERE id=$1`, r.id); e != nil {
