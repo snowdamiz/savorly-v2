@@ -25,9 +25,11 @@ import (
 
 // purpose is what the app last opened the conversation for ("recipe" from Create a recipe).
 // question is what the sous-chef waits for a yes to, which the app can answer with a tap: an
-// action it proposed, or publishing the draft it just read back.
+// action it proposed, or publishing the draft it just read back. turn is the reply on its
+// way: what it is doing (step) and whether the member asked to stop it.
 const projectJSON = `jsonb_build_object('id',p.id,'recipeId',p.recipe_id,'purpose',COALESCE(p.context->>'purpose',''),
  'question',` + questionSQL + `,
+ 'turn',(SELECT jsonb_build_object('step',a.progress,'stopping',a.cancel_requested) FROM voice_actions a WHERE a.project_id=p.id AND a.status IN ('queued','running') ORDER BY a.created_at LIMIT 1),
  'title',(SELECT left(content,60) FROM voice_events WHERE project_id=p.id AND role='user' ORDER BY seq LIMIT 1),'revision',p.revision,'status',p.status,'reply',p.reply,'error',p.error,'updatedAt',p.updated_at,
  'recipe',(SELECT ` + recipeJSON + recipeFrom + ` WHERE r.id=p.recipe_id),
  'voiceSession',(SELECT jsonb_build_object('id',id,'status',status) FROM voice_sessions WHERE project_id=p.id AND reserved_seconds>0 ORDER BY created_at DESC LIMIT 1),
@@ -47,6 +49,8 @@ func (a *App) studioGet(c fiber.Ctx) error {
 func (a *App) studioEvents(c fiber.Ctx) error {
 	after, _ := strconv.Atoi(c.Query("after", "0"))
 	return a.queryMany(c, `SELECT jsonb_build_object('seq',e.seq,'role',e.role,'content',e.content,'imageCount',jsonb_array_length(e.images),'actions',e.actions,'changed',e.changed,
+ 'effects',`+publicEffectsSQL+`,
+ 'failed',starts_with(e.event_id,'result_') AND EXISTS(SELECT 1 FROM voice_actions a WHERE a.id=substr(e.event_id,8) AND a.status='failed'),
  'recipes',(SELECT COALESCE(jsonb_agg(jsonb_build_object('id',r.id,'title',r.title,'image',r.image,'minutes',r.minutes,'cuisine',r.cuisine) ORDER BY x.n),'[]') FROM jsonb_array_elements_text(e.recipes) WITH ORDINALITY x(id,n) JOIN recipes r ON r.id=x.id AND (r.published OR r.author_id=p.user_id) JOIN users u ON u.id=r.author_id AND u.suspended_at IS NULL)) FROM voice_events e JOIN voice_projects p ON p.id=e.project_id WHERE p.id=$1 AND p.user_id=$2 AND p.deleted_at IS NULL AND e.seq>$3 ORDER BY e.seq LIMIT 1000`, c.Params("id"), userID(c), after)
 }
 
@@ -562,8 +566,11 @@ const turnFailedAfterChanges = "Your sous-chef couldn't finish that step, but so
 func (a *App) processVoiceAction(ctx context.Context, id, project string, through int64) {
 	turn, cancel := context.WithTimeout(ctx, 3*time.Minute)
 	defer cancel()
+	// The member can stop it (studioCancel) while it runs here.
+	a.turns.Store(id, cancel)
+	defer a.turns.Delete(id)
 	state, e := a.studioState(turn, project, through)
-	run := &agentRun{state: state}
+	run := &agentRun{state: state, action: id, cancel: cancel}
 	var data []string
 	var input any
 	if e == nil {
@@ -585,10 +592,16 @@ func (a *App) processVoiceAction(ctx context.Context, id, project string, throug
 		e = errors.New("empty assistant reply")
 	}
 	if e != nil {
-		slog.Warn("assistant turn failed", "action", id, "error", e)
-		reply = publicError(e)
-		if run.changed {
+		var stopped bool
+		_ = a.DB.QueryRow(context.WithoutCancel(ctx), `SELECT cancel_requested FROM voice_actions WHERE id=$1`, id).Scan(&stopped)
+		switch {
+		case stopped:
+			reply = turnStopped
+		case run.changed:
 			reply = turnFailedAfterChanges
+		default:
+			slog.Warn("assistant turn failed", "action", id, "error", e)
+			reply = publicError(e)
 		}
 	}
 	// The turn's own deadline (or the worker stopping) must not keep it from settling, or it
@@ -631,12 +644,14 @@ func (a *App) applyAnswer(ctx context.Context, id string, run *agentRun, input a
 			in["answered"] = fiber.Map{"answer": answer, "action": description}
 			return e
 		}
+		was, revision := run.state.Status, run.state.Revision
 		result, e := a.applyDraftAction(ctx, run.state, "publish", nil, false)
 		if e != nil {
 			result = publicError(e)
 		}
 		run.reviewed = true
 		a.refreshRun(ctx, run)
+		a.noteDraft(run, "publish", was, revision)
 		in["answered"] = fiber.Map{"answer": answer, "action": description, "result": result}
 		return nil
 	}
@@ -702,7 +717,11 @@ func (a *App) settleTurn(ctx context.Context, id, project string, run *agentRun,
 	if run.actions == nil {
 		actions = []byte(`[]`)
 	}
-	if _, e = tx.Exec(ctx, `INSERT INTO voice_events(project_id,session_id,event_id,role,content,recipes,actions,changed) SELECT project_id,session_id,'result_'||id,'assistant',$2,$3,$4,$5 FROM voice_actions WHERE id=$1 ON CONFLICT DO NOTHING`, id, reply, normalizedJSON(run.recipes), actions, run.changed); e != nil {
+	effects := jsonBytes(run.effects)
+	if run.effects == nil {
+		effects = []byte(`[]`)
+	}
+	if _, e = tx.Exec(ctx, `INSERT INTO voice_events(project_id,session_id,event_id,role,content,recipes,actions,changed,effects) SELECT project_id,session_id,'result_'||id,'assistant',$2,$3,$4,$5,$6 FROM voice_actions WHERE id=$1 ON CONFLICT DO NOTHING`, id, reply, normalizedJSON(run.recipes), actions, run.changed || len(run.effects) > 0, effects); e != nil {
 		return e
 	}
 	if _, e = tx.Exec(ctx, `UPDATE voice_projects SET reply=$2,error=$3,updated_at=now() WHERE id=$1`, project, reply, message); e != nil {
@@ -758,6 +777,9 @@ func (a *App) agentInput(ctx context.Context, state studioState) (any, error) {
 	// The server's own words for what a yes would carry out, not the model's memory of them.
 	if awaiting != "" {
 		input["awaitingConfirmation"] = awaiting
+	}
+	if undone := a.undoneSummary(ctx, state.ID); len(undone) > 0 {
+		input["undoneByUser"] = undone
 	}
 	return input, nil
 }

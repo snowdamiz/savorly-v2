@@ -97,6 +97,11 @@ type agentRun struct {
 	// proposal has been dropped.
 	calls  int
 	lapsed bool
+	// effects is what the turn did, for the receipts under its reply.
+	effects []effect
+	// action is the turn's voice_actions id; step is what it's doing; cancel stops it.
+	action, step string
+	cancel       func()
 }
 
 // The assistant acts through the same handlers as the app, so validation and ownership
@@ -199,6 +204,12 @@ func (a *App) agentTool(ctx context.Context, run *agentRun, name string, raw jso
 	}
 	if e := json.Unmarshal(raw, &in); e != nil {
 		return toolError("Arguments must be a JSON object matching the tool schema.")
+	}
+	if a.step(ctx, run, name) {
+		if run.cancel != nil {
+			run.cancel()
+		}
+		return toolError("The user stopped this turn.")
 	}
 	owner := run.state.Owner
 	id := func(s string) string { return url.PathEscape(strings.TrimSpace(s)) }
@@ -315,18 +326,38 @@ func (a *App) agentTool(ctx context.Context, run *agentRun, name string, raw jso
 		}
 		return string(jsonBytes(l))
 	case "save_recipe":
+		var collection *string
+		saved := a.DB.QueryRow(ctx, `SELECT collection_id FROM saves WHERE user_id=$1 AND recipe_id=$2`, owner, in.RecipeID).Scan(&collection) == nil
+		method, body := "PUT", any(fiber.Map{"collectionId": in.CookbookID})
 		if in.Unsave {
-			return result(call("DELETE", "/recipes/"+id(in.RecipeID)+"/save", nil))
+			method, body = "DELETE", nil
 		}
-		return result(call("PUT", "/recipes/"+id(in.RecipeID)+"/save", fiber.Map{"collectionId": in.CookbookID}))
+		status, b := call(method, "/recipes/"+id(in.RecipeID)+"/save", body)
+		if status < 300 {
+			kind := map[bool]string{true: "unsaved", false: "saved"}[in.Unsave]
+			run.note(effect{Kind: kind, Title: a.recipeTitle(ctx, in.RecipeID), Recipe: in.RecipeID, Undo: jsonBytes(fiber.Map{"recipe": in.RecipeID, "saved": saved, "collection": collection})})
+		}
+		return result(status, b)
 	case "create_cookbook":
-		return result(call("POST", "/collections", fiber.Map{"name": in.Name}))
+		status, b := call("POST", "/collections", fiber.Map{"name": in.Name})
+		var made string
+		if status < 300 && a.DB.QueryRow(ctx, `SELECT id FROM collections WHERE user_id=$1 AND name=$2`, owner, strings.TrimSpace(in.Name)).Scan(&made) == nil {
+			run.note(effect{Kind: "cookbook", Title: strings.TrimSpace(in.Name), Page: "saved", Undo: jsonBytes(fiber.Map{"id": made})})
+		}
+		return result(status, b)
 	case "plan_meal":
-		return result(call("POST", "/planner", fiber.Map{"recipeId": in.RecipeID, "day": in.Day, "meal": in.Meal, "servings": in.Servings}))
+		previous := a.planSlot(ctx, owner, in.Day, in.Meal)
+		status, b := call("POST", "/planner", fiber.Map{"recipeId": in.RecipeID, "day": in.Day, "meal": in.Meal, "servings": in.Servings})
+		if status < 300 {
+			run.note(effect{Kind: "plan", Title: a.recipeTitle(ctx, in.RecipeID), Recipe: in.RecipeID, Page: "planner", Undo: jsonBytes(fiber.Map{"day": in.Day, "meal": in.Meal, "recipe": in.RecipeID, "previous": previous})})
+		}
+		return result(status, b)
 	case "add_groceries":
 		if len(in.Items) == 0 || len(in.Items) > 40 {
 			return toolError("Add 1–40 items at a time.")
 		}
+		before, _ := a.groceryList(ctx, owner)
+		defer a.noteGroceries(ctx, run, before)
 		added := 0
 		for _, item := range in.Items {
 			status, b := call("POST", "/groceries", item)
@@ -337,11 +368,27 @@ func (a *App) agentTool(ctx context.Context, run *agentRun, name string, raw jso
 		}
 		return string(jsonBytes(fiber.Map{"added": added}))
 	case "add_recipe_groceries":
+		before, _ := a.groceryList(ctx, owner)
+		defer a.noteGroceries(ctx, run, before)
 		return result(call("POST", "/recipes/"+id(in.RecipeID)+"/groceries", fiber.Map{"servings": in.Servings}))
 	case "check_grocery":
-		return result(call("PATCH", "/groceries/"+id(in.GroceryID), fiber.Map{"checked": in.Checked}))
+		var item string
+		var was bool
+		known := a.DB.QueryRow(ctx, `SELECT g.name,g.checked FROM groceries g WHERE g.id=$1 AND `+groceryScope(2), in.GroceryID, owner).Scan(&item, &was) == nil
+		status, b := call("PATCH", "/groceries/"+id(in.GroceryID), fiber.Map{"checked": in.Checked})
+		if status < 300 && known && was != in.Checked {
+			kind := map[bool]string{true: "checked", false: "unchecked"}[in.Checked]
+			run.note(effect{Kind: kind, Title: item, Page: "planner", Undo: jsonBytes(fiber.Map{"id": in.GroceryID, "checked": was})})
+		}
+		return result(status, b)
 	case "set_pantry_item":
-		return result(call("POST", "/pantry", fiber.Map{"name": in.Name, "quantity": in.Quantity, "expiresOn": in.ExpiresOn}))
+		name := strings.ToLower(strings.TrimSpace(in.Name))
+		previous := a.pantryEntry(ctx, owner, name)
+		status, b := call("POST", "/pantry", fiber.Map{"name": in.Name, "quantity": in.Quantity, "expiresOn": in.ExpiresOn})
+		if status < 300 {
+			run.note(effect{Kind: "pantry", Title: name, Page: "pantry", Undo: jsonBytes(fiber.Map{"name": name, "previous": previous})})
+		}
+		return result(status, b)
 	case "remove":
 		paths := map[string]string{"plan": "/planner/", "grocery": "/groceries/", "pantry": "/pantry/", "cookbook": "/collections/"}
 		if paths[in.Kind] == "" || len(in.IDs) == 0 || len(in.IDs) > 40 {
@@ -356,6 +403,12 @@ func (a *App) agentTool(ctx context.Context, run *agentRun, name string, raw jso
 			return a.propose(ctx, run, name, raw, what)
 		}
 		removed := 0
+		page := map[string]string{"plan": "planner", "grocery": "planner", "pantry": "pantry", "cookbook": "saved"}[in.Kind]
+		defer func() {
+			if removed > 0 {
+				run.note(effect{Kind: "removed", Count: removed, Page: page})
+			}
+		}()
 		for _, x := range in.IDs {
 			status, b := call("DELETE", paths[in.Kind]+id(x), nil)
 			if status >= 300 {
@@ -365,10 +418,16 @@ func (a *App) agentTool(ctx context.Context, run *agentRun, name string, raw jso
 		}
 		return string(jsonBytes(fiber.Map{"removed": removed}))
 	case "follow_cook":
-		if in.Unfollow {
-			return result(call("DELETE", "/creators/"+id(in.CookID)+"/follow", nil))
+		var cook string
+		var following bool
+		_ = a.DB.QueryRow(ctx, `SELECT u.name,EXISTS(SELECT 1 FROM follows WHERE user_id=$2 AND creator_id=u.id) FROM users u WHERE u.id=$1`, in.CookID, owner).Scan(&cook, &following)
+		method := map[bool]string{true: "DELETE", false: "PUT"}[in.Unfollow]
+		status, b := call(method, "/creators/"+id(in.CookID)+"/follow", nil)
+		if status < 300 && following == in.Unfollow {
+			kind := map[bool]string{true: "unfollowed", false: "followed"}[in.Unfollow]
+			run.note(effect{Kind: kind, Title: cook, Undo: jsonBytes(fiber.Map{"cook": in.CookID, "following": following})})
 		}
-		return result(call("PUT", "/creators/"+id(in.CookID)+"/follow", nil))
+		return result(status, b)
 	case "review_recipe":
 		var title, author string
 		if a.DB.QueryRow(ctx, `SELECT title,author_id FROM recipes WHERE id=$1 AND published`, in.RecipeID).Scan(&title, &author) != nil || author == owner {
@@ -380,7 +439,11 @@ func (a *App) agentTool(ctx context.Context, run *agentRun, name string, raw jso
 		if !run.approving {
 			return a.propose(ctx, run, name, raw, fmt.Sprintf("Post a %d-star review of “%s” in your name: “%s”", in.Rating, title, strings.TrimSpace(in.Text)))
 		}
-		return result(call("PUT", "/recipes/"+id(in.RecipeID)+"/review", fiber.Map{"rating": in.Rating, "body": in.Text}))
+		status, b := call("PUT", "/recipes/"+id(in.RecipeID)+"/review", fiber.Map{"rating": in.Rating, "body": in.Text})
+		if status < 300 {
+			run.note(effect{Kind: "review", Title: title, Recipe: in.RecipeID})
+		}
+		return result(status, b)
 	case "report_recipe":
 		// Reporting acts in the user's name against another cook, so it waits for their yes.
 		var title string
@@ -393,7 +456,11 @@ func (a *App) agentTool(ctx context.Context, run *agentRun, name string, raw jso
 		if !run.approving {
 			return a.propose(ctx, run, name, raw, fmt.Sprintf("Report “%s” for moderation in your name, saying: “%s”", title, strings.TrimSpace(in.Reason)))
 		}
-		return result(call("POST", "/recipes/"+id(in.RecipeID)+"/report", fiber.Map{"reason": in.Reason}))
+		status, b := call("POST", "/recipes/"+id(in.RecipeID)+"/report", fiber.Map{"reason": in.Reason})
+		if status < 300 {
+			run.note(effect{Kind: "report", Title: title})
+		}
+		return result(status, b)
 	case "edit_recipe":
 		current, e := a.ownRecipe(ctx, owner, in.RecipeID)
 		if e != nil {
@@ -434,6 +501,11 @@ func (a *App) agentTool(ctx context.Context, run *agentRun, name string, raw jso
 		if status >= 300 {
 			return result(status, b)
 		}
+		kind := "recipe"
+		if next.Published && !current.Published {
+			kind = "published"
+		}
+		run.note(effect{Kind: kind, Title: next.Title, Recipe: in.RecipeID})
 		a.refreshRun(ctx, run)
 		return string(jsonBytes(fiber.Map{"result": fmt.Sprintf("Saved “%s”: %s.", next.Title, summary)}))
 	case "delete_recipe":
@@ -445,6 +517,9 @@ func (a *App) agentTool(ctx context.Context, run *agentRun, name string, raw jso
 			return a.propose(ctx, run, name, raw, fmt.Sprintf("Permanently delete your recipe “%s”. This can't be undone.", current.Title))
 		}
 		status, b := call("DELETE", "/recipes/"+id(in.RecipeID), nil)
+		if status < 300 {
+			run.note(effect{Kind: "deleted", Title: current.Title})
+		}
 		a.refreshRun(ctx, run)
 		return result(status, b)
 	case "generate_recipe_media":
@@ -477,6 +552,7 @@ func (a *App) agentTool(ctx context.Context, run *agentRun, name string, raw jso
 				return toolError(publicError(e))
 			}
 			run.changed = true
+			run.note(effect{Kind: "media", Title: a.recipeTitle(ctx, in.RecipeID), Recipe: in.RecipeID})
 		}
 		a.refreshRun(ctx, run)
 		return string(jsonBytes(fiber.Map{"media": run.state.Assets, "note": "Queued media attaches to the recipe automatically when ready; a failed status carries the reason."}))
@@ -524,6 +600,7 @@ func (a *App) agentTool(ctx context.Context, run *agentRun, name string, raw jso
 		if status >= 300 {
 			return result(status, b)
 		}
+		run.note(effect{Kind: "profile", Page: "profile"})
 		// The handler answers with the whole account; the model only needs what changed.
 		return string(jsonBytes(fiber.Map{"saved": fiber.Map{"name": me.Name, "bio": me.Bio, "diets": me.Preferences.Diets, "allergies": me.Preferences.Allergies}}))
 	case "confirm_action":
@@ -590,6 +667,7 @@ func (a *App) agentTool(ctx context.Context, run *agentRun, name string, raw jso
 		return `{"ok":true,"note":"This happens on the user's screen when your reply arrives."}`
 	case "save_recipe_draft", "read_back_draft", "publish_draft", "retry_draft_media":
 		action := map[string]string{"save_recipe_draft": "build", "read_back_draft": "review", "publish_draft": "publish", "retry_draft_media": "retry_media"}[name]
+		was, revision := run.state.Status, run.state.Revision
 		reply, e := a.applyDraftAction(ctx, run.state, action, in.Recipe, in.NewRecipe)
 		if e != nil {
 			return toolError(publicError(e))
@@ -600,6 +678,7 @@ func (a *App) agentTool(ctx context.Context, run *agentRun, name string, raw jso
 			run.changed = true
 		}
 		a.refreshRun(ctx, run)
+		a.noteDraft(run, action, was, revision)
 		if action == "review" && run.state.Confirmed == run.state.Revision {
 			reply += " (Relay this read-back in full, in the user's language, then ask whether to publish.)"
 		}
@@ -609,6 +688,21 @@ func (a *App) agentTool(ctx context.Context, run *agentRun, name string, raw jso
 		return `{"ok":true}`
 	}
 	return toolError("Unknown tool.")
+}
+
+// noteDraft records a draft this turn saved (a new revision) or published, given the
+// conversation's status and revision before the action.
+func (a *App) noteDraft(run *agentRun, action, was string, revision int) {
+	if run.state.Recipe == nil {
+		return
+	}
+	switch {
+	case action == "build" && run.state.Revision > revision:
+		run.note(effect{Kind: "draft", Title: run.state.Recipe.Title, Recipe: run.state.RecipeID})
+	case action == "publish" && run.state.Status == "published" && was != "published":
+		run.changed = true
+		run.note(effect{Kind: "published", Title: run.state.Recipe.Title, Recipe: run.state.RecipeID})
+	}
 }
 
 // propose holds a consequential action until the user answers. The app keeps the exact

@@ -28,6 +28,7 @@ import {
   MicOff,
   Minimize2,
   PenLine,
+  RotateCcw,
   Send,
   Square,
   SquarePen,
@@ -41,6 +42,7 @@ import {
   AppAction,
   Recipe,
   StudioContext,
+  StudioEffect,
   StudioEvent,
   StudioMode,
   StudioProject,
@@ -49,21 +51,33 @@ import {
 import { color, radius, s, shadow } from '../lib/theme';
 import { Button, Dialog, FoodImage, IconButton, Pill, Press, animate, motionReduced } from './ui';
 import { RecipeCamera } from './RecipeCamera';
-import { Reply, SousChefMark, Thinking, bubble } from './ChatBubbles';
+import { VideoPlayer } from './VideoPlayer';
+import { Reply, SousChefMark, Thinking, ThinkingCaption, bubble } from './ChatBubbles';
+import { Receipts, type Receipt } from './Receipts';
 import { useSousChefDock } from './sousChefDock';
 import { fileForm } from '../lib/photos';
 import { requestKey } from '../lib/utils';
 import { openVoice } from '../lib/voice/transport';
 import { VoiceConnection, VoiceEvent } from '../lib/voice/connection';
 
+// Consecutive events from one side are one bubble; its receipts remember which event they came
+// from, which Undo names.
 function mergeEvents(events: StudioEvent[]) {
-  const groups: StudioEvent[] = [];
+  const groups: (StudioEvent & { receipts: Receipt[]; seqs: number[] })[] = [];
   for (const event of events) {
+    const receipts = (event.effects ?? []).map((effect, index) => ({
+      seq: event.seq,
+      index,
+      effect,
+    }));
     const prev = groups[groups.length - 1];
     if (prev?.role === event.role && !event.imageCount && !prev.imageCount) {
       prev.content += event.content;
       if (event.recipes?.length) prev.recipes = [...(prev.recipes || []), ...event.recipes];
-    } else groups.push({ ...event });
+      prev.receipts.push(...receipts);
+      prev.seqs.push(event.seq);
+      prev.failed = prev.failed || event.failed;
+    } else groups.push({ ...event, receipts, seqs: [event.seq] });
   }
   return groups;
 }
@@ -132,6 +146,11 @@ const cookingSuggestions = [
   'I don’t have the right pan',
   'Something went wrong — can I fix it?',
 ];
+// The start of a reply, short enough for a toast.
+const excerpt = (text: string) => {
+  const t = text.trim();
+  return t.length > 140 ? t.slice(0, 139).trimEnd() + '…' : t;
+};
 // A conversation this recent is picked up again; older ones stay in the history row.
 const RESUME_MS = 6 * 60 * 60 * 1000;
 // A new recipe is written in a conversation where nothing's been said yet, or one already
@@ -223,8 +242,12 @@ export function RecipeStudio({
   // Screen actions run only for replies that arrive while open, never for old history.
   const loaded = useRef(false);
   const changedMeanwhile = useRef(false);
+  const pollFailed = useRef(false);
   const contextSent = useRef<Promise<void> | null>(null);
-  const handlers = useRef<{ changed: () => void; act: (action: AppAction) => void }>({
+  const handlers = useRef<{
+    changed: () => void;
+    act: (action: AppAction, reply?: string) => void;
+  }>({
     changed: () => {},
     act: () => {},
   });
@@ -278,7 +301,10 @@ export function RecipeStudio({
         if (loaded.current) handlers.current.changed();
         else changedMeanwhile.current = true;
       }
-      if (loaded.current) replies.forEach((e) => e.actions?.forEach(handlers.current.act));
+      if (loaded.current)
+        replies.forEach((e) =>
+          e.actions?.forEach((action) => handlers.current.act(action, e.content)),
+        );
     }
     // A full page means older history is still draining.
     if (incoming.length < 1000 && !loaded.current) {
@@ -380,8 +406,16 @@ export function RecipeStudio({
     const poll = async () => {
       try {
         await refresh(project.id);
+        // An error from an earlier poll goes once polling works again.
+        if (pollFailed.current) {
+          pollFailed.current = false;
+          setError('');
+        }
       } catch (e) {
-        if (!done) setError((e as Error).message);
+        if (!done) {
+          pollFailed.current = true;
+          setError((e as Error).message);
+        }
       } finally {
         if (!done) timeout = setTimeout(() => void poll(), 1800);
       }
@@ -432,15 +466,13 @@ export function RecipeStudio({
   useEffect(() => {
     handlers.current = {
       changed: onChanged,
-      act: (action) => {
-        // The panel stays beside the page as it changes. A sheet steps aside: live voice keeps
-        // talking from a minimized pill, a typed chat closes.
+      act: (action, reply) => {
+        // The panel stays beside the page as it changes. A sheet steps aside into its pill, so
+        // the conversation is a tap away: live voice keeps talking, and a typed chat shows its
+        // reply as a toast rather than closing before it was read.
         if (action.type !== 'set_language' && !floating) {
-          if (connection.current) onHide(true);
-          else {
-            void stop();
-            onClose();
-          }
+          onHide(true);
+          if (!connection.current && reply) app.notify(excerpt(reply));
         }
         onAction(action);
       },
@@ -588,6 +620,42 @@ export function RecipeStudio({
       setBusy(false);
     }
   };
+  // A receipt's View goes where the change is, as the sous-chef's own screen actions do.
+  const viewReceipt = (effect: StudioEffect) => {
+    if (effect.recipe && effect.kind !== 'deleted')
+      handlers.current.act({ type: 'open_recipe', recipeId: effect.recipe });
+    else if (effect.page) handlers.current.act({ type: 'go_to', page: effect.page });
+  };
+  const [undoing, setUndoing] = useState<string>();
+  // The draft's video, open large.
+  const [videoOpen, setVideoOpen] = useState(false);
+  const undoReceipt = async ({ seq, index }: Receipt) => {
+    if (!project || undoing) return;
+    setUndoing(`${seq}:${index}`);
+    setError('');
+    try {
+      const { effects } = await api<{ effects: StudioEffect[] }>(
+        `/recipe-studio/${project.id}/undo`,
+        { method: 'POST', body: { seq, index } },
+      );
+      setEvents((old) => old.map((e) => (e.seq === seq ? { ...e, effects } : e)));
+      handlers.current.changed();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setUndoing(undefined);
+    }
+  };
+  // Stop ends the reply on its way; what it already did stays, with its receipts.
+  const stopTurn = async () => {
+    if (!project) return;
+    try {
+      await api(`/recipe-studio/${project.id}/cancel`, { method: 'POST' });
+      await refresh(project.id);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
   const upload = async (uri: string) => {
     if (!project) return;
     setCamera(false);
@@ -683,6 +751,14 @@ export function RecipeStudio({
   }, [start, ready, placed]);
   const groups = mergeEvents(events);
   const question = project?.question;
+  // The draft card sits under the reply that saved or published it; an older server doesn't
+  // say which, so there it stays at the end.
+  let draftAt = -1;
+  groups.forEach((g, i) => {
+    if (g.receipts.some((r) => r.effect.kind === 'draft' || r.effect.kind === 'published'))
+      draftAt = i;
+  });
+  const lastFailed = !!groups[groups.length - 1]?.failed;
   // The reply that arrives as the thinking bubble goes grows out of it.
   const thinking = !!project?.busy;
   const newest = groups[groups.length - 1];
@@ -794,6 +870,97 @@ export function RecipeStudio({
       </View>
     </View>
   );
+  const draft = project?.recipe && (
+    <View style={[s.card, { gap: 14 }]}>
+      <View style={[s.row, { gap: 14 }]}>
+        {!!project.recipe.image && (
+          <FoodImage
+            uri={project.recipe.image}
+            style={{ width: 76, height: 88, borderRadius: radius.md }}
+          />
+        )}
+        <View style={{ flex: 1, gap: 6 }}>
+          <Pill
+            title={project.recipe.published ? tr('Published') : tr('Private draft saved')}
+            icon={Check}
+          />
+          <Text style={s.h2}>{project.recipe.title}</Text>
+          <Text style={s.small}>
+            {[
+              tr('minuteCount', { count: project.recipe.minutes }),
+              tr('servingCount', { count: project.recipe.servings }),
+              tr('ingredientCount', { count: project.recipe.ingredients.length }),
+            ].join(' · ')}
+          </Text>
+        </View>
+      </View>
+      {/* Enough of the recipe to see it's the right one, without opening it. */}
+      <Text numberOfLines={2} style={[s.small, { color: color.ink }]}>
+        {project.recipe.ingredients.map((i) => i.name).join(' · ')}
+      </Text>
+      {project.assets.map((asset) => (
+        <View key={asset.kind} style={{ gap: 4 }}>
+          <View style={[s.row, { gap: 8 }]}>
+            {asset.kind === 'image' ? (
+              <ImagePlus size={17} color={color.ink} />
+            ) : (
+              <Video size={17} color={color.ink} />
+            )}
+            <Text style={[s.body, { flex: 1 }]}>
+              {asset.kind === 'image' ? tr('AI cover photo') : tr('AI recipe video')}
+            </Text>
+            <Text style={s.small}>
+              {asset.status === 'completed'
+                ? tr('Ready')
+                : asset.status === 'failed'
+                  ? tr('Needs attention')
+                  : tr('Creating…')}
+            </Text>
+          </View>
+          {asset.status === 'failed' && <Text style={s.muted}>{tr(asset.error)}</Text>}
+        </View>
+      ))}
+      <View style={[s.row, { gap: 8, flexWrap: 'wrap' }]}>
+        <Button
+          title={tr('Open recipe')}
+          small
+          onPress={() => {
+            if (!floating) exit();
+            onRecipe(project.recipe!);
+          }}
+        />
+        {!!project.recipe.video && (
+          <Button
+            title={tr('Watch video')}
+            icon={Video}
+            small
+            variant="secondary"
+            onPress={() => setVideoOpen(true)}
+          />
+        )}
+        {project.assets.some((a) => a.status === 'failed') && (
+          <Button
+            title={tr('Retry media')}
+            small
+            variant="secondary"
+            disabled={project.busy || busy}
+            onPress={() =>
+              void send(
+                tr(
+                  'Retry the failed media generation. I understand it may incur a new generation charge.',
+                ),
+                null,
+              )
+            }
+          />
+        )}
+      </View>
+      <Text style={s.small}>{tr('Media keeps creating when you close this conversation.')}</Text>
+      <Dialog visible={videoOpen} onClose={() => setVideoOpen(false)} title={project.recipe.title}>
+        {videoOpen && !!project.recipe.video ? <VideoPlayer uri={project.recipe.video} /> : null}
+      </Dialog>
+    </View>
+  );
   // Writing a new recipe starts with what to tell; as you talk, Speak it's transcript fills in
   // above the controls.
   const voiced = runningVoice && start.mode === 'voice';
@@ -864,7 +1031,9 @@ export function RecipeStudio({
           <Text style={s.small}>{tr('Your conversation saves automatically.')}</Text>
         </View>
       )}
-      {groups.map((event) => {
+      {groups.map((event, i) => {
+        // A failed or stopped turn's reply is the server's own sentence, which has a translation.
+        const failed = event.role === 'assistant' && !!event.failed;
         const body = (
           <>
             <Text
@@ -878,9 +1047,12 @@ export function RecipeStudio({
             </Text>
             <Text
               selectable
-              style={{ ...s.body, color: event.role === 'user' ? color.white : color.ink }}
+              style={{
+                ...s.body,
+                color: event.role === 'user' ? color.white : failed ? color.error : color.ink,
+              }}
             >
-              {event.content}
+              {failed ? tr(event.content) : event.content}
             </Text>
             {!!event.recipes?.length && (
               <ScrollView
@@ -908,19 +1080,51 @@ export function RecipeStudio({
                 ))}
               </ScrollView>
             )}
+            {event.receipts.length > 0 && (
+              <Receipts
+                receipts={event.receipts}
+                undoing={undoing}
+                onView={viewReceipt}
+                onUndo={(r) => void undoReceipt(r)}
+              />
+            )}
           </>
         );
-        return event.role === 'user' ? (
-          <View
-            key={event.seq}
-            style={[bubble, { alignSelf: 'flex-end', backgroundColor: color.ink }]}
-          >
-            {body}
-          </View>
-        ) : (
-          <Reply key={event.seq} grow={event.seq === grown} onGrown={settled}>
-            {body}
-          </Reply>
+        // The last reply, if it failed, offers to send the message before it again.
+        const retry =
+          failed && i === groups.length - 1 && ready
+            ? groups
+                .slice(0, i)
+                .reverse()
+                .find((g) => g.role === 'user')?.content
+            : undefined;
+        return (
+          <React.Fragment key={event.seq}>
+            {event.role === 'user' ? (
+              <View style={[bubble, { alignSelf: 'flex-end', backgroundColor: color.ink }]}>
+                {body}
+              </View>
+            ) : (
+              <Reply
+                grow={event.seq === grown}
+                onGrown={settled}
+                tone={failed ? 'error' : undefined}
+              >
+                {body}
+              </Reply>
+            )}
+            {!!retry && (
+              <Button
+                title={tr('Try again')}
+                icon={RotateCcw}
+                small
+                variant="secondary"
+                style={{ alignSelf: 'flex-start' }}
+                onPress={() => void send(retry, null)}
+              />
+            )}
+            {i === draftAt && draft}
+          </React.Fragment>
         );
       })}
       {/* The question the sous-chef waits on can be answered with a tap; the server does what it
@@ -949,6 +1153,13 @@ export function RecipeStudio({
         </View>
       )}
       {thinking && <Thinking />}
+      {thinking && (
+        <ThinkingCaption
+          step={project?.turn?.step}
+          stopping={project?.turn?.stopping}
+          onStop={() => void stopTurn()}
+        />
+      )}
       {runningVoice && (
         <Text style={[s.small, { textAlign: 'center' }]}>
           {tr('Voice is processed live. We save your transcript, not an audio recording.')}
@@ -1101,7 +1312,7 @@ export function RecipeStudio({
           />
         )}
       </View>
-      {project?.recipe && (
+      {project?.recipe && !project.recipe.published && (
         <View style={s.wrap}>
           {['Read it back', 'Publish'].map((phrase) => (
             <Button
@@ -1124,87 +1335,12 @@ export function RecipeStudio({
           {tr(error)}
         </Text>
       )}
-      {!!project?.error && project.error !== error && (
+      {!!project?.error && project.error !== error && !lastFailed && (
         <Text accessibilityRole="alert" style={{ ...s.muted, color: color.error }}>
           {tr(project.error)}
         </Text>
       )}
     </>
-  );
-  const draft = project?.recipe && (
-    <View style={[s.card, { gap: 14 }]}>
-      <View style={[s.row, { gap: 14 }]}>
-        {!!project.recipe.image && (
-          <FoodImage
-            uri={project.recipe.image}
-            style={{ width: 76, height: 88, borderRadius: radius.md }}
-          />
-        )}
-        <View style={{ flex: 1, gap: 6 }}>
-          <Pill
-            title={project.recipe.published ? tr('Published') : tr('Private draft saved')}
-            icon={Check}
-          />
-          <Text style={s.h2}>{project.recipe.title}</Text>
-          <Text style={s.small}>
-            {[
-              tr('minuteCount', { count: project.recipe.minutes }),
-              tr('servingCount', { count: project.recipe.servings }),
-              tr('ingredientCount', { count: project.recipe.ingredients.length }),
-            ].join(' · ')}
-          </Text>
-        </View>
-      </View>
-      {project.assets.map((asset) => (
-        <View key={asset.kind} style={{ gap: 4 }}>
-          <View style={[s.row, { gap: 8 }]}>
-            {asset.kind === 'image' ? (
-              <ImagePlus size={17} color={color.ink} />
-            ) : (
-              <Video size={17} color={color.ink} />
-            )}
-            <Text style={[s.body, { flex: 1 }]}>
-              {asset.kind === 'image' ? tr('AI cover photo') : tr('AI recipe video')}
-            </Text>
-            <Text style={s.small}>
-              {asset.status === 'completed'
-                ? tr('Ready')
-                : asset.status === 'failed'
-                  ? tr('Needs attention')
-                  : tr('Creating…')}
-            </Text>
-          </View>
-          {asset.status === 'failed' && <Text style={s.muted}>{tr(asset.error)}</Text>}
-        </View>
-      ))}
-      <View style={[s.row, { gap: 8 }]}>
-        <Button
-          title={tr('Open recipe')}
-          small
-          onPress={() => {
-            if (!floating) exit();
-            onRecipe(project.recipe!);
-          }}
-        />
-        {project.assets.some((a) => a.status === 'failed') && (
-          <Button
-            title={tr('Retry media')}
-            small
-            variant="secondary"
-            disabled={project.busy || busy}
-            onPress={() =>
-              void send(
-                tr(
-                  'Retry the failed media generation. I understand it may incur a new generation charge.',
-                ),
-                null,
-              )
-            }
-          />
-        )}
-      </View>
-      <Text style={s.small}>{tr('Media keeps creating when you close this conversation.')}</Text>
-    </View>
   );
   const cameraView = (
     <RecipeCamera onPhoto={(uri) => void upload(uri)} onCancel={() => setCamera(false)} />
@@ -1287,7 +1423,7 @@ export function RecipeStudio({
     <>
       {messages}
       {busy && <ActivityIndicator color={color.ink} />}
-      {draft}
+      {draftAt < 0 && draft}
     </>
   );
   return (
