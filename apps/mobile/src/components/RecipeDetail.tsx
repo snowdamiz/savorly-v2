@@ -38,7 +38,7 @@ import {
   Trash2,
   Users,
 } from './icons';
-import { AIRequest, CookCommand, Creator, Ingredient, Recipe, Review } from '../lib/types';
+import { CookCommand, Creator, Ingredient, Recipe, Review } from '../lib/types';
 import { api } from '../lib/api';
 import { recipeUrl } from '../lib/routes';
 import { track } from '../lib/telemetry';
@@ -97,7 +97,6 @@ export function RecipeDetail({
   onCreator,
   onOpen,
   onEdit,
-  onAI,
   onAsk,
   onCooking,
   cookCommand,
@@ -108,9 +107,11 @@ export function RecipeDetail({
   /** Opens another recipe in place of this one, such as the one it adapts or a variation. */
   onOpen?: (r: Recipe) => void;
   onEdit: (r: Recipe) => void;
-  onAI: (request: AIRequest) => void;
-  /** Opens the sous-chef, which already knows this recipe is open. */
-  onAsk: () => void;
+  /**
+   * Opens the sous-chef, which already knows this recipe is open, sending message when there is
+   * one.
+   */
+  onAsk: (message?: string) => void;
   /** Reports the cooking-mode step (1-based), or null when not cooking. */
   onCooking: (step: number | null) => void;
   cookCommand?: CookCommand | null;
@@ -292,21 +293,9 @@ export function RecipeDetail({
       link,
     });
   };
-  const context = JSON.stringify({
-    title: recipe.title,
-    servings,
-    ingredients: recipe.ingredients.map((i) => `${i.amount} ${i.unit} ${i.name}`.trim()),
-    steps: recipe.steps.map((st) => `${st.title}: ${st.text}`),
-  });
-  // A new version of the recipe (a twist, a swap) credits this one when it is saved.
-  const ask = (request: AIRequest) =>
-    onAI({
-      ...request,
-      context,
-      ...((request.kind === 'adapt' || request.kind === 'substitute') && {
-        derivedFrom: recipe.id,
-      }),
-    });
+  // Twists, swaps and nutrition are questions for the sous-chef, in the one conversation: it
+  // sees this recipe, saves a new version that credits it, and writes an estimate back to the
+  // cook's own recipe.
   const days = Array.from({ length: 7 }, (_, i) => {
     const d = new Date();
     d.setDate(d.getDate() + i);
@@ -322,29 +311,16 @@ export function RecipeDetail({
           value: 'Estimate',
           label: tr('Nutrition'),
           onPress: () =>
-            ask({
-              kind: 'nutrition',
-              title: tr('Nutrition estimate'),
-              prompt: tr(
+            onAsk(
+              tr(
                 'Estimate nutrition per serving: calories, protein, carbohydrates, fat and fiber.',
               ),
-            }),
+            ),
         },
     { icon: Gauge, value: recipe.difficulty, label: tr('Level') },
   ];
   const twistChips = twists(tr).map(([title, prompt]) => (
-    <Chip
-      key={title}
-      title={tr(title)}
-      icon={foodIcon(title)}
-      onPress={() =>
-        ask({
-          kind: 'adapt',
-          title: tr('A {{v0}} version', { v0: tr(title) }),
-          prompt,
-        })
-      }
-    />
+    <Chip key={title} title={tr(title)} icon={foodIcon(title)} onPress={() => onAsk(prompt)} />
   ));
   const ingredients = (
     <View style={{ gap: 14 }}>
@@ -424,11 +400,7 @@ export function RecipeDetail({
               size={34}
               label={tr('Swap {{v0}}', { v0: i.name })}
               onPress={() =>
-                ask({
-                  kind: 'substitute',
-                  title: tr('Swap {{v0}}', { v0: i.name }),
-                  prompt: tr('What can I use instead of {{v0}}, and how much?', { v0: i.name }),
-                })
+                onAsk(tr('What can I use instead of {{v0}}, and how much?', { v0: i.name }))
               }
             />
           </View>
@@ -879,7 +851,7 @@ export function RecipeDetail({
       icon: Sparkles,
       title: tr('Ask'),
       label: tr('Ask the sous-chef'),
-      onPress: onAsk,
+      onPress: () => onAsk(),
     },
   ];
   const photos = [recipe.image, ...(recipe.photos || [])].filter(Boolean);

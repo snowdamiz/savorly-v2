@@ -79,7 +79,7 @@ var agentTools = []ai.Tool{
 	tool("update_profile", "Change the user's display name, bio, diets or allergies. diets and allergies replace the whole list. Needs confirmation.", object(nil, props{"name": field("string", ""), "bio": field("string", ""), "diets": list(field("string", ""), 12), "allergies": list(field("string", ""), 20)})),
 	tool("confirm_action", "Carry out the action the user was asked to confirm, once their latest message clearly says yes. Only as the turn's first tool call.", none),
 	tool("app_action", "Do something on the user's screen when your reply arrives: open a recipe, start cooking mode (optionally at a step), go to a step or start that step's timer in cooking mode, open a page, or change the interface language.", object([]string{"action"}, props{"action": choice("", "open_recipe", "start_cooking", "cooking_step", "start_timer", "go_to", "set_language"), "recipe_id": field("string", "For open_recipe and start_cooking"), "step": field("integer", "1-based, for start_cooking or cooking_step"), "page": choice("For go_to", pages...), "language": choice("For set_language", languages...)})),
-	tool("save_recipe_draft", "Create a new recipe, or revise an unpublished one created in this conversation, with the complete recipe; saves it privately and generates its AI cover photo and short video. Never include media URLs. Use edit_recipe for published and other existing recipes.", object([]string{"recipe"}, props{"recipe": draftRecipe, "new_recipe": field("boolean", "Start a different recipe instead of revising the current draft"), "source_url": field("string", "For a recipe from a web page the user shared: the sourceUrl import_recipe gave, to credit it")})),
+	tool("save_recipe_draft", "Create a new recipe, or revise an unpublished one created in this conversation, with the complete recipe; saves it privately and generates its AI cover photo and short video. Never include media URLs. Use edit_recipe for published and other existing recipes.", object([]string{"recipe"}, props{"recipe": draftRecipe, "new_recipe": field("boolean", "Start a different recipe instead of revising the current draft"), "source_url": field("string", "For a recipe from a web page the user shared: the sourceUrl import_recipe gave, to credit it"), "derived_from": field("string", "For a version of another recipe (a twist, a swap): the original's id, which the new recipe credits")})),
 	tool("read_back_draft", "Read back the current saved draft so the user can approve publishing it.", none),
 	tool("publish_draft", "Publish the current draft after the user approved its read-back. Only as the turn's first tool call.", none),
 	tool("retry_draft_media", "Retry the draft's failed cover photo or video.", none),
@@ -189,6 +189,7 @@ func (a *App) agentTool(ctx context.Context, run *agentRun, name string, raw jso
 		CookID                                                                                           string   `json:"cook_id"`
 		ExpiresOn                                                                                        *string  `json:"expires_on"`
 		SourceURL                                                                                        string   `json:"source_url"`
+		DerivedFrom                                                                                      string   `json:"derived_from"`
 		Servings, Rating, Step                                                                           int
 		Unsave, Unfollow, Checked                                                                        bool
 		NewRecipe                                                                                        bool            `json:"new_recipe"`
@@ -727,6 +728,18 @@ func (a *App) agentTool(ctx context.Context, run *agentRun, name string, raw jso
 				return toolError("Give source_url only for a page the user shared in this conversation, as import_recipe returned it.")
 			}
 			in.Recipe.SourceURL = &source
+		}
+		if in.DerivedFrom != "" && in.Recipe != nil {
+			// The same rule as the editor's: an original the member may see, never the draft itself.
+			draft := run.state.RecipeID
+			if in.NewRecipe {
+				draft = ""
+			}
+			ref := RecipeRef{ID: strings.TrimSpace(in.DerivedFrom), Set: true}
+			if e := checkDerivedFrom(ctx, a.DB, owner, draft, ref); e != nil {
+				return toolError(publicError(e))
+			}
+			in.Recipe.DerivedFrom = ref
 		}
 		was, revision := run.state.Status, run.state.Revision
 		reply, e := a.applyDraftAction(ctx, run.state, action, in.Recipe, in.NewRecipe)

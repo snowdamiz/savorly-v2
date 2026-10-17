@@ -555,8 +555,7 @@ function Shell({ onReady }: { onReady: (ready: boolean) => void }) {
       }}
       onEdit={edit}
       onOpen={open}
-      onAI={ai}
-      onAsk={openSousChef}
+      onAsk={askSousChef}
       onCooking={setCookingStep}
       cookCommand={cookCommand}
     />

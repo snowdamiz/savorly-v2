@@ -65,59 +65,64 @@ test('a late search response cannot replace the current results', async ({ page 
   await expect(page.getByRole('link', { name: 'View Lemon toast', exact: true })).toBeVisible();
 });
 
-test('an automatic ingredient swap submits once and can be followed by another request', async ({
+test('a swap asks the sous-chef, which sees the recipe, in its one conversation', async ({
   page,
 }) => {
-  await mockStudio(page);
-  const submissions: string[] = [];
-  const job = {
-    id: 'swap',
-    kind: 'substitute',
-    status: 'completed',
-    result: { text: 'Use a tortilla.' },
-    error: '',
-  };
-  await page.route('**/v1/ai/jobs', async (route) => {
-    if (route.request().method() === 'POST') {
-      submissions.push(route.request().headers()['idempotency-key']);
-      return route.fulfill({ json: { ...job, status: 'queued', result: {} } });
-    }
-    return route.fulfill({ json: [job] });
-  });
+  const state = await mockStudio(page, true, false, (text) => ({
+    content: text.startsWith('What can I use') ? 'Use a tortilla.' : 'About 180 kcal a serving.',
+  }));
   await page.goto('/');
   await page.getByRole('link', { name: 'Let’s get cooking: Lemon toast', exact: true }).click();
   await page.getByRole('button', { name: 'Swap Bread', exact: true }).click();
   await expect(page.getByText('Use a tortilla.', { exact: true })).toBeVisible();
-  expect(submissions).toHaveLength(1);
-  expect(submissions[0]).toBeTruthy();
-  await page.getByRole('button', { name: 'Ask something else', exact: true }).click();
-  await page
-    .getByRole('textbox', { name: 'Your request', exact: true })
-    .fill('Another bread substitute');
-  await page.getByRole('button', { name: 'Ask the sous-chef', exact: true }).last().click();
-  await expect(page.getByText('Use a tortilla.', { exact: true })).toBeVisible();
-  expect(submissions).toHaveLength(2);
-  expect(submissions[1]).not.toBe(submissions[0]);
+  expect(state.messages).toEqual(['What can I use instead of Bread, and how much?']);
+  // It was told the recipe is open before it was asked.
+  expect(state.contexts.at(-1)).toMatchObject({ recipeId: 'voice-toast' });
+  // Each look at the conversation is one request.
+  expect(state.eventReads()).toBe(0);
 });
 
-// Recipes start from the Add a recipe sheet (the + tab on phones, Create recipe on desktop).
-test('an automatic ingredient swap asks guests to sign in before submitting', async ({ page }) => {
-  await mockStudio(page);
+test('twists and a nutrition estimate go to the same conversation', async ({ page }) => {
+  const state = await mockStudio(page, true, false, (text) => ({
+    content: text.startsWith('Make')
+      ? 'Here is a vegetarian version.'
+      : 'About 180 kcal a serving.',
+  }));
+  // Without calories the recipe offers an estimate.
+  const plain = { ...recipe, calories: 0 };
+  await page.route('**/v1/recipes**', (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/v1/recipes') return route.fulfill({ json: [plain] });
+    if (path === '/v1/recipes/voice-toast') return route.fulfill({ json: plain });
+    return route.fallback();
+  });
+  await page.goto('/');
+  await page.getByRole('link', { name: 'Let’s get cooking: Lemon toast', exact: true }).click();
+  await page.getByRole('button', { name: 'Vegetarian', exact: true }).click();
+  await expect(page.getByText('Here is a vegetarian version.', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Minimize the sous-chef', exact: true }).click();
+  await page.getByRole('button', { name: 'Estimate nutrition', exact: true }).click();
+  await expect(page.getByText('About 180 kcal a serving.', { exact: true })).toBeVisible();
+  expect(state.messages).toEqual([
+    'Make this recipe vegetarian.',
+    'Estimate nutrition per serving: calories, protein, carbohydrates, fat and fiber.',
+  ]);
+  expect(state.conversations()).toBe(1);
+});
+
+test('a swap asks guests to sign in before anything is sent', async ({ page }) => {
+  const state = await mockStudio(page);
   await page.route('**/v1/me', (route) =>
     route.fulfill({ status: 401, json: { error: 'Sign in' } }),
   );
-  const submissions: string[] = [];
-  page.on('request', (request) => {
-    if (request.url().endsWith('/ai/jobs') && request.method() === 'POST')
-      submissions.push(request.url());
-  });
   await page.goto('/');
   await page.getByRole('link', { name: 'Let’s get cooking: Lemon toast', exact: true }).click();
   await page.getByRole('button', { name: 'Swap Bread', exact: true }).click();
   await expect(page.getByRole('textbox', { name: 'Email address', exact: true })).toBeVisible();
-  expect(submissions).toEqual([]);
+  expect(state.messages).toEqual([]);
 });
 
+// Recipes start from the Add a recipe sheet (the + tab on phones, Create recipe on desktop).
 async function startRecipe(page: Page, option: string) {
   await page.getByRole('button', { name: 'Create recipe', exact: true }).click();
   await page.getByRole('button', { name: option, exact: true }).click();
@@ -143,6 +148,7 @@ async function mockStudio(
   const bodies: Record<string, unknown>[] = [];
   const undos: { seq: number; index: number }[] = [];
   let cancels = 0;
+  let eventReads = 0;
   const sessionCloses: string[] = [];
   let uploads = 0;
   let starts = 0;
@@ -197,8 +203,10 @@ async function mockStudio(
       };
       return fulfill(project);
     }
-    if (path.endsWith('/events'))
+    if (path.endsWith('/events')) {
+      eventReads++;
       return fulfill(events.filter((e) => e.seq > Number(url.searchParams.get('after') || 0)));
+    }
     if (path.endsWith('/images')) {
       uploads++;
       return fulfill({ id: 'private-image' }, 201);
@@ -296,7 +304,11 @@ async function mockStudio(
       sessionCloses.push(path);
       return route.fulfill({ status: 204 });
     }
-    if (path.startsWith('/recipe-studio/')) return fulfill(project);
+    if (path.startsWith('/recipe-studio/')) {
+      const after = url.searchParams.get('after');
+      if (after === null || !project) return fulfill(project);
+      return fulfill({ ...project, events: events.filter((e) => e.seq > Number(after)) });
+    }
     return fulfill([]);
   });
   return {
@@ -322,6 +334,8 @@ async function mockStudio(
     },
     undos,
     cancels: () => cancels,
+    eventReads: () => eventReads,
+    conversations: () => conversations,
   };
 }
 
