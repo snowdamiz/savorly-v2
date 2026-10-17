@@ -1,5 +1,5 @@
 import { test, expect, Page } from '@playwright/test';
-import type { AppAction, Recipe, StudioEvent, StudioProject } from '../src/lib/types';
+import type { AppAction, Recipe, StudioEffect, StudioEvent, StudioProject } from '../src/lib/types';
 import { afterPageTimers, stopsMoving } from './waits';
 
 const user = {
@@ -131,6 +131,8 @@ async function mockStudio(
     content: string;
     actions?: AppAction[];
     changed?: boolean;
+    effects?: StudioEffect[];
+    failed?: boolean;
     question?: StudioProject['question'];
   } | null,
 ) {
@@ -139,6 +141,8 @@ async function mockStudio(
   let conversations = 0;
   const messages: string[] = [];
   const bodies: Record<string, unknown>[] = [];
+  const undos: { seq: number; index: number }[] = [];
+  let cancels = 0;
   const sessionCloses: string[] = [];
   let uploads = 0;
   let starts = 0;
@@ -204,6 +208,29 @@ async function mockStudio(
       if (project && path.includes(project.id)) project.purpose = context.purpose || '';
       return route.fulfill({ status: 204 });
     }
+    if (path.endsWith('/undo') && method === 'POST') {
+      const { seq, index } = route.request().postDataJSON();
+      undos.push({ seq, index });
+      const event = events.find((e) => e.seq === seq)!;
+      event.effects = event.effects!.map((f, i) =>
+        i === index ? { ...f, undone: true, undoable: false } : f,
+      );
+      return fulfill({ effects: event.effects });
+    }
+    if (path.endsWith('/cancel') && method === 'POST') {
+      cancels++;
+      const content = 'Stopped. Your conversation is saved.';
+      events.push({
+        seq: events.length + 1,
+        role: 'assistant',
+        content,
+        imageCount: 0,
+        failed: true,
+      });
+      project!.busy = false;
+      project!.turn = null;
+      return route.fulfill({ status: 202 });
+    }
     if (path.endsWith('/messages') && respond) {
       const data = route.request().postDataJSON();
       messages.push(data.text);
@@ -215,7 +242,10 @@ async function mockStudio(
         const { question, ...event } = reply;
         events.push({ seq: events.length + 1, role: 'assistant', imageCount: 0, ...event });
         project!.question = question ?? null;
-      } else project!.busy = true;
+      } else {
+        project!.busy = true;
+        project!.turn = { step: 'looking', stopping: false };
+      }
       return fulfill({ accepted: true }, 202);
     }
     if (path.endsWith('/messages')) {
@@ -274,7 +304,10 @@ async function mockStudio(
     answer: (content: string) => {
       events.push({ seq: events.length + 1, role: 'assistant', content, imageCount: 0 });
       project!.busy = false;
+      project!.turn = null;
     },
+    undos,
+    cancels: () => cancels,
   };
 }
 
@@ -659,6 +692,95 @@ test('only a reply that changed something refreshes the app', async ({ page }) =
   await page.getByRole('button', { name: 'Send message' }).click();
   await expect(page.getByText('Noted: Add milk.', { exact: true })).toBeVisible();
   await expect.poll(() => state.kitchenLoads()).toBeGreaterThan(loads);
+});
+
+test('a reply shows what it did, which can be seen and undone', async ({ page }) => {
+  const state = await mockStudio(page, true, false, (text) => ({
+    content: 'Added them, and planned the toast.',
+    changed: true,
+    effects: [
+      { kind: 'groceries', count: 2, page: 'planner', undoable: true },
+      {
+        kind: 'plan',
+        title: 'Lemon toast',
+        recipe: 'voice-toast',
+        page: 'planner',
+        undoable: true,
+      },
+      { kind: 'removed', count: 1, page: 'planner' },
+    ],
+  }));
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Ask your sous-chef' }).click();
+  await page.getByRole('textbox', { name: 'Message your sous-chef' }).fill('Add milk and eggs.');
+  await page.getByRole('button', { name: 'Send message' }).click();
+  await expect(page.getByText('Added 2 items to your groceries', { exact: true })).toBeVisible();
+  await expect(page.getByText('Planned Lemon toast', { exact: true })).toBeVisible();
+  await expect(page.getByText('Removed 1 item', { exact: true })).toBeVisible();
+  // Only what the server can take back offers Undo.
+  await expect(page.getByRole('button', { name: /^Undo: / })).toHaveCount(2);
+  await page
+    .getByRole('button', { name: 'Undo: Added 2 items to your groceries', exact: true })
+    .click();
+  await expect(page.getByText('Undone', { exact: true })).toBeVisible();
+  expect(state.undos).toEqual([{ seq: 2, index: 0 }]);
+  await expect(
+    page.getByRole('button', { name: 'Undo: Added 2 items to your groceries', exact: true }),
+  ).toHaveCount(0);
+  // View goes where the change is: the planned recipe opens.
+  await page.getByRole('button', { name: 'View: Planned Lemon toast', exact: true }).click();
+  await expect(page.getByText('Toast the bread until golden.').first()).toBeVisible();
+});
+
+test('a failed reply says so once and offers to try again', async ({ page }) => {
+  const failure =
+    "Your sous-chef couldn't finish that step. Your conversation is saved. Please try again.";
+  let tries = 0;
+  const state = await mockStudio(page, true, false, () =>
+    ++tries === 1 ? { content: failure, failed: true } : { content: 'Here you go.' },
+  );
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Ask your sous-chef' }).click();
+  await page.getByRole('textbox', { name: 'Message your sous-chef' }).fill('Find me a soup.');
+  await page.getByRole('button', { name: 'Send message' }).click();
+  await expect(page.getByText(failure, { exact: true })).toHaveCount(1);
+  await page.getByRole('button', { name: 'Try again', exact: true }).click();
+  await expect(page.getByText('Here you go.', { exact: true })).toBeVisible();
+  expect(state.messages).toEqual(['Find me a soup.', 'Find me a soup.']);
+  await expect(page.getByRole('button', { name: 'Try again', exact: true })).toHaveCount(0);
+});
+
+test('a slow reply says what it is doing and can be stopped', async ({ page }) => {
+  const state = await mockStudio(page, true, false, () => null);
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Ask your sous-chef' }).click();
+  await page.getByRole('textbox', { name: 'Message your sous-chef' }).fill('Find me toast.');
+  await page.getByRole('button', { name: 'Send message' }).click();
+  await expect(page.getByText('Looking through recipes…', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Stop', exact: true }).click();
+  await expect(
+    page.getByText('Stopped. Your conversation is saved.', { exact: true }),
+  ).toBeVisible();
+  expect(state.cancels()).toBe(1);
+  await expect(page.getByRole('progressbar', { name: 'Your sous-chef is working…' })).toHaveCount(
+    0,
+  );
+});
+
+test('on a phone, a typed chat steps aside for what the sous-chef opens', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await mockStudio(page, true, false, () => ({
+    content: 'Here is your planner.',
+    actions: [{ type: 'go_to', page: 'planner' }],
+  }));
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Ask your sous-chef' }).click();
+  await page.getByRole('textbox', { name: 'Message your sous-chef' }).fill('Show my planner.');
+  await page.getByRole('button', { name: 'Send message' }).click();
+  // The reply shows as a toast, and the conversation waits in its pill.
+  await expect(page.getByText('Here is your planner.', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Back to conversation', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: 'Message your sous-chef' })).toBeVisible();
 });
 
 test('the sous-chef thinks in a bubble that becomes its reply', async ({ page }) => {

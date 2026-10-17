@@ -4,6 +4,7 @@ import { Animated, Easing, Text, View } from 'react-native';
 import { Sparkles } from './icons';
 import { color, radius, s } from '../lib/theme';
 import { animate, motionReduced, native } from './ui';
+import { TextLink } from './Receipts';
 
 // The sous-chef's conversation pieces, the same wherever it talks: the chat, and the one-off
 // requests from a recipe or the editor.
@@ -129,12 +130,16 @@ export const bubble = { maxWidth: '92%', padding: 15, borderRadius: radius.md, g
 export function Reply({
   grow,
   onGrown,
+  tone,
   children,
 }: {
   grow: boolean;
   onGrown?: () => void;
+  /** A reply that says its turn failed. */
+  tone?: 'error';
   children: React.ReactNode;
 }) {
+  const fill = tone === 'error' ? color.errorBg : color.white;
   const [grows] = useState(grow);
   const [size, setSize] = useState<{ width: number; height: number } | null>(null);
   const [done, setDone] = useState(false);
@@ -167,9 +172,7 @@ export function Reply({
   }, [size, shape, words, onGrown]);
   if (!grows)
     return (
-      <View style={[bubble, { alignSelf: 'flex-start', backgroundColor: color.white }]}>
-        {children}
-      </View>
+      <View style={[bubble, { alignSelf: 'flex-start', backgroundColor: fill }]}>{children}</View>
     );
   const growing = !done;
   return (
@@ -196,7 +199,7 @@ export function Reply({
           bottom: 0,
           left: 0,
           borderRadius: radius.md,
-          backgroundColor: color.white,
+          backgroundColor: fill,
           ...(growing
             ? {
                 width: size
@@ -235,5 +238,50 @@ export function Reply({
         {children}
       </Animated.View>
     </Animated.View>
+  );
+}
+
+// What a slow reply is doing, keyed by the server's step names.
+const steps: Record<string, string> = {
+  looking: 'Looking through recipes…',
+  checking: 'Checking your kitchen…',
+  kitchen: 'Updating your kitchen…',
+  saving: 'Saving…',
+  recipe: 'Working on your recipe…',
+  media: 'Ordering a photo and video…',
+};
+
+/**
+ * Under the thinking dots while a reply takes a while: what the sous-chef is doing, how long it
+ * has taken, and Stop.
+ */
+export function ThinkingCaption({
+  step,
+  stopping,
+  onStop,
+}: {
+  step?: string;
+  stopping?: boolean;
+  onStop: () => void;
+}) {
+  const { t: tr } = useI18n();
+  const [seconds, setSeconds] = useState(0);
+  useEffect(() => {
+    const tick = setInterval(() => setSeconds((n) => n + 1), 1000);
+    return () => clearInterval(tick);
+  }, []);
+  const label = steps[step ?? ''];
+  if (seconds < 3 && !label) return null;
+  return (
+    <View style={[s.row, { gap: 10, alignSelf: 'flex-start', paddingHorizontal: 6 }]}>
+      {!!label && <Text style={s.small}>{tr(label)}</Text>}
+      {seconds >= 8 && <Text style={s.small}>{tr('{{v0}} s', { v0: seconds })}</Text>}
+      {seconds >= 3 &&
+        (stopping ? (
+          <Text style={s.small}>{tr('Stopping…')}</Text>
+        ) : (
+          <TextLink title={tr('Stop')} onPress={onStop} />
+        ))}
+    </View>
   );
 }

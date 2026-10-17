@@ -313,6 +313,41 @@ export type StudioEvent = {
   actions?: AppAction[];
   /** The reply's turn changed the member's data. Older servers leave it out. */
   changed?: boolean;
+  /** What the reply's turn did, as receipts under it. Older servers leave it out. */
+  effects?: StudioEffect[];
+  /** The reply says its turn failed (or was stopped). */
+  failed?: boolean;
+};
+/** Something a sous-chef reply did to the member's data, shown as a receipt under it. */
+export type StudioEffect = {
+  kind:
+    | 'groceries'
+    | 'plan'
+    | 'pantry'
+    | 'saved'
+    | 'unsaved'
+    | 'followed'
+    | 'unfollowed'
+    | 'cookbook'
+    | 'checked'
+    | 'unchecked'
+    | 'removed'
+    | 'recipe'
+    | 'deleted'
+    | 'draft'
+    | 'published'
+    | 'profile'
+    | 'review'
+    | 'report'
+    | 'media';
+  count?: number;
+  title?: string;
+  /** A recipe to open from the receipt. */
+  recipe?: string;
+  /** A page to open from the receipt. */
+  page?: Screen;
+  undoable?: boolean;
+  undone?: boolean;
 };
 export type AppAction =
   | { type: 'open_recipe'; recipeId: string }
@@ -345,6 +380,8 @@ export type StudioProject = {
    * read back. Answering with a tap sends `answer` and this `seq`. Older servers leave it out.
    */
   question?: { kind: 'action' | 'publish'; seq: number; description?: string } | null;
+  /** The reply on its way: what it's doing now, and whether it was asked to stop. */
+  turn?: { step: string; stopping: boolean } | null;
   recipeId: string | null;
   recipe: Recipe | null;
   revision: number;

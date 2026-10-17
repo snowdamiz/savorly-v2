@@ -52,9 +52,11 @@ type App struct {
 	Context          context.Context
 	agentOnce        sync.Once
 	agentRouter      *fiber.App
-	oidcOnce         sync.Once
-	verifiers        map[string]*oidc.IDTokenVerifier
-	throttles        accountThrottles
+	// turns holds the cancel function of each sous-chef turn running here, by id.
+	turns     sync.Map
+	oidcOnce  sync.Once
+	verifiers map[string]*oidc.IDTokenVerifier
+	throttles accountThrottles
 }
 
 // errorHandler answers in JSON. requestId lets support find the request's log lines.
@@ -217,6 +219,8 @@ func NewWithContext(ctx context.Context, db *pgxpool.Pool, config Config) *fiber
 	v.Post("/recipe-studio/:id/messages", a.requireAuth, a.studioMessage)
 	v.Put("/recipe-studio/:id/context", a.requireAuth, a.studioContext)
 	v.Post("/recipe-studio/:id/images", a.requireAuth, a.studioImage)
+	v.Post("/recipe-studio/:id/undo", a.requireAuth, a.studioUndo)
+	v.Post("/recipe-studio/:id/cancel", a.requireAuth, a.studioCancel)
 	v.Post("/recipe-studio/:id/voice", a.requireAuth, a.voiceCreate)
 	v.Delete("/recipe-studio/voice/:session", a.requireAuth, a.voiceClose)
 	a.recipeRoutes(v)
