@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "typecheck": "tsc --noEmit",
+    "test": "node --test site.test.mjs",
     "build": "wrangler deploy --dry-run --env \"\""
   },
   "dependencies": {

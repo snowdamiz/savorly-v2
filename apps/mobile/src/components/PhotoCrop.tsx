@@ -3,7 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { Animated, Modal, Platform, StatusBar, StyleSheet, Text, View } from 'react-native';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import Svg, { Circle, Path } from 'react-native-svg';
-import { Check, X } from 'lucide-react-native';
+import { Check, X } from './icons';
 import type { Crop, Photo } from '../lib/photos';
 import { color, s } from '../lib/theme';
 import { Button, IconButton, useChrome } from './ui';

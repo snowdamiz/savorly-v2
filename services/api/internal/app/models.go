@@ -1,7 +1,9 @@
 package app
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"net/url"
 	"strings"
 	"unicode/utf8"
@@ -19,7 +21,63 @@ type Step struct {
 	Title   string `json:"title"`
 	Text    string `json:"text"`
 	Seconds int    `json:"seconds"`
+	// A photo of this step, held to the same rules as the recipe's own photos.
+	Image string `json:"image,omitempty"`
+	// A short clip of this step, held to the same rules as the recipe's own video.
+	Video string `json:"video,omitempty"`
+	// Whether the request named an image, or a video, at all: older apps and the sous-chef never
+	// do, and then a saved recipe keeps its step photos and clips (keepStepMedia).
+	imageSet, videoSet bool
 }
+
+func (s *Step) UnmarshalJSON(b []byte) error {
+	var in struct {
+		Title   string  `json:"title"`
+		Text    string  `json:"text"`
+		Seconds int     `json:"seconds"`
+		Image   *string `json:"image"`
+		Video   *string `json:"video"`
+	}
+	if e := json.Unmarshal(b, &in); e != nil {
+		return e
+	}
+	*s = Step{Title: in.Title, Text: in.Text, Seconds: in.Seconds, imageSet: in.Image != nil, videoSet: in.Video != nil}
+	if in.Image != nil {
+		s.Image = *in.Image
+	}
+	if in.Video != nil {
+		s.Video = *in.Video
+	}
+	return nil
+}
+
+// keepStepMedia gives steps that didn't name an image the photo of the saved step with the same
+// text, or else of the step in the same place with the same title, and steps that didn't name a
+// video that step's clip in the same way, so editing a recipe in an app or with the sous-chef
+// that doesn't know step photos or clips never drops them.
+func keepStepMedia(steps, saved []Step) {
+	keep := func(named func(*Step) bool, media func(*Step) *string) {
+		byText := map[string]string{}
+		for i := range saved {
+			if m := *media(&saved[i]); m != "" {
+				byText[strings.TrimSpace(saved[i].Text)] = m
+			}
+		}
+		for i := range steps {
+			if named(&steps[i]) {
+				continue
+			}
+			if m, ok := byText[strings.TrimSpace(steps[i].Text)]; ok {
+				*media(&steps[i]) = m
+			} else if i < len(saved) && *media(&saved[i]) != "" && strings.EqualFold(strings.TrimSpace(saved[i].Title), strings.TrimSpace(steps[i].Title)) {
+				*media(&steps[i]) = *media(&saved[i])
+			}
+		}
+	}
+	keep(func(s *Step) bool { return s.imageSet }, func(s *Step) *string { return &s.Image })
+	keep(func(s *Step) bool { return s.videoSet }, func(s *Step) *string { return &s.Video })
+}
+
 type RecipeInput struct {
 	Title       string       `json:"title"`
 	Description string       `json:"description"`
@@ -36,6 +94,71 @@ type RecipeInput struct {
 	Calories    int          `json:"calories"`
 	AIGenerated bool         `json:"aiGenerated"`
 	Published   bool         `json:"published"`
+	// ISO 639-1 code of the recipe's own text; "" leaves a saved recipe's language as it is.
+	Language string `json:"language"`
+	// The page an imported recipe came from. nil (older apps send none) leaves a saved recipe's
+	// as it is; "" removes it.
+	SourceURL *string `json:"sourceUrl,omitempty"`
+	// The recipe this one adapts; see RecipeRef.
+	DerivedFrom RecipeRef `json:"derivedFrom,omitzero"`
+}
+
+// RecipeRef is derivedFrom in a recipe write: a recipe id to link, or "" to remove the link. A
+// missing field, null, or the {id,title,author} object recipe JSON carries (which older apps
+// send back as they got it) leaves a saved recipe's link as it is.
+type RecipeRef struct {
+	ID  string
+	Set bool
+}
+
+func (r *RecipeRef) UnmarshalJSON(b []byte) error {
+	b = bytes.TrimSpace(b)
+	switch {
+	case len(b) > 0 && b[0] == '"':
+		var id string
+		if e := json.Unmarshal(b, &id); e != nil {
+			return e
+		}
+		*r = RecipeRef{ID: strings.TrimSpace(id), Set: true}
+	case bytes.Equal(b, []byte("null")) || (len(b) > 0 && b[0] == '{'):
+		*r = RecipeRef{}
+	default:
+		return errors.New("derivedFrom must be a recipe id")
+	}
+	return nil
+}
+
+func (r RecipeRef) MarshalJSON() ([]byte, error) {
+	if !r.Set {
+		return []byte("null"), nil
+	}
+	return json.Marshal(r.ID)
+}
+
+// The languages the app is translated into, which are the ones narration can read.
+var recipeLanguages = map[string]bool{"en": true, "fr": true, "de": true, "ru": true, "es": true, "it": true, "pt": true, "zh": true, "ja": true}
+
+// recipeLanguage accepts a listed code, also as a tag like "pt-BR".
+func recipeLanguage(s string) (string, bool) {
+	s = strings.ToLower(strings.TrimSpace(s))
+	if i := strings.IndexAny(s, "-_"); i > 0 {
+		s = s[:i]
+	}
+	return s, s == "" || recipeLanguages[s]
+}
+
+// cleanTags trims tags and drops blank and repeated ones, keeping the first spelling.
+func cleanTags(tags []string) []string {
+	out := []string{}
+	seen := map[string]bool{}
+	for _, t := range tags {
+		t = strings.TrimSpace(t)
+		if k := strings.ToLower(t); t != "" && !seen[k] {
+			seen[k] = true
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 func validText(s string, min, max int) bool {
@@ -52,9 +175,43 @@ func validMedia(s string) bool {
 	}
 	return (u.Scheme == "https" && u.Host != "") || (u.Scheme == "http" && (u.Hostname() == "localhost" || u.Hostname() == "127.0.0.1"))
 }
+
+// validSourceURL accepts "" or an http(s) address of up to 500 characters without credentials.
+func validSourceURL(s string) bool {
+	if s == "" {
+		return true
+	}
+	u, e := url.Parse(s)
+	return e == nil && utf8.RuneCountInString(s) <= 500 && (u.Scheme == "http" || u.Scheme == "https") && u.Hostname() != "" && u.User == nil
+}
+
 func (r *RecipeInput) Validate() error {
 	r.Title = strings.TrimSpace(r.Title)
 	r.Description = strings.TrimSpace(r.Description)
+	r.Cuisine = normalizeCuisine(r.Cuisine)
+	if r.Tags != nil {
+		r.Tags = cleanTags(r.Tags)
+	}
+	for i := range r.Ingredients {
+		in := &r.Ingredients[i]
+		in.Name, in.Unit, in.Category = strings.TrimSpace(in.Name), strings.TrimSpace(in.Unit), strings.TrimSpace(in.Category)
+	}
+	for i := range r.Steps {
+		st := &r.Steps[i]
+		st.Title, st.Text, st.Image, st.Video = strings.TrimSpace(st.Title), strings.TrimSpace(st.Text), strings.TrimSpace(st.Image), strings.TrimSpace(st.Video)
+	}
+	if lang, ok := recipeLanguage(r.Language); ok {
+		r.Language = lang
+	} else {
+		return fiber.NewError(400, "Choose a supported recipe language.")
+	}
+	if r.SourceURL != nil {
+		source := strings.TrimSpace(*r.SourceURL)
+		if !validSourceURL(source) {
+			return fiber.NewError(400, "The source link must start with http:// or https:// and be at most 500 characters.")
+		}
+		r.SourceURL = &source
+	}
 	if !validText(r.Title, 3, 120) || !validText(r.Description, 10, 3000) || !validText(r.Cuisine, 2, 60) {
 		return fiber.NewError(400, "Add a title, description, and cuisine.")
 	}
@@ -68,7 +225,7 @@ func (r *RecipeInput) Validate() error {
 		return fiber.NewError(400, "Media must use an HTTPS URL.")
 	}
 	if len(r.Photos) > 8 {
-		return fiber.NewError(400, "Add up to 8 more photos.")
+		return fiber.NewError(400, "You can add up to 8 extra photos.")
 	}
 	for _, p := range r.Photos {
 		if p == "" || !validMedia(p) {
@@ -86,6 +243,9 @@ func (r *RecipeInput) Validate() error {
 	for _, s := range r.Steps {
 		if !validText(s.Title, 1, 120) || !validText(s.Text, 5, 3000) || s.Seconds < 0 || s.Seconds > 86400 {
 			return fiber.NewError(400, "Each step needs a title and instructions.")
+		}
+		if !validMedia(s.Image) || !validMedia(s.Video) {
+			return fiber.NewError(400, "Media must use an HTTPS URL.")
 		}
 	}
 	for _, t := range r.Tags {

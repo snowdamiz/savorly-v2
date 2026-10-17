@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"log/slog"
-	"net/mail"
 	"strings"
 	"time"
 
@@ -19,22 +18,15 @@ import (
 )
 
 func hashToken(t string) string { h := sha256.Sum256([]byte(t)); return hex.EncodeToString(h[:]) }
-func token(c fiber.Ctx) string {
-	if b := strings.TrimPrefix(c.Get("Authorization"), "Bearer "); b != "" && b != c.Get("Authorization") {
-		return b
-	}
-	return c.Cookies("savorly_session")
-}
+func token(c fiber.Ctx) string  { t, _ := sessionToken(c); return t }
 func userID(c fiber.Ctx) string { u, _ := c.Locals("userID").(string); return u }
 func (a *App) requireAuth(c fiber.Ctx) error {
-	var id string
-	// Suspension deletes sessions; the join also covers one that raced the suspension.
-	err := a.DB.QueryRow(c.Context(), `SELECT s.user_id FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>now() AND u.suspended_at IS NULL`, hashToken(token(c))).Scan(&id)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return fiber.NewError(401, "Sign in to your kitchen to continue.")
-	}
+	id, err := a.authenticate(c)
 	if err != nil {
 		return err
+	}
+	if id == "" {
+		return fiber.NewError(401, "Sign in to your kitchen to continue.")
 	}
 	c.Locals("userID", id)
 	return c.Next()
@@ -44,8 +36,14 @@ func (a *App) requireAuth(c fiber.Ctx) error {
 // to pick a username before anything else.
 func (a *App) session(c fiber.Ctx, id string, created bool) error {
 	// Every sign-in path ends here, after the credentials were checked.
-	var suspended bool
-	if e := a.DB.QueryRow(c.Context(), `SELECT suspended_at IS NOT NULL FROM users WHERE id=$1`, id).Scan(&suspended); e != nil {
+	var suspended, others, known bool
+	var email string
+	ua := userAgent(c)
+	// Sessions from before devices were recorded have no user agent; they could be this device.
+	if e := a.DB.QueryRow(c.Context(), `SELECT u.suspended_at IS NOT NULL,u.email,
+ EXISTS(SELECT 1 FROM sessions s WHERE s.user_id=u.id AND s.expires_at>now()),
+ EXISTS(SELECT 1 FROM sessions s WHERE s.user_id=u.id AND s.expires_at>now() AND s.user_agent IN ($2,''))
+ FROM users u WHERE u.id=$1`, id, ua).Scan(&suspended, &email, &others, &known); e != nil {
 		return e
 	}
 	if suspended {
@@ -56,11 +54,14 @@ func (a *App) session(c fiber.Ctx, id string, created bool) error {
 		return err
 	}
 	t := hex.EncodeToString(b)
-	_, err := a.DB.Exec(c.Context(), `INSERT INTO sessions(token_hash,user_id,expires_at) VALUES($1,$2,$3)`, hashToken(t), id, time.Now().Add(30*24*time.Hour))
+	_, err := a.DB.Exec(c.Context(), `INSERT INTO sessions(token_hash,user_id,expires_at,user_agent) VALUES($1,$2,now()+$3*interval '1 second',$4)`, hashToken(t), id, seconds(sessionTTL), ua)
 	if err != nil {
 		return err
 	}
-	c.Cookie(&fiber.Cookie{Name: "savorly_session", Value: t, HTTPOnly: true, Secure: a.Config.Production, SameSite: "Lax", Path: "/", MaxAge: 30 * 86400})
+	a.setSessionCookie(c, t)
+	if !created && others && !known {
+		notify(email, letterNewSignIn, letterData{Device: deviceLabel(ua), When: time.Now()})
+	}
 	// Browser tokens stay in HttpOnly cookies; only non-browser clients receive bearer tokens.
 	out := fiber.Map{"ok": true}
 	if created {
@@ -72,16 +73,18 @@ func (a *App) session(c fiber.Ctx, id string, created bool) error {
 	return c.JSON(out)
 }
 func (a *App) register(c fiber.Ctx) error {
-	var in struct{ Name, Email, Password string }
+	var in struct{ Name, Email, Password, TurnstileToken string }
 	if e := decode(c, &in); e != nil {
 		return e
 	}
-	in.Email = strings.ToLower(strings.TrimSpace(in.Email))
-	parsed, e := mail.ParseAddress(in.Email)
-	if e != nil || parsed.Address != in.Email || len(in.Email) > 254 || !validText(in.Name, 2, 70) || len(in.Password) < 12 || len(in.Password) > 72 {
+	in.Email = normalizeEmail(in.Email)
+	if !validEmail(in.Email) || !validText(in.Name, 2, 70) || len(in.Password) < 12 || len(in.Password) > 72 {
 		return fiber.NewError(400, "Use a valid email, a name, and a password of 12–72 characters.")
 	}
 	if e := a.signupsOpen(c.Context()); e != nil {
+		return e
+	}
+	if e := verifyTurnstile(c, in.TurnstileToken); e != nil {
 		return e
 	}
 	hash, e := bcrypt.GenerateFromPassword([]byte(in.Password), 12)
@@ -108,6 +111,7 @@ func (a *App) register(c fiber.Ctx) error {
 		}
 		return e
 	}
+	a.welcome(c.Context(), id, in.Email)
 	return a.session(c, id, true)
 }
 
@@ -127,16 +131,27 @@ var dummyHash, _ = bcrypt.GenerateFromPassword([]byte("not-a-real-password"), 12
 // usablePassword is false for accounts made with Apple or Google until a password is set.
 func usablePassword(hash string) bool { return !strings.HasPrefix(hash, "!") }
 
+// A guess spread over many addresses still meets this per-account limit, whether or not the
+// account exists; a successful sign-in or a password reset clears it.
+const (
+	loginAttempts      = 10
+	loginAttemptWindow = 15 * time.Minute
+)
+
 func (a *App) login(c fiber.Ctx) error {
 	var in struct{ Email, Password string }
 	if e := decode(c, &in); e != nil {
 		return e
 	}
+	email := normalizeEmail(in.Email)
+	if !a.throttles.logins.hit(email, loginAttempts, loginAttemptWindow) {
+		return fiber.NewError(429, "Too many sign-in attempts. Please wait a few minutes and try again.")
+	}
 	if len(in.Password) > 72 {
 		return fiber.NewError(401, "Email or password is incorrect.")
 	}
 	var id, hash string
-	e := a.DB.QueryRow(c.Context(), `SELECT id,password_hash FROM users WHERE email=$1`, strings.ToLower(strings.TrimSpace(in.Email))).Scan(&id, &hash)
+	e := a.DB.QueryRow(c.Context(), `SELECT id,password_hash FROM users WHERE email=$1`, email).Scan(&id, &hash)
 	if e != nil {
 		if !errors.Is(e, pgx.ErrNoRows) {
 			return e
@@ -152,6 +167,7 @@ func (a *App) login(c fiber.Ctx) error {
 	if bcrypt.CompareHashAndPassword([]byte(hash), []byte(in.Password)) != nil {
 		return fiber.NewError(401, "Email or password is incorrect.")
 	}
+	a.throttles.logins.clear(email)
 	return a.session(c, id, false)
 }
 func (a *App) logout(c fiber.Ctx) error {
@@ -159,15 +175,30 @@ func (a *App) logout(c fiber.Ctx) error {
 	if e != nil {
 		return e
 	}
-	c.Cookie(&fiber.Cookie{Name: "savorly_session", Value: "", Path: "/", HTTPOnly: true, Secure: a.Config.Production, SameSite: "Lax", MaxAge: -1})
+	a.clearSessionCookie(c)
 	return c.SendStatus(204)
 }
 func (a *App) me(c fiber.Ctx) error {
+	b, e := a.profile(c.Context(), userID(c))
+	if e != nil {
+		return e
+	}
+	c.Set("Content-Type", "application/json")
+	return c.Send(b)
+}
+
+// profile is the member as GET /me describes them.
+func (a *App) profile(ctx context.Context, id string) ([]byte, error) {
 	// adminPending: an owner's address that hasn't been proven yet, so the console stays closed.
 	// onboarded: false until a new kitchen finishes or skips its setup.
-	return a.queryOne(c, `SELECT jsonb_build_object('id',u.id,'name',u.name,'email',u.email,'handle',u.handle,'bio',u.bio,'avatar',u.avatar,'preferences',u.preferences,'onboarded',u.onboarded_at IS NOT NULL,
+	var b []byte
+	e := a.DB.QueryRow(ctx, `SELECT jsonb_build_object('id',u.id,'name',u.name,'email',u.email,'emailVerified',u.email_verified,'handle',u.handle,'bio',u.bio,'avatar',u.avatar,'preferences',`+preferencesJSON+`,'onboarded',u.onboarded_at IS NOT NULL,
  'hasPassword',NOT starts_with(u.password_hash,'!'),'identities',COALESCE((SELECT jsonb_agg(provider ORDER BY provider) FROM identities WHERE user_id=u.id),'[]'),'plan',`+effectivePlanSQL+`,
- 'admin',`+adminSQL(2, 3)+`,'adminOwner',`+ownerSQL(2, 3)+`,'adminPending',(NOT `+adminSQL(2, 3)+` AND u.email=ANY($2::text[]))) FROM users u WHERE u.id=$1`, userID(c), ownerEmails(), a.Config.Production)
+ 'admin',`+adminSQL(2, 3)+`,'adminOwner',`+ownerSQL(2, 3)+`,'adminPending',(NOT `+adminSQL(2, 3)+` AND u.email=ANY($2::text[]))) FROM users u WHERE u.id=$1`, id, ownerEmails(), a.Config.Production).Scan(&b)
+	if errors.Is(e, pgx.ErrNoRows) {
+		return nil, fiber.NewError(404, "This item could not be found.")
+	}
+	return b, e
 }
 func (a *App) onboarded(c fiber.Ctx) error {
 	if _, e := a.DB.Exec(c.Context(), `UPDATE users SET onboarded_at=COALESCE(onboarded_at,now()) WHERE id=$1`, userID(c)); e != nil {
@@ -185,8 +216,8 @@ func (a *App) updateMe(c fiber.Ctx) error {
 	if e := decode(c, &in); e != nil {
 		return e
 	}
-	var current string
-	if e := a.DB.QueryRow(c.Context(), `SELECT handle FROM users WHERE id=$1`, userID(c)).Scan(&current); e != nil {
+	var current, avatar string
+	if e := a.DB.QueryRow(c.Context(), `SELECT handle,avatar FROM users WHERE id=$1`, userID(c)).Scan(&current, &avatar); e != nil {
 		return e
 	}
 	handle := current
@@ -202,12 +233,17 @@ func (a *App) updateMe(c fiber.Ctx) error {
 	if !validText(in.Name, 2, 70) || len(in.Bio) > 1000 || !validMedia(in.Avatar) || len(in.Preferences.Diets) > 12 || len(in.Preferences.Allergies) > 20 {
 		return fiber.NewError(400, "Check your profile fields.")
 	}
+	// A photo kept from before stays, whatever its host; a new one must be Savorly's (or Google's).
+	if in.Avatar != avatar && !a.validAvatar(in.Avatar) {
+		return fiber.NewError(400, "Add photos and videos by uploading them to Savorly.")
+	}
 	for _, v := range append(in.Preferences.Diets, in.Preferences.Allergies...) {
 		if !validText(v, 1, 60) {
-			return fiber.NewError(400, "Preference labels are too long.")
+			return fiber.NewError(400, "Each food preference or allergy can be up to 60 characters.")
 		}
 	}
-	_, e := a.DB.Exec(c.Context(), `UPDATE users SET name=$2,bio=$3,avatar=$4,preferences=$5,handle=$6 WHERE id=$1`, userID(c), strings.TrimSpace(in.Name), in.Bio, in.Avatar, jsonBytes(fiber.Map{"diets": in.Preferences.Diets, "allergies": in.Preferences.Allergies}), handle)
+	// Merged, so the units, language and notifications set through /me/preferences stay.
+	_, e := a.DB.Exec(c.Context(), `UPDATE users SET name=$2,bio=$3,avatar=$4,preferences=preferences||$5::jsonb,handle=$6 WHERE id=$1`, userID(c), strings.TrimSpace(in.Name), in.Bio, in.Avatar, jsonBytes(fiber.Map{"diets": in.Preferences.Diets, "allergies": in.Preferences.Allergies}), handle)
 	if handleConflict(e) {
 		return fiber.NewError(409, handleTaken)
 	}
@@ -222,38 +258,25 @@ func (a *App) deleteMe(c fiber.Ctx) error {
 		return e
 	}
 	ctx, owner := c.Context(), userID(c)
-	var hash string
-	if e := a.DB.QueryRow(ctx, `SELECT password_hash FROM users WHERE id=$1`, owner).Scan(&hash); e != nil {
-		return e
-	}
-	if usablePassword(hash) {
-		if bcrypt.CompareHashAndPassword([]byte(hash), []byte(in.Password)) != nil {
-			return fiber.NewError(401, "Password is incorrect.")
-		}
-	} else {
-		// Without a password, a fresh sign-in with a connected provider confirms it's them.
-		id, e := a.verifyIdentity(ctx, in.Provider, in.Token)
-		if e != nil {
-			return e
-		}
-		var mine bool
-		if e = a.DB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM identities WHERE provider=$1 AND subject=$2 AND user_id=$3)`, id.Provider, id.Subject, owner).Scan(&mine); e != nil {
-			return e
-		}
-		if !mine {
-			return fiber.NewError(401, "Confirm with the Apple or Google account connected to this kitchen.")
-		}
-	}
-	if e := a.cancelSubscription(ctx, owner); e != nil {
-		return e
-	}
-	if e := a.revokeApple(ctx, owner); e != nil {
-		slog.Warn("revoke Sign in with Apple", "error", e)
-	}
-	_, e := a.DB.Exec(ctx, `DELETE FROM users WHERE id=$1`, owner)
+	// Read before the row goes: the confirmation needs the address.
+	acct, e := a.loadAccount(ctx, owner)
 	if e != nil {
 		return e
 	}
-	c.Cookie(&fiber.Cookie{Name: "savorly_session", Path: "/", MaxAge: -1})
+	if e = a.confirmOwner(ctx, owner, acct.Hash, in.Password, in.Provider, in.Token); e != nil {
+		// A mistyped password keeps the kitchen signed in, as it does for a password change.
+		return stillSignedIn(e)
+	}
+	if e = a.cancelSubscription(ctx, owner); e != nil {
+		return e
+	}
+	if e = a.revokeApple(ctx, owner); e != nil {
+		slog.Warn("revoke Sign in with Apple", "error", e)
+	}
+	if _, e = a.DB.Exec(ctx, `DELETE FROM users WHERE id=$1`, owner); e != nil {
+		return e
+	}
+	notify(acct.Email, letterAccountDeleted, letterData{})
+	a.clearSessionCookie(c)
 	return c.SendStatus(204)
 }

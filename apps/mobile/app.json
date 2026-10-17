@@ -11,7 +11,8 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "app.savorly.mobile",
-      "usesAppleSignIn": true
+      "usesAppleSignIn": true,
+      "associatedDomains": ["applinks:savorly.cooking"]
     },
     "android": {
       "package": "app.savorly.mobile",
@@ -19,7 +20,18 @@
         "foregroundImage": "./assets/android-icon-foreground.png",
         "monochromeImage": "./assets/android-icon-monochrome.png",
         "backgroundColor": "#F7F8F5"
-      }
+      },
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            { "scheme": "https", "host": "savorly.cooking", "pathPrefix": "/recipes/" },
+            { "scheme": "https", "host": "savorly.cooking", "pathPrefix": "/cookbooks/" }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ]
     },
     "web": {
       "bundler": "metro",
@@ -72,6 +84,14 @@
         }
       ],
       "expo-asset",
+      "expo-image",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/android-icon-monochrome.png",
+          "color": "#0D0D0D"
+        }
+      ],
       [
         "expo-localization",
         {

@@ -4,8 +4,11 @@ import { api } from '../api';
 export type Provider = 'apple' | 'google';
 /** A provider's ID token for the API; `code` and `name` come only from Apple. */
 export type ProviderToken = { provider: Provider; token: string; code?: string; name?: string };
-/** What a sign-in is for: signing in, connecting it to this kitchen, or confirming deletion. */
-export type SignInPurpose = 'signin' | 'connect' | 'delete';
+/**
+ * What a sign-in is for: signing in, connecting it to this kitchen, confirming deletion, or
+ * confirming a new password or email address for a kitchen without a password.
+ */
+export type SignInPurpose = 'signin' | 'connect' | 'delete' | 'password' | 'email';
 export type SocialButtonsProps = {
   /** Limit to these providers, e.g. the ones a kitchen has connected. */
   only?: Provider[];

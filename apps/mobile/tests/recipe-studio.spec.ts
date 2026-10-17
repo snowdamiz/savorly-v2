@@ -1,5 +1,6 @@
 import { test, expect, Page } from '@playwright/test';
 import type { AppAction, Recipe, StudioEvent, StudioProject } from '../src/lib/types';
+import { stopsMoving } from './waits';
 
 const user = {
   id: 'studio-cook',
@@ -53,15 +54,15 @@ test('a late search response cannot replace the current results', async ({ page 
   await search.fill('lemon');
   await first;
   await search.fill('toast');
-  await expect(page.getByRole('button', { name: 'View Lemon toast', exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'View Lemon toast', exact: true })).toBeVisible();
   const late = page.waitForResponse((r) => new URL(r.url()).searchParams.get('q') === 'lemon');
   release();
   await late;
   await page.evaluate(() => new Promise(requestAnimationFrame));
   await expect(
-    page.getByRole('button', { name: 'View Stale lemon result', exact: true }),
+    page.getByRole('link', { name: 'View Stale lemon result', exact: true }),
   ).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'View Lemon toast', exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'View Lemon toast', exact: true })).toBeVisible();
 });
 
 test('an automatic ingredient swap submits once and can be followed by another request', async ({
@@ -84,7 +85,7 @@ test('an automatic ingredient swap submits once and can be followed by another r
     return route.fulfill({ json: [job] });
   });
   await page.goto('/');
-  await page.getByRole('button', { name: 'Let’s get cooking', exact: true }).click();
+  await page.getByRole('link', { name: 'Let’s get cooking: Lemon toast', exact: true }).click();
   await page.getByRole('button', { name: 'Swap Bread', exact: true }).click();
   await expect(page.getByText('Use a tortilla.', { exact: true })).toBeVisible();
   expect(submissions).toHaveLength(1);
@@ -111,7 +112,7 @@ test('an automatic ingredient swap asks guests to sign in before submitting', as
       submissions.push(request.url());
   });
   await page.goto('/');
-  await page.getByRole('button', { name: 'Let’s get cooking', exact: true }).click();
+  await page.getByRole('link', { name: 'Let’s get cooking: Lemon toast', exact: true }).click();
   await page.getByRole('button', { name: 'Swap Bread', exact: true }).click();
   await expect(page.getByRole('textbox', { name: 'Email address', exact: true })).toBeVisible();
   expect(submissions).toEqual([]);
@@ -339,8 +340,11 @@ test('chat clarifies, saves a complete recipe with both media jobs, and resumes'
   await startRecipe(page, 'Chat to create a recipe');
   await expect(page.getByText('Two slices, for two people.', { exact: true })).toBeVisible();
   await page.setViewportSize({ width: 390, height: 844 });
-  // Allow the shared React Native modal spring to finish after changing viewport.
-  await page.waitForTimeout(450);
+  // On a phone the conversation moves into the shared sheet, which springs into place; the
+  // screenshot waits until it has come to rest.
+  const sheet = page.getByRole('dialog', { name: 'Sous-chef' }).last();
+  await expect(sheet).toBeVisible();
+  await stopsMoving(sheet);
   await page.screenshot({
     path: testInfo.outputPath('recipe-studio-mobile.png'),
     animations: 'disabled',
@@ -552,7 +556,8 @@ test('in a desktop browser the sous-chef floats beside the page, which stays usa
   const state = await mockStudio(page);
   await page.goto('/');
   await page.getByRole('button', { name: 'Ask your sous-chef' }).click();
-  const panel = page.getByRole('dialog', { name: 'Sous-chef' });
+  // The floating panel isn't modal; on a phone the conversation is in the shared sheet, which is.
+  const panel = page.locator('[role="dialog"][aria-label="Sous-chef"]:not([aria-modal="true"])');
   const composer = page.getByRole('textbox', { name: 'Message your sous-chef' });
   await expect(composer).toBeFocused();
   await composer.fill('A draft question');
@@ -573,6 +578,10 @@ test('in a desktop browser the sous-chef floats beside the page, which stays usa
   await page.getByRole('button', { name: 'Back to conversation', exact: true }).click();
   await expect(composer).toHaveValue('A draft question');
   await expect(panel).toHaveCount(0);
+  await expect(page.getByRole('dialog', { name: 'Sous-chef' })).toHaveAttribute(
+    'aria-modal',
+    'true',
+  );
   await expect(page.getByRole('button', { name: 'Close dialog', exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });

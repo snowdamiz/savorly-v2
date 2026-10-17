@@ -11,7 +11,7 @@ import {
   ShieldOff,
   Trash2,
   Undo2,
-} from 'lucide-react-native';
+} from '../../components/icons';
 import { api } from '../../lib/api';
 import { AdminMember, AdminMemberDetail } from '../../lib/admin';
 import { useApp } from '../../lib/store';
@@ -23,6 +23,7 @@ import {
   Confirm,
   Facts,
   Filters,
+  followUp,
   Grid,
   ListState,
   Loading,
@@ -144,8 +145,10 @@ export function MemberDialog({ id, onClose }: { id: string; onClose: () => void 
   const setPlan = (p: PlanID) => setChoice({ from: m, plan: p });
   const path = `/admin/users/${encodeURIComponent(id)}`;
   const me = m?.id === nav.me.id;
-  // Mirrors the API's rules, which are what actually enforce them.
-  const locked = !!m && ((m.owner && !me) || (m.admin && !m.owner && !me && !nav.owner));
+  // Mirrors the API's rules, which are what actually enforce them. An owner's address is
+  // protected before it's verified too.
+  const locked =
+    !!m && ((m.owner && !me) || ((m.admin || m.ownerEmail) && !m.owner && !me && !nav.owner));
   const done = async (key: string, fn: () => Promise<unknown>, message: string) => {
     if (await action.run(key, fn, message)) setConfirm(null);
   };
@@ -377,7 +380,7 @@ export function MemberDialog({ id, onClose }: { id: string; onClose: () => void 
                 <SectionLabel>Admin history</SectionLabel>
                 {m.history.map((h) => (
                   <Text key={h.id} style={s.small}>
-                    {`${f.dateTime(h.createdAt)} · ${h.adminEmail}: ${h.summary}`}
+                    {`${f.dateTime(h.createdAt)} · ${h.adminEmail}: ${h.summary}${followUp(h) ? `. Needs attention: ${followUp(h)}` : ''}`}
                   </Text>
                 ))}
               </>
@@ -388,7 +391,9 @@ export function MemberDialog({ id, onClose }: { id: string; onClose: () => void 
                 text={
                   m.owner
                     ? 'Owners are set by ADMIN_EMAILS and can’t be changed from the console.'
-                    : 'Only an owner can change another admin.'
+                    : m.admin
+                      ? 'Only an owner can change another admin.'
+                      : 'Only an owner can act on an address listed in ADMIN_EMAILS.'
                 }
               />
             ) : (
@@ -413,38 +418,38 @@ export function MemberDialog({ id, onClose }: { id: string; onClose: () => void 
                     onPress={() => setConfirm('setup')}
                   />
                 )}
-                <View style={{ gap: 8 }}>
-                  <Text style={s.small}>
-                    Complimentary plan
-                    {m.planInterval
-                      ? ' (this member pays through Stripe; change it in the Stripe dashboard)'
-                      : ''}
-                  </Text>
-                  <Segmented
-                    value={plan}
-                    onChange={setPlan}
-                    options={(['free', 'plus', 'pro'] as const).map((p) => ({
-                      value: p,
-                      label: planNames[p],
-                    }))}
-                  />
-                  {plan !== m.plan && (
-                    <Button
-                      title={`Switch to ${planNames[plan]}`}
-                      small
-                      busy={action.busy === 'plan'}
-                      onPress={() =>
-                        void action.run(
-                          'plan',
-                          () => api(`${path}/plan`, { method: 'PUT', body: { plan } }),
-                          `${m.name} is now on ${planNames[plan]}.`,
-                        )
-                      }
-                    />
-                  )}
-                </View>
                 {!me && (
                   <>
+                    <View style={{ gap: 8 }}>
+                      <Text style={s.small}>
+                        Complimentary plan
+                        {m.planInterval
+                          ? ' (this member pays through Stripe; change it in the Stripe dashboard)'
+                          : ''}
+                      </Text>
+                      <Segmented
+                        value={plan}
+                        onChange={setPlan}
+                        options={(['free', 'plus', 'pro'] as const).map((p) => ({
+                          value: p,
+                          label: planNames[p],
+                        }))}
+                      />
+                      {plan !== m.plan && (
+                        <Button
+                          title={`Switch to ${planNames[plan]}`}
+                          small
+                          busy={action.busy === 'plan'}
+                          onPress={() =>
+                            void action.run(
+                              'plan',
+                              () => api(`${path}/plan`, { method: 'PUT', body: { plan } }),
+                              `${m.name} is now on ${planNames[plan]}.`,
+                            )
+                          }
+                        />
+                      )}
+                    </View>
                     {!m.emailVerified && !m.ownerEmail && (
                       <Button
                         title="Mark email as verified"
@@ -508,7 +513,7 @@ export function MemberDialog({ id, onClose }: { id: string; onClose: () => void 
           <Confirm
             visible={confirm === 'suspend'}
             title={`Suspend ${m.name}?`}
-            text="They’re signed out everywhere and can’t sign back in. Their recipes, reviews and profile leave public view, and queued AI work is cancelled. Nothing is deleted, and you can lift it later."
+            text="They’re signed out everywhere and can’t sign back in. Their recipes, reviews and profile leave public view, queued AI work is cancelled, and any subscription stops charging. Nothing is deleted, and you can lift it later."
             action="Suspend"
             danger
             input={{
@@ -629,7 +634,7 @@ export function MemberDialog({ id, onClose }: { id: string; onClose: () => void 
           <Confirm
             visible={confirm === 'delete'}
             title={`Delete ${m.name}’s account?`}
-            text={`This permanently deletes the account with its ${m.recipeCount} recipes, reviews, cookbooks and kitchen lists, cancels any subscription, and can’t be undone. Consider suspending instead.`}
+            text={`This permanently deletes the account with its ${m.recipeCount} recipes, reviews, cookbooks and kitchen lists, cancels any subscription, and can’t be undone. If Stripe can’t confirm the cancellation, the audit log says what to finish there. Consider suspending instead.`}
             action="Delete permanently"
             danger
             input={{ label: `Type ${m.email} to confirm`, match: m.email }}

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Text, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { AlertTriangle, Megaphone, X } from 'lucide-react-native';
+import { AlertTriangle, Megaphone, X } from './icons';
 import { useI18n } from '../lib/i18n';
 import { Announcement } from '../lib/types';
 import { color, font, radius, shadow } from '../lib/theme';

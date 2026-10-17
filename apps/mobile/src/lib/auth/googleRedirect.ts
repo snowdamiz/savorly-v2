@@ -64,12 +64,28 @@ function takeArrival() {
   arrival = null;
   return taken;
 }
+// Confirmations for a new password or email address are finished by the account settings that
+// asked for them (AccountSecurity), which open again where the cook left them.
+const confirms = (a: Arrival | null) =>
+  !!a && 'token' in a && (a.purpose === 'password' || a.purpose === 'email');
+
+/** A Google confirmation for the account settings that came back to the page, if any. */
+export function googleConfirmation() {
+  if (!confirms(arrival)) return null;
+  const done = arrival as { purpose: 'password' | 'email'; token: string };
+  return { purpose: done.purpose, token: done.token };
+}
+
+/** Marks that confirmation as taken: its token works for one request. */
+export function clearGoogleConfirmation() {
+  if (confirms(arrival)) arrival = null;
+}
 
 /** Finishes a Google sign-in that came back to the page, once the kitchen has loaded. */
 export function useGoogleReturn() {
   const app = useApp();
   useEffect(() => {
-    if (app.loading) return;
+    if (app.loading || confirms(arrival)) return;
     const done = takeArrival();
     if (!done) return;
     if ('error' in done) {

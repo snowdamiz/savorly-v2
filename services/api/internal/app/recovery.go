@@ -17,15 +17,18 @@ import (
 
 func (a *App) forgotPassword(c fiber.Ctx) error {
 	if !emailEnabled() {
-		return fiber.NewError(503, "Password recovery is not connected yet. Contact the kitchen administrator.")
+		return fiber.NewError(503, "Password recovery is not connected yet. Contact your Savorly administrator.")
 	}
-	var in struct{ Email string }
+	var in struct{ Email, TurnstileToken string }
 	if e := decode(c, &in); e != nil {
 		return e
 	}
 	email := strings.ToLower(strings.TrimSpace(in.Email))
 	if !validText(email, 3, 254) {
 		return fiber.NewError(400, "Enter your email address.")
+	}
+	if e := verifyTurnstile(c, in.TurnstileToken); e != nil {
+		return e
 	}
 	var id string
 	e := a.DB.QueryRow(c.Context(), `SELECT id FROM users WHERE email=$1 AND password_hash<>'!disabled'`, email).Scan(&id)
@@ -34,6 +37,10 @@ func (a *App) forgotPassword(c fiber.Ctx) error {
 	}
 	if e != nil {
 		return e
+	}
+	// Requests from many addresses could otherwise flood one inbox with codes.
+	if !a.throttles.resetMails.hit(email, 5, time.Hour) {
+		return c.JSON(fiber.Map{"ok": true})
 	}
 	n, e := rand.Int(rand.Reader, big.NewInt(100000000))
 	if e != nil {
@@ -104,5 +111,6 @@ func (a *App) resetPassword(c fiber.Ctx) error {
 	if e = tx.Commit(c.Context()); e != nil {
 		return e
 	}
+	a.throttles.logins.clear(email)
 	return c.JSON(fiber.Map{"ok": true})
 }

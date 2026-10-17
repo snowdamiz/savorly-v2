@@ -1,7 +1,7 @@
 package app
 
 import (
-	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -9,13 +9,70 @@ import (
 	"github.com/google/uuid"
 )
 
-func (a *App) library(c fiber.Ctx) error {
-	return a.queryOne(c, `SELECT jsonb_build_object(
+const libraryIDs = `
  'savedIds',COALESCE((SELECT jsonb_agg(recipe_id) FROM saves WHERE user_id=$1),'[]'),
  'saves',COALESCE((SELECT jsonb_agg(jsonb_build_object('recipeId',recipe_id,'collectionId',collection_id)) FROM saves WHERE user_id=$1),'[]'),
- 'collections',COALESCE((SELECT jsonb_agg(jsonb_build_object('id',id,'name',name)) FROM collections WHERE user_id=$1),'[]'),
+ 'collections',COALESCE((SELECT jsonb_agg(jsonb_build_object('id',id,'name',name,'public',public,'description',description)) FROM collections WHERE user_id=$1),'[]'),
  'followingIds',COALESCE((SELECT jsonb_agg(creator_id) FROM follows WHERE user_id=$1),'[]'),
+ 'cookedIds',COALESCE((SELECT jsonb_agg(recipe_id) FROM cooks WHERE user_id=$1),'[]'),
+ 'ownIds',COALESCE((SELECT jsonb_agg(id ORDER BY created_at DESC,id DESC) FROM recipes WHERE author_id=$1),'[]'),
+ 'publishedCount',(SELECT count(*) FROM recipes WHERE author_id=$1 AND published)`
+
+// library answers every saved and authored recipe, as older apps expect. With ?limit=N it
+// answers the newest N and hasMore; the ids (saved, own, followed, cooked), saves, cookbooks and
+// the count of the member's published recipes stay complete either way.
+func (a *App) library(c fiber.Ctx) error {
+	if c.Query("limit") == "" {
+		return a.queryOne(c, `SELECT jsonb_build_object(`+libraryIDs+`,
  'recipes',COALESCE((SELECT jsonb_agg(`+recipeJSON+`)`+recipeFrom+`WHERE (r.published AND r.id IN(SELECT recipe_id FROM saves WHERE user_id=$1)) OR r.author_id=$1),'[]'))`, userID(c))
+	}
+	limit, _ := pageParams(c, 24, 100)
+	page, _ := libraryPage("", "", limit, 0)
+	return a.queryOne(c, `WITH page AS (`+page+`)
+SELECT jsonb_build_object(`+libraryIDs+`,
+ 'recipes',COALESCE((SELECT jsonb_agg(j ORDER BY n) FROM page WHERE n<=$2),'[]'),'hasMore',(SELECT count(*) FROM page)>$2)`, userID(c), limit)
+}
+
+// libraryPage selects one page plus one more row (to tell whether there are more) of the
+// member's ($1) recipes: saved ones, in a cookbook ($3) if given, and their own unless scope
+// or a cookbook says otherwise. Newest first, by when they saved or wrote each.
+func libraryPage(scope, collection string, limit, offset int) (string, bool) {
+	var parts []string
+	if scope != "mine" {
+		saved := `SELECT s.recipe_id AS id,s.created_at AS at FROM saves s JOIN recipes p ON p.id=s.recipe_id AND p.published WHERE s.user_id=$1`
+		if collection != "" {
+			saved += ` AND s.collection_id=$3`
+		}
+		parts = append(parts, saved)
+	}
+	if scope != "saved" && collection == "" {
+		parts = append(parts, `SELECT id,created_at AS at FROM recipes WHERE author_id=$1`)
+	}
+	if len(parts) == 0 {
+		return "", false
+	}
+	return `SELECT ` + recipeJSON + ` AS j,row_number() OVER (ORDER BY l.at DESC,r.id DESC)-` + strconv.Itoa(offset) + ` AS n FROM (SELECT id,max(at) AS at FROM (` + strings.Join(parts, " UNION ALL ") + `) x GROUP BY id) l
+ JOIN recipes r ON r.id=l.id JOIN users u ON u.id=r.author_id AND u.suspended_at IS NULL ORDER BY l.at DESC,r.id DESC LIMIT ` + strconv.Itoa(limit+1) + ` OFFSET ` + strconv.Itoa(offset), true
+}
+
+// libraryRecipes pages through the library: ?offset, ?limit (up to 100), ?collection=<cookbook
+// id> for one cookbook, or ?scope=saved|mine for one side of it.
+func (a *App) libraryRecipes(c fiber.Ctx) error {
+	limit, offset := pageParams(c, 24, 100)
+	scope, collection := c.Query("scope"), c.Query("collection")
+	if scope != "" && scope != "saved" && scope != "mine" {
+		return fiber.NewError(400, "Choose Saved or My recipes.")
+	}
+	page, ok := libraryPage(scope, collection, limit, offset)
+	if !ok {
+		return c.JSON(fiber.Map{"recipes": []any{}, "hasMore": false})
+	}
+	args := []any{userID(c), limit}
+	if collection != "" {
+		args = append(args, collection)
+	}
+	return a.queryOne(c, `WITH page AS (`+page+`)
+SELECT jsonb_build_object('recipes',COALESCE((SELECT jsonb_agg(j ORDER BY n) FROM page WHERE n<=$2),'[]'),'hasMore',(SELECT count(*) FROM page)>$2)`, args...)
 }
 func (a *App) save(c fiber.Ctx) error {
 	var in struct {
@@ -62,11 +119,38 @@ func (a *App) createCollection(c fiber.Ctx) error {
 	return a.queryOne(c, `INSERT INTO collections(id,user_id,name) VALUES($1,$2,$3) ON CONFLICT(user_id,name) DO UPDATE SET name=excluded.name RETURNING jsonb_build_object('id',id,'name',name)`, uuid.NewString(), userID(c), strings.TrimSpace(in.Name))
 }
 func (a *App) deleteCollection(c fiber.Ctx) error { return a.deleteOwned(c, "collections", "user_id") }
+
+// kitchen answers every meal plan, as older apps expect; ?from=&to= (YYYY-MM-DD, up to 62
+// days) windows the plans to the weeks on screen. Groceries and pantry are always complete;
+// the groceries are the household's list for a member of one (household.go), with addedBy.
 func (a *App) kitchen(c fiber.Ctx) error {
+	args, window := []any{userID(c)}, ""
+	if c.Query("from") != "" || c.Query("to") != "" {
+		from, to, e := dayRange(c.Query("from"), c.Query("to"))
+		if e != nil {
+			return e
+		}
+		args, window = append(args, from, to), ` AND p.day BETWEEN $2 AND $3`
+	}
 	return a.queryOne(c, `SELECT jsonb_build_object(
- 'plans',COALESCE((SELECT jsonb_agg(jsonb_build_object('id',p.id,'recipeId',p.recipe_id,'day',p.day,'meal',p.meal,'servings',p.servings,'recipe',`+recipeJSON+`)) FROM meal_plans p JOIN recipes r ON r.id=p.recipe_id JOIN users u ON u.id=r.author_id AND u.suspended_at IS NULL WHERE p.user_id=$1),'[]'),
- 'groceries',COALESCE((SELECT jsonb_agg(jsonb_build_object('id',id,'name',name,'quantity',quantity,'category',category,'checked',checked) ORDER BY created_at) FROM groceries WHERE user_id=$1),'[]'),
- 'pantry',COALESCE((SELECT jsonb_agg(jsonb_build_object('id',id,'name',name,'quantity',quantity,'expiresOn',expires_on)) FROM pantry WHERE user_id=$1),'[]'))`, userID(c))
+ 'plans',COALESCE((SELECT jsonb_agg(jsonb_build_object('id',p.id,'recipeId',p.recipe_id,'day',p.day,'meal',p.meal,'servings',p.servings,'recipe',`+recipeJSON+`)) FROM meal_plans p JOIN recipes r ON r.id=p.recipe_id JOIN users u ON u.id=r.author_id AND u.suspended_at IS NULL WHERE p.user_id=$1`+window+`),'[]'),
+ 'groceries',COALESCE((SELECT jsonb_agg(jsonb_build_object('id',g.id,'name',g.name,'quantity',g.quantity,'category',g.category,'checked',g.checked,
+   'addedBy',CASE WHEN g.household_id IS NOT NULL THEN (SELECT jsonb_build_object('id',x.id,'name',x.name) FROM users x WHERE x.id=g.user_id) END) ORDER BY g.created_at,g.id)
+   FROM groceries g WHERE `+groceryScope(1)+`),'[]'),
+ 'pantry',COALESCE((SELECT jsonb_agg(jsonb_build_object('id',id,'name',name,'quantity',quantity,'expiresOn',expires_on)) FROM pantry WHERE user_id=$1),'[]'))`, args...)
+}
+
+// dayRange reads an inclusive range of at most 62 days.
+func dayRange(from, to string) (string, string, error) {
+	start, e := time.Parse("2006-01-02", from)
+	end, f := time.Parse("2006-01-02", to)
+	if e != nil || f != nil {
+		return "", "", fiber.NewError(400, "Choose a valid date.")
+	}
+	if end.Before(start) || end.Sub(start) >= 62*24*time.Hour {
+		return "", "", fiber.NewError(400, "Choose a date range of up to 62 days.")
+	}
+	return from, to, nil
 }
 func (a *App) plan(c fiber.Ctx) error {
 	var in struct {
@@ -104,8 +188,21 @@ func (a *App) addGrocery(c fiber.Ctx) error {
 	if in.Category == "" {
 		in.Category = "Other"
 	}
-	_, e := a.DB.Exec(c.Context(), `INSERT INTO groceries(id,user_id,name,quantity,category) VALUES($1,$2,$3,$4,$5)`, uuid.NewString(), userID(c), strings.TrimSpace(in.Name), in.Quantity, in.Category)
+	// The member's lock keeps the line from landing on a list they are moving off (household.go).
+	ctx := c.Context()
+	tx, e := a.DB.Begin(ctx)
 	if e != nil {
+		return e
+	}
+	defer tx.Rollback(ctx)
+	if e = lockList(ctx, tx, userID(c)); e != nil {
+		return e
+	}
+	_, e = tx.Exec(ctx, `INSERT INTO groceries(id,user_id,household_id,name,quantity,category) VALUES($1,$2,(SELECT household_id FROM household_members WHERE user_id=$2),$3,$4,$5)`, uuid.NewString(), userID(c), strings.TrimSpace(in.Name), in.Quantity, in.Category)
+	if e != nil {
+		return e
+	}
+	if e = tx.Commit(ctx); e != nil {
 		return e
 	}
 	return c.Status(201).JSON(fiber.Map{"ok": true})
@@ -115,7 +212,7 @@ func (a *App) checkGrocery(c fiber.Ctx) error {
 	if e := decode(c, &in); e != nil {
 		return e
 	}
-	r, e := a.DB.Exec(c.Context(), `UPDATE groceries SET checked=$3 WHERE id=$1 AND user_id=$2`, c.Params("id"), userID(c), in.Checked)
+	r, e := a.DB.Exec(c.Context(), `UPDATE groceries g SET checked=$3 WHERE g.id=$1 AND `+groceryScope(2), c.Params("id"), userID(c), in.Checked)
 	if e != nil {
 		return e
 	}
@@ -124,7 +221,16 @@ func (a *App) checkGrocery(c fiber.Ctx) error {
 	}
 	return c.SendStatus(204)
 }
-func (a *App) deleteGrocery(c fiber.Ctx) error { return a.deleteOwned(c, "groceries", "user_id") }
+func (a *App) deleteGrocery(c fiber.Ctx) error {
+	r, e := a.DB.Exec(c.Context(), `DELETE FROM groceries g WHERE g.id=$1 AND `+groceryScope(2), c.Params("id"), userID(c))
+	if e != nil {
+		return e
+	}
+	if r.RowsAffected() == 0 {
+		return fiber.NewError(404, "Item not found.")
+	}
+	return c.SendStatus(204)
+}
 func (a *App) recipeGroceries(c fiber.Ctx) error {
 	var in struct{ Servings int }
 	if e := decode(c, &in); e != nil {
@@ -138,23 +244,56 @@ func (a *App) recipeGroceries(c fiber.Ctx) error {
 	if e := a.DB.QueryRow(c.Context(), `SELECT ingredients,servings FROM recipes WHERE id=$1 AND published`, c.Params("id")).Scan(&ingredients, &servings); e != nil {
 		return fiber.NewError(404, "Recipe not found.")
 	}
-	// One statement is atomic and keeps the number of round trips independent of recipe size.
-	ids := make([]string, len(ingredients))
-	names := make([]string, len(ingredients))
-	quantities := make([]string, len(ingredients))
-	categories := make([]string, len(ingredients))
-	for n, i := range ingredients {
-		ids[n], names[n], categories[n] = uuid.NewString(), i.Name, i.Category
-		quantities[n] = fmt.Sprintf("%g %s", i.Amount*float64(in.Servings)/float64(servings), i.Unit)
+	added, merged, e := a.addGroceries(c.Context(), userID(c), scaledLines(ingredients, in.Servings, servings))
+	if e != nil {
+		return e
 	}
-	if len(ingredients) > 0 {
-		if _, e := a.DB.Exec(c.Context(), `INSERT INTO groceries(id,user_id,name,quantity,category)
- SELECT id,$1,name,quantity,category FROM unnest($2::text[],$3::text[],$4::text[],$5::text[]) AS items(id,name,quantity,category)`,
-			userID(c), ids, names, quantities, categories); e != nil {
+	return c.JSON(fiber.Map{"added": added, "merged": merged})
+}
+
+func scaledLines(ingredients []Ingredient, servings, recipeServings int) []groceryLine {
+	lines := make([]groceryLine, 0, len(ingredients))
+	for _, i := range ingredients {
+		lines = append(lines, groceryLine{Name: i.Name, Unit: i.Unit, Category: i.Category, Amount: i.Amount * float64(servings) / float64(max(recipeServings, 1))})
+	}
+	return lines
+}
+
+// planGroceries puts every planned meal from..to on the grocery list, scaled to each plan's
+// servings and merged like single recipes.
+func (a *App) planGroceries(c fiber.Ctx) error {
+	var in struct{ From, To string }
+	if e := decode(c, &in); e != nil {
+		return e
+	}
+	from, to, e := dayRange(in.From, in.To)
+	if e != nil {
+		return e
+	}
+	rows, e := a.DB.Query(c.Context(), `SELECT r.ingredients,r.servings,p.servings FROM meal_plans p JOIN recipes r ON r.id=p.recipe_id JOIN users u ON u.id=r.author_id AND u.suspended_at IS NULL
+ WHERE p.user_id=$1 AND p.day BETWEEN $2 AND $3 AND (r.published OR r.author_id=$1) ORDER BY p.day,array_position(ARRAY['Breakfast','Lunch','Dinner'],p.meal)`, userID(c), from, to)
+	if e != nil {
+		return e
+	}
+	var lines []groceryLine
+	for rows.Next() {
+		var ingredients []Ingredient
+		var recipeServings, servings int
+		if e = rows.Scan(&ingredients, &recipeServings, &servings); e != nil {
+			rows.Close()
 			return e
 		}
+		lines = append(lines, scaledLines(ingredients, servings, recipeServings)...)
 	}
-	return c.JSON(fiber.Map{"added": len(ingredients)})
+	rows.Close()
+	if e = rows.Err(); e != nil {
+		return e
+	}
+	added, merged, e := a.addGroceries(c.Context(), userID(c), lines)
+	if e != nil {
+		return e
+	}
+	return c.JSON(fiber.Map{"added": added, "merged": merged})
 }
 func (a *App) addPantry(c fiber.Ctx) error {
 	var in struct {

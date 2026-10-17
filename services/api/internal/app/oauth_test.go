@@ -163,7 +163,7 @@ func TestSignInWithGoogleAndApple(t *testing.T) {
 	}
 
 	// Deleting a password-less kitchen takes a fresh sign-in with one of its own providers.
-	if status, _ = call("DELETE", "/me", map[string]string{"provider": "google", "token": googleToken("g-1", "gina@example.test", "web-client", nonce())}, appleSession); status != 401 {
+	if status, _ = call("DELETE", "/me", map[string]string{"provider": "google", "token": googleToken("g-1", "gina@example.test", "web-client", nonce())}, appleSession); status != 403 {
 		t.Fatalf("deleted with another kitchen's identity: %d", status)
 	}
 	if status, _ = call("DELETE", "/me", map[string]string{"provider": "apple", "token": appleToken("a-1", nonce())}, appleSession); status != 204 {

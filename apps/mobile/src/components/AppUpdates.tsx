@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { ActivityIndicator, Text, View } from 'react-native';
 import * as Updates from 'expo-updates';
-import { ChevronRight, RefreshCw, X } from 'lucide-react-native';
+import { ChevronRight, RefreshCw, X } from './icons';
 import { useI18n } from '../lib/i18n';
 import { useApp } from '../lib/store';
 import { color, font, radius, s, shadow } from '../lib/theme';

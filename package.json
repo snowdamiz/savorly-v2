@@ -9,7 +9,7 @@
     "services:up": "docker compose up -d --wait db storage",
     "db:down": "docker compose down",
     "typecheck": "npm --prefix apps/mobile run typecheck && npm --prefix infra/cloudflare run typecheck",
-    "build": "npm --prefix apps/mobile run build",
+    "build": "npm --prefix apps/mobile run build && node scripts/web-postbuild.mjs",
     "brand": "node scripts/render-brand.mjs",
     "test": "cd services/api && go test ./...",
     "test:integration": "python3 scripts/integration.py",

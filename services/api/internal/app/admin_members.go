@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"maps"
+	"net/url"
 	"strings"
 
 	"github.com/gofiber/fiber/v3"
@@ -55,7 +57,7 @@ func (a *App) adminUsers(c fiber.Ctx) error {
 	}
 	return a.adminList(c, `SELECT `+memberJSON+`,count(*) OVER() FROM users u`+memberLateral+`
  WHERE ($1='' OR u.email ILIKE '%'||$1||'%' OR u.name ILIKE '%'||$1||'%' OR u.handle ILIKE '%'||$1||'%' OR u.id=$1) AND `+filter+`
- ORDER BY `+order, strings.TrimSpace(c.Query("q")), ownerEmails(), a.Config.Production)
+ ORDER BY `+order+`,u.id`, strings.TrimSpace(c.Query("q")), ownerEmails(), a.Config.Production)
 }
 
 func (a *App) adminUser(c fiber.Ctx) error {
@@ -67,7 +69,7 @@ func (a *App) adminUser(c fiber.Ctx) error {
  'counts',jsonb_build_object(
    'reviews',(SELECT count(*) FROM reviews WHERE user_id=u.id),'saves',(SELECT count(*) FROM saves WHERE user_id=u.id),
    'cookbooks',(SELECT count(*) FROM collections WHERE user_id=u.id),'followers',(SELECT count(*) FROM follows WHERE creator_id=u.id),
-   'following',(SELECT count(*) FROM follows WHERE user_id=u.id),'conversations',(SELECT count(*) FROM voice_projects WHERE user_id=u.id),
+   'following',(SELECT count(*) FROM follows WHERE user_id=u.id),'conversations',(SELECT count(*) FROM voice_projects WHERE user_id=u.id AND deleted_at IS NULL),
    'mealPlans',(SELECT count(*) FROM meal_plans WHERE user_id=u.id),'pantry',(SELECT count(*) FROM pantry WHERE user_id=u.id),
    'reportsFiled',(SELECT count(*) FROM reports WHERE user_id=u.id),'aiJobs',(SELECT count(*) FROM ai_jobs WHERE user_id=u.id)),
  'recipes',COALESCE((SELECT jsonb_agg(jsonb_build_object('id',r.id,'title',r.title,'image',r.image,'published',r.published,'aiGenerated',r.ai_generated,'createdAt',r.created_at,
@@ -129,12 +131,17 @@ func (a *App) manage(c fiber.Ctx, self bool) (managed, error) {
 		return m, fiber.NewError(403, "Owners are set by ADMIN_EMAILS and can't be changed from the console.")
 	case m.Admin && !me && !isOwner(c):
 		return m, fiber.NewError(403, "Only an owner can change another admin.")
+	// An owner's address is protected before it's verified too; verification only opens the
+	// console to its owner. Owners can still moderate an account that squats on one.
+	case m.OwnerEmail && !me && !isOwner(c):
+		return m, fiber.NewError(403, "Only an owner can act on an address listed in ADMIN_EMAILS.")
 	}
 	return m, nil
 }
 
-// adminWrite runs fn in a transaction, then answers with the member's refreshed record.
-func (a *App) adminWrite(c fiber.Ctx, fn func(ctx context.Context, tx pgx.Tx) error) error {
+// adminWrite runs fn in a transaction, then whatever has to wait for the commit (see
+// followUp), and answers with the member's refreshed record.
+func (a *App) adminWrite(c fiber.Ctx, fn func(ctx context.Context, tx pgx.Tx) error, after ...func(context.Context)) error {
 	ctx := c.Context()
 	tx, e := a.DB.Begin(ctx)
 	if e != nil {
@@ -146,6 +153,9 @@ func (a *App) adminWrite(c fiber.Ctx, fn func(ctx context.Context, tx pgx.Tx) er
 	}
 	if e = tx.Commit(ctx); e != nil {
 		return e
+	}
+	for _, f := range after {
+		f(ctx)
 	}
 	return a.adminUser(c)
 }
@@ -159,36 +169,49 @@ func (a *App) adminEditUser(c fiber.Ctx) error {
 	if e = decode(c, &in); e != nil {
 		return e
 	}
-	changed := []string{}
 	if in.Name != nil {
 		if *in.Name = strings.TrimSpace(*in.Name); !validText(*in.Name, 2, 70) {
 			return fiber.NewError(400, "Names are 2–70 characters.")
 		}
-		changed = append(changed, "name")
 	}
 	if in.Handle != nil {
 		// Members' rules, except that admins may hand out reserved names (an official account).
 		if *in.Handle = normalizeHandle(*in.Handle); !validHandle(*in.Handle) {
 			return fiber.NewError(400, handleRules)
 		}
-		changed = append(changed, "handle")
 	}
-	if in.Bio != nil {
-		if len(*in.Bio) > 1000 {
-			return fiber.NewError(400, "Bios are up to 1,000 characters.")
-		}
-		changed = append(changed, "bio")
+	if in.Bio != nil && len(*in.Bio) > 1000 {
+		return fiber.NewError(400, "Bios are up to 1,000 characters.")
 	}
-	if in.Avatar != nil {
-		if !validMedia(*in.Avatar) {
-			return fiber.NewError(400, "Profile photos need an HTTPS URL.")
-		}
-		changed = append(changed, "photo")
+	if in.Avatar != nil && !validMedia(*in.Avatar) {
+		return fiber.NewError(400, "Profile photos need an HTTPS URL.")
 	}
-	if len(changed) == 0 {
+	if in.Name == nil && in.Handle == nil && in.Bio == nil && in.Avatar == nil {
 		return a.adminUser(c)
 	}
 	return a.adminWrite(c, func(ctx context.Context, tx pgx.Tx) error {
+		var was struct{ Name, Handle, Bio, Avatar string }
+		if e := tx.QueryRow(ctx, `SELECT name,handle,bio,avatar FROM users WHERE id=$1 FOR UPDATE`, m.ID).Scan(&was.Name, &was.Handle, &was.Bio, &was.Avatar); e != nil {
+			return e
+		}
+		if in.Avatar != nil && *in.Avatar != was.Avatar && !a.validAvatar(*in.Avatar) {
+			return fiber.NewError(400, "Add photos and videos by uploading them to Savorly.")
+		}
+		// Before and after, so a cleared name, handle, bio or photo can be reviewed and put back.
+		changed, before, after := []string{}, fiber.Map{}, fiber.Map{}
+		for _, f := range []struct {
+			field string
+			was   string
+			is    *string
+		}{{"name", was.Name, in.Name}, {"handle", was.Handle, in.Handle}, {"bio", was.Bio, in.Bio}, {"photo", was.Avatar, in.Avatar}} {
+			if f.is != nil && *f.is != f.was {
+				changed = append(changed, f.field)
+				before[f.field], after[f.field] = f.was, *f.is
+			}
+		}
+		if len(changed) == 0 {
+			return nil
+		}
 		_, e := tx.Exec(ctx, `UPDATE users SET name=COALESCE($2,name),handle=COALESCE($3,handle),bio=COALESCE($4,bio),avatar=COALESCE($5,avatar) WHERE id=$1`, m.ID, in.Name, in.Handle, in.Bio, in.Avatar)
 		var pe *pgconn.PgError
 		if errors.As(e, &pe) && pe.Code == "23505" {
@@ -197,7 +220,7 @@ func (a *App) adminEditUser(c fiber.Ctx) error {
 		if e != nil {
 			return e
 		}
-		return audit(ctx, tx, c, "member.edit", "user", m.ID, "Edited "+m.Email+"'s "+strings.Join(changed, ", "), fiber.Map{"fields": changed})
+		return audit(ctx, tx, c, "member.edit", "user", m.ID, "Edited "+m.Email+"'s "+strings.Join(changed, ", "), fiber.Map{"fields": changed, "before": before, "after": after})
 	})
 }
 
@@ -232,19 +255,24 @@ func (a *App) adminSuspend(c fiber.Ctx) error {
 	if in.Reason = strings.TrimSpace(in.Reason); !validText(in.Reason, 3, 500) {
 		return fiber.NewError(400, "Note why (3–500 characters). Only admins see it.")
 	}
+	var f followUp
 	return a.adminWrite(c, func(ctx context.Context, tx pgx.Tx) error {
-		r, e := tx.Exec(ctx, `UPDATE users SET suspended_at=now(),suspended_reason=$2 WHERE id=$1 AND suspended_at IS NULL`, m.ID, in.Reason)
+		var sub, status string
+		e := tx.QueryRow(ctx, `UPDATE users SET suspended_at=now(),suspended_reason=$2 WHERE id=$1 AND suspended_at IS NULL RETURNING stripe_subscription_id,plan_status`, m.ID, in.Reason).Scan(&sub, &status)
+		if errors.Is(e, pgx.ErrNoRows) {
+			return fiber.NewError(409, "This member is already suspended.")
+		}
 		if e != nil {
 			return e
-		}
-		if r.RowsAffected() == 0 {
-			return fiber.NewError(409, "This member is already suspended.")
 		}
 		if e = endAccess(ctx, tx, m.ID, "Cancelled: this account was suspended."); e != nil {
 			return e
 		}
-		return audit(ctx, tx, c, "member.suspend", "user", m.ID, "Suspended "+m.Email, fiber.Map{"reason": in.Reason})
-	})
+		// Nobody pays for what they can't use: Stripe stops charging until the suspension is lifted.
+		f.stripe = changeSubscription("pause", sub, status)
+		f.entry, e = auditEntry(ctx, tx, c, "member.suspend", "user", m.ID, "Suspended "+m.Email, f.pending(fiber.Map{"reason": in.Reason}))
+		return e
+	}, func(ctx context.Context) { a.finish(ctx, f) })
 }
 
 func (a *App) adminUnsuspend(c fiber.Ctx) error {
@@ -252,17 +280,20 @@ func (a *App) adminUnsuspend(c fiber.Ctx) error {
 	if e != nil {
 		return e
 	}
+	var f followUp
 	return a.adminWrite(c, func(ctx context.Context, tx pgx.Tx) error {
-		var reason string
-		e := tx.QueryRow(ctx, `UPDATE users u SET suspended_at=NULL,suspended_reason='' FROM users old WHERE u.id=$1 AND old.id=u.id AND u.suspended_at IS NOT NULL RETURNING old.suspended_reason`, m.ID).Scan(&reason)
+		var reason, sub, status string
+		e := tx.QueryRow(ctx, `UPDATE users u SET suspended_at=NULL,suspended_reason='' FROM users old WHERE u.id=$1 AND old.id=u.id AND u.suspended_at IS NOT NULL RETURNING old.suspended_reason,u.stripe_subscription_id,u.plan_status`, m.ID).Scan(&reason, &sub, &status)
 		if errors.Is(e, pgx.ErrNoRows) {
 			return fiber.NewError(409, "This member isn't suspended.")
 		}
 		if e != nil {
 			return e
 		}
-		return audit(ctx, tx, c, "member.unsuspend", "user", m.ID, "Lifted "+m.Email+"'s suspension", fiber.Map{"previousReason": reason})
-	})
+		f.stripe = changeSubscription("resume", sub, status)
+		f.entry, e = auditEntry(ctx, tx, c, "member.unsuspend", "user", m.ID, "Lifted "+m.Email+"'s suspension", f.pending(fiber.Map{"previousReason": reason}))
+		return e
+	}, func(ctx context.Context) { a.finish(ctx, f) })
 }
 
 func (a *App) adminSignOut(c fiber.Ctx) error {
@@ -353,9 +384,10 @@ func (a *App) adminSetRole(c fiber.Ctx) error {
 }
 
 // adminSetPlan grants a complimentary plan, outside Stripe. Members who pay keep the plan
-// Stripe reports; change those in the Stripe dashboard.
+// Stripe reports; change those in the Stripe dashboard. A comp is revenue given away, so
+// another admin decides an admin's own.
 func (a *App) adminSetPlan(c fiber.Ctx) error {
-	m, e := a.manage(c, true)
+	m, e := a.manage(c, false)
 	if e != nil {
 		return e
 	}
@@ -367,11 +399,11 @@ func (a *App) adminSetPlan(c fiber.Ctx) error {
 		return fiber.NewError(400, "Choose free, plus or pro.")
 	}
 	return a.adminWrite(c, func(ctx context.Context, tx pgx.Tx) error {
-		var interval, status, current string
-		if e := tx.QueryRow(ctx, `SELECT plan_interval,plan_status,`+effectivePlanSQL+` FROM users u WHERE id=$1 FOR UPDATE`, m.ID).Scan(&interval, &status, &current); e != nil {
+		var interval, status, current, sub string
+		if e := tx.QueryRow(ctx, `SELECT plan_interval,plan_status,`+effectivePlanSQL+`,stripe_subscription_id FROM users u WHERE id=$1 FOR UPDATE`, m.ID).Scan(&interval, &status, &current, &sub); e != nil {
 			return e
 		}
-		if interval != "" && (status == "active" || status == "trialing" || status == "past_due") {
+		if (interval != "" || sub != "") && (status == "active" || status == "trialing" || status == "past_due") {
 			return fiber.NewError(409, "This member pays through Stripe. Change their subscription in the Stripe dashboard.")
 		}
 		if current == in.Plan {
@@ -381,10 +413,16 @@ func (a *App) adminSetPlan(c fiber.Ctx) error {
 		if in.Plan == "free" {
 			status = ""
 		}
-		if _, e := tx.Exec(ctx, `UPDATE users SET plan=$2,plan_status=$3,plan_interval='',plan_renews_at=NULL,plan_cancels=false WHERE id=$1`, m.ID, in.Plan, status); e != nil {
+		// The comp replaces any ended subscription, whose id goes with it so that a late webhook
+		// about that subscription can't match the member and undo the comp.
+		if _, e := tx.Exec(ctx, `UPDATE users SET plan=$2,plan_status=$3,plan_interval='',plan_renews_at=NULL,plan_cancels=false,stripe_subscription_id='' WHERE id=$1`, m.ID, in.Plan, status); e != nil {
 			return e
 		}
-		return audit(ctx, tx, c, "member.plan", "user", m.ID, "Changed "+m.Email+"'s plan from "+current+" to "+in.Plan+" (complimentary)", fiber.Map{"from": current, "to": in.Plan})
+		detail := fiber.Map{"from": current, "to": in.Plan}
+		if sub != "" {
+			detail["endedSubscription"] = sub
+		}
+		return audit(ctx, tx, c, "member.plan", "user", m.ID, "Changed "+m.Email+"'s plan from "+current+" to "+in.Plan+" (complimentary)", detail)
 	})
 }
 
@@ -401,24 +439,24 @@ func (a *App) adminDeleteUser(c fiber.Ctx) error {
 		return fiber.NewError(400, "Type the member's email to confirm.")
 	}
 	ctx := c.Context()
-	// As when members delete themselves: nobody keeps paying for an account that's gone.
-	if e = a.cancelSubscription(ctx, m.ID); e != nil {
-		return e
-	}
-	if e = a.revokeApple(ctx, m.ID); e != nil {
-		slog.Warn("revoke Sign in with Apple", "error", e)
-	}
 	tx, e := a.DB.Begin(ctx)
 	if e != nil {
 		return e
 	}
 	defer tx.Rollback(ctx)
-	var name string
+	var name, sub, status string
 	var recipes int
-	if e = tx.QueryRow(ctx, `SELECT name,(SELECT count(*) FROM recipes WHERE author_id=$1) FROM users WHERE id=$1`, m.ID).Scan(&name, &recipes); e != nil {
+	if e = tx.QueryRow(ctx, `SELECT name,stripe_subscription_id,plan_status,(SELECT count(*) FROM recipes WHERE author_id=$1) FROM users WHERE id=$1 FOR UPDATE`, m.ID).Scan(&name, &sub, &status, &recipes); e != nil {
 		return e
 	}
-	if e = audit(ctx, tx, c, "member.delete", "user", m.ID, "Deleted "+m.Email+"'s account", fiber.Map{"name": name, "email": m.Email, "recipes": recipes}); e != nil {
+	// As when members delete themselves, nobody keeps paying for an account that's gone, and
+	// Apple is told. That happens after the deletion commits, so a deletion that fails leaves
+	// nothing done in Stripe or at Apple.
+	f := followUp{stripe: changeSubscription("cancel", sub, status)}
+	if f.apple, e = appleGrants(ctx, tx, m.ID); e != nil {
+		return e
+	}
+	if f.entry, e = auditEntry(ctx, tx, c, "member.delete", "user", m.ID, "Deleted "+m.Email+"'s account", f.pending(fiber.Map{"name": name, "email": m.Email, "recipes": recipes})); e != nil {
 		return e
 	}
 	if _, e = tx.Exec(ctx, `DELETE FROM users WHERE id=$1`, m.ID); e != nil {
@@ -427,5 +465,72 @@ func (a *App) adminDeleteUser(c fiber.Ctx) error {
 	if e = tx.Commit(ctx); e != nil {
 		return e
 	}
+	a.finish(ctx, f)
 	return c.SendStatus(204)
+}
+
+// followUp is the part of an admin's change that happens outside the database: Stripe for a
+// suspension or deletion, Apple for a deletion. It runs once the change and its audit entry
+// have committed, so a change that fails leaves nothing done elsewhere, and it's best effort:
+// the entry records each outcome, with a followUp note of anything to finish by hand.
+type followUp struct {
+	entry  int64
+	stripe *subscriptionChange
+	apple  []appleGrant
+}
+
+// pending adds what's still to happen to the detail an audit entry starts with.
+func (f followUp) pending(detail fiber.Map) fiber.Map {
+	if f.stripe != nil {
+		maps.Copy(detail, f.stripe.pending())
+	}
+	if len(f.apple) > 0 {
+		detail["apple"] = "pending"
+	}
+	return detail
+}
+
+func (a *App) finish(ctx context.Context, f followUp) {
+	outcome := fiber.Map{}
+	if f.stripe != nil {
+		maps.Copy(outcome, f.stripe.apply(ctx))
+	}
+	if len(f.apple) > 0 {
+		outcome["apple"] = "revoked"
+		if e := revokeAppleGrants(ctx, f.apple); e != nil {
+			slog.Warn("revoke Sign in with Apple", "error", e)
+			outcome["apple"] = "failed"
+		}
+	}
+	if len(outcome) > 0 {
+		a.noteOutcome(ctx, f.entry, outcome)
+	}
+}
+
+type appleGrant struct{ token, client string }
+
+// appleGrants are the Sign in with Apple grants deleting an account revokes, as revokeApple
+// does for members deleting themselves. An admin's deletion reads them before the rows go.
+func appleGrants(ctx context.Context, tx pgx.Tx, owner string) ([]appleGrant, error) {
+	rows, e := tx.Query(ctx, `SELECT refresh_token,client_id FROM identities WHERE user_id=$1 AND provider='apple' AND refresh_token<>''`, owner)
+	if e != nil {
+		return nil, e
+	}
+	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (appleGrant, error) {
+		var g appleGrant
+		return g, row.Scan(&g.token, &g.client)
+	})
+}
+
+func revokeAppleGrants(ctx context.Context, grants []appleGrant) error {
+	for _, g := range grants {
+		secret, e := appleClientSecret(g.client)
+		if e != nil {
+			return e
+		}
+		if e = applePost(ctx, "/revoke", url.Values{"client_id": {g.client}, "client_secret": {secret}, "token": {g.token}, "token_type_hint": {"refresh_token"}}, nil); e != nil {
+			return e
+		}
+	}
+	return nil
 }

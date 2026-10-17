@@ -17,7 +17,7 @@ import {
   Vegan,
   WheatOff,
   Zap,
-} from 'lucide-react-native';
+} from '../components/icons';
 // Interface icons for tags, diets and meals. Cuisines use original colored CuisineIcon artwork.
 const icons: Record<string, LucideIcon> = {
   'all recipes': UtensilsCrossed,

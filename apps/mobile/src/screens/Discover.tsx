@@ -1,6 +1,6 @@
 import { useI18n } from '../lib/i18n';
-import React, { useEffect, useState } from 'react';
-import { Animated, Pressable, StyleSheet, Text, View, ViewStyle } from 'react-native';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Animated, Platform, Pressable, StyleSheet, Text, View, ViewStyle } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
   ArrowRight,
@@ -8,21 +8,19 @@ import {
   Bell,
   CalendarDays,
   Carrot,
-  Check,
   ChevronRight,
   Clock3,
   Leaf,
-  Plus,
   Search,
   SlidersHorizontal,
   Soup,
   Sparkles,
   Users,
   Zap,
-} from 'lucide-react-native';
+} from '../components/icons';
 import { useApp } from '../lib/store';
 import { AIRequest, Creator, Recipe, Screen } from '../lib/types';
-import { color, font, radius, s } from '../lib/theme';
+import { color, font, maxFontScale, radius, s } from '../lib/theme';
 import { haptic } from '../lib/haptics';
 import {
   Avatar,
@@ -46,9 +44,13 @@ import {
   useChrome,
 } from '../components/ui';
 import { RecipeGrid, RecipeRow, RecipeTile, Save } from '../components/RecipeCard';
+import { FollowPill } from '../components/FollowPill';
 import { useRecipeSearch } from '../lib/useRecipeSearch';
 import { foodIcon } from '../lib/icons';
 import { allCuisines } from '../lib/cuisines';
+import { homeShelves } from '../lib/feed';
+import { linkTo, pressedInApp, recipePath } from '../lib/routes';
+import { track } from '../lib/telemetry';
 import { CuisineBrowser } from '../components/CuisineBrowser';
 import { CuisinePicker } from '../components/CuisinePicker';
 const categories = [
@@ -123,15 +125,37 @@ export function Discover({
   );
   const filtered = search.recipes;
   const refined = !!explore && (cuisine !== allCuisines || quick || sort !== 'For you');
-  const hero = recipes.find((r) => r.id === 'lemon-ricotta-pasta') || recipes[0];
-  const trending = recipes
-    .filter((r) => r.id !== hero?.id)
-    .sort((a, b) => b.saveCount - a.saveCount || b.rating - a.rating)
-    .slice(0, 6);
-  const weeknight = recipes
-    .filter((r) => r.id !== hero?.id && !trending.includes(r))
-    .sort((a, b) => a.minutes - b.minutes)
-    .slice(0, 4);
+  // What people search for, and what finds nothing: each search once, when the typing has paused
+  // and its first results have arrived (Show more isn't another search).
+  const searched = query.trim();
+  const counted = useRef('');
+  useEffect(() => {
+    if (!searched || search.loading || search.error || counted.current === searched) return;
+    const results = filtered.length;
+    const timer = setTimeout(() => {
+      counted.current = searched;
+      track('search', { query: searched.slice(0, 100), results });
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, [searched, search.loading, search.error, filtered.length]);
+  // The shelves, from GET /feed (or worked out here without it), each recipe on screen once. Rails
+  // on phones hold six; desktop rows show what fits.
+  const shelfSize = compact ? 6 : width > 1430 ? 4 : 3;
+  const { feed, library } = app;
+  const {
+    hero,
+    trending,
+    quick: weeknight,
+    following,
+  } = useMemo(
+    () =>
+      homeShelves(feed, recipes, user ? library.followingIds : [], {
+        trending: shelfSize,
+        quick: 4,
+        following: user ? shelfSize : 0,
+      }),
+    [feed, recipes, user, library.followingIds, shelfSize],
+  );
   const hello = `${tr(greeting())}${user ? `, ${user.name.split(' ')[0]}` : ''}`;
   const reset = () => {
     setCategory('All recipes');
@@ -224,7 +248,11 @@ export function Discover({
             </Pressable>
             <IconButton icon={Bell} dark label={tr('Kitchen activity')} onPress={onActivity} />
           </View>
-          <Text style={[s.display, { color: color.white, fontSize: 31, lineHeight: 37 }]}>
+          <Text
+            role="heading"
+            aria-level={1}
+            style={[s.display, { color: color.white, fontSize: 31, lineHeight: 37 }]}
+          >
             {tr('What would you like to cook today?')}
           </Text>
           <View style={{ flexDirection: 'row' }}>
@@ -328,18 +356,9 @@ export function Discover({
                 )}
               </View>
             ) : (
+              // Home lists recipes only for a search (filters belong to Explore), so it's titled by it.
               <SectionTitle
-                title={
-                  query
-                    ? tr('Results for “{{v0}}”', { v0: query })
-                    : category !== 'All recipes'
-                      ? tr(category)
-                      : cuisine !== allCuisines
-                        ? tr('{{v0}} recipes', { v0: tr(cuisine) })
-                        : explore
-                          ? tr('All recipes')
-                          : tr('Recipes')
-                }
+                title={tr('Results for “{{v0}}”', { v0: query })}
                 subtitle={
                   search.loading && !filtered.length
                     ? tr('Searching…')
@@ -378,7 +397,8 @@ export function Discover({
                       onAI({
                         ...fridge,
                         title: tr('A recipe for {{v0}}', { v0: query }),
-                        prompt: `Create a recipe for ${query}.`,
+                        // In the cook's language: it's their own message, and the model's cue.
+                        prompt: tr('Create a recipe for {{v0}}.', { v0: query }),
                       })
                     }
                   />
@@ -417,7 +437,7 @@ export function Discover({
                   ))}
                 </Rail>
               ) : (
-                <RecipeGrid recipes={trending.slice(0, width > 1430 ? 4 : 3)} onOpen={onOpen} />
+                <RecipeGrid recipes={trending} onOpen={onOpen} />
               )}
             </FadeIn>
             <FadeIn
@@ -447,6 +467,8 @@ export function Discover({
                   <Text style={[s.label, { color: color.onInk }]}>{tr('Sous-chef')}</Text>
                 </View>
                 <Text
+                  role="heading"
+                  aria-level={2}
                   style={[
                     s.h1,
                     { color: color.white },
@@ -470,7 +492,7 @@ export function Discover({
                   style={[
                     s.row,
                     {
-                      height: 56,
+                      minHeight: 56,
                       borderRadius: radius.pill,
                       backgroundColor: color.glass,
                       borderWidth: 1,
@@ -483,6 +505,7 @@ export function Discover({
                 >
                   <Text
                     numberOfLines={1}
+                    maxFontSizeMultiplier={maxFontScale}
                     style={{ flex: 1, color: color.onInk, fontFamily: font.medium, fontSize: 15 }}
                   >
                     {tr('Eggs, spinach, feta…')}
@@ -502,7 +525,10 @@ export function Discover({
                       style={styles.idea}
                     >
                       <Icon size={14} color={color.white} strokeWidth={2} />
-                      <Text style={{ color: color.white, fontFamily: font.semibold, fontSize: 13 }}>
+                      <Text
+                        maxFontSizeMultiplier={maxFontScale}
+                        style={{ color: color.white, fontFamily: font.semibold, fontSize: 13 }}
+                      >
                         {tr(title)}
                       </Text>
                     </Press>
@@ -542,6 +568,26 @@ export function Discover({
                     </View>
                   </Press>
                 ))}
+              </FadeIn>
+            )}
+            {following.length > 0 && (
+              <FadeIn delay={270}>
+                <SectionTitle title={tr('From kitchens you follow')} />
+                {compact ? (
+                  <Rail gap={12} snap={tileWidth + 12}>
+                    {following.map((r) => (
+                      <RecipeTile
+                        key={r.id}
+                        recipe={r}
+                        onOpen={onOpen}
+                        width={tileWidth}
+                        height={Math.round(tileWidth * 1.28)}
+                      />
+                    ))}
+                  </Rail>
+                ) : (
+                  <RecipeGrid recipes={following} onOpen={onOpen} />
+                )}
               </FadeIn>
             )}
             {weeknight.length > 0 && (
@@ -616,9 +662,9 @@ export function Discover({
             title={
               search.loading
                 ? tr('Searching…')
-                : tr('Show {{v0}}{{v1}} recipes', {
-                    v0: filtered.length,
-                    v1: search.hasMore ? '+' : '',
+                : tr('showRecipes', {
+                    count: filtered.length,
+                    more: search.hasMore ? '+' : '',
                   })
             }
             style={{ flex: 1 }}
@@ -647,10 +693,12 @@ function Hero({ recipe, onOpen }: { recipe: Recipe; onOpen: (r: Recipe) => void 
         press.style,
       ]}
     >
+      {/* A link on the web: crawlable, and a new tab on a middle or modified click. */}
       <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={tr('Let’s get cooking')}
-        onPress={() => onOpen(recipe)}
+        {...linkTo(recipePath(recipe.id))}
+        accessibilityRole={Platform.OS === 'web' ? 'link' : 'button'}
+        accessibilityLabel={tr('Let’s get cooking: {{v0}}', { v0: recipe.title })}
+        onPress={(e) => pressedInApp(e) && onOpen(recipe)}
         onPressIn={press.onPressIn}
         onPressOut={press.onPressOut}
         onHoverIn={() => animate(hover, 1, 900).start()}
@@ -669,7 +717,13 @@ function Hero({ recipe, onOpen }: { recipe: Recipe; onOpen: (r: Recipe) => void 
             ],
           }}
         >
-          <FoodImage uri={recipe.image} style={StyleSheet.absoluteFill} />
+          {/* The page's largest image: fetched first, at about the size it's shown. */}
+          <FoodImage
+            uri={recipe.image}
+            style={StyleSheet.absoluteFill}
+            width={compact ? width : Math.round((Math.min(width, 1848) - 328) * 0.66)}
+            priority="high"
+          />
         </Animated.View>
         {/* Many short stops ease the photo into the ink without a visible band. */}
         <LinearGradient
@@ -719,6 +773,8 @@ function Hero({ recipe, onOpen }: { recipe: Recipe; onOpen: (r: Recipe) => void 
             </Text>
           </View>
           <Text
+            role="heading"
+            aria-level={2}
             style={[
               s.display,
               {
@@ -735,7 +791,10 @@ function Hero({ recipe, onOpen }: { recipe: Recipe; onOpen: (r: Recipe) => void 
           </Text>
           <View style={[s.row, { gap: 14, marginTop: 6 }]}>
             <View style={[s.row, styles.cta]}>
-              <Text style={{ fontFamily: font.bold, fontSize: 14, color: color.ink }}>
+              <Text
+                maxFontSizeMultiplier={maxFontScale}
+                style={{ fontFamily: font.bold, fontSize: 14, color: color.ink }}
+              >
                 {tr('Let’s get cooking')}
               </Text>
               <ArrowRight size={16} color={color.ink} strokeWidth={2.2} />
@@ -743,7 +802,7 @@ function Hero({ recipe, onOpen }: { recipe: Recipe; onOpen: (r: Recipe) => void 
             <View style={[s.row, { gap: 6 }]}>
               <Clock3 size={14} color="rgba(255,255,255,0.8)" />
               <Text style={styles.meta}>
-                {tr('{{v0}} min · {{v1}}', { v0: recipe.minutes, v1: tr(recipe.difficulty) })}
+                {`${tr('minuteCount', { count: recipe.minutes })} · ${tr(recipe.difficulty)}`}
               </Text>
             </View>
           </View>
@@ -765,9 +824,7 @@ function Cook({
   width?: number;
 }) {
   const { t: tr } = useI18n();
-  const app = useApp();
   const press = usePress(0.97);
-  const following = app.library.followingIds.includes(creator.id);
   // The card and its follow button are siblings: browsers don't allow a button inside a button.
   return (
     <Animated.View
@@ -793,48 +850,11 @@ function Cook({
             {creator.name}
           </Text>
           <Text numberOfLines={1} style={s.small}>
-            {tr('{{v0}} recipes', { v0: creator.recipeCount ?? 0 })}
+            {tr('recipeCount', { count: creator.recipeCount ?? 0, more: '' })}
           </Text>
         </View>
       </View>
-      {app.user?.id !== creator.id && (
-        <Press
-          accessibilityRole="button"
-          accessibilityLabel={
-            following
-              ? tr('Unfollow {{v0}}', { v0: creator.name })
-              : tr('Follow {{v0}}', { v0: creator.name })
-          }
-          accessibilityState={{ selected: following }}
-          onPress={() => {
-            if (app.user) haptic.tap();
-            void app.toggleFollow(creator);
-          }}
-          scale={0.94}
-          style={[
-            s.row,
-            styles.follow,
-            following
-              ? { backgroundColor: color.white, borderColor: color.border }
-              : { backgroundColor: color.ink, borderColor: color.ink },
-          ]}
-        >
-          {following ? (
-            <Check size={14} color={color.ink} strokeWidth={2.4} />
-          ) : (
-            <Plus size={14} color={color.white} strokeWidth={2.4} />
-          )}
-          <Text
-            style={{
-              fontFamily: font.bold,
-              fontSize: 13,
-              color: following ? color.ink : color.white,
-            }}
-          >
-            {following ? tr('Following') : tr('Follow')}
-          </Text>
-        </Press>
-      )}
+      <FollowPill creator={creator} stretch />
     </Animated.View>
   );
 }
@@ -912,7 +932,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 7,
-    height: 36,
+    minHeight: 36,
     paddingHorizontal: 14,
     borderRadius: radius.pill,
     backgroundColor: 'rgba(255,255,255,0.07)',
@@ -942,7 +962,7 @@ const styles = StyleSheet.create({
   cta: {
     gap: 8,
     backgroundColor: color.white,
-    height: 48,
+    minHeight: 48,
     paddingHorizontal: 20,
     borderRadius: radius.pill,
   },
@@ -950,14 +970,5 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.8)',
     fontFamily: font.semibold,
     fontSize: 13,
-  },
-  follow: {
-    gap: 5,
-    height: 34,
-    alignSelf: 'stretch',
-    justifyContent: 'center',
-    paddingHorizontal: 14,
-    borderRadius: radius.pill,
-    borderWidth: 1,
   },
 });

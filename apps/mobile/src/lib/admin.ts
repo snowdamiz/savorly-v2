@@ -16,11 +16,27 @@ export type AdminSettings = {
 export type SettingsReply = {
   settings: AdminSettings;
   defaults: { aiDailyBudgetUSD: number; aiFreeDailyBudgetUSD: number };
+  /** The highest overrides allowed: ten times the defaults. Missing from older APIs. */
+  budgetLimits?: { aiDailyBudgetUSD: number; aiFreeDailyBudgetUSD: number };
+  /** Only owners change the budgets. Missing from older APIs. */
+  canChangeBudgets?: boolean;
+  /** Send it back unchanged as expectedUpdatedAt, so a stale save answers 409. */
   updatedAt: string | null;
   updatedBy: string | null;
 };
 
 export type Day = { day: string; signups: number; recipes: number; jobs: number; spend: number };
+/**
+ * GET /admin/insights?days=7|30: the app's own anonymous events (services/api/internal/app/events.go).
+ * Setup steps count people; the rest count events. `onboarding` ends with `done` and `skipped`.
+ */
+export type Insights = {
+  days: number;
+  topSearches: { query: string; count: number }[];
+  zeroResultSearches: { query: string; count: number }[];
+  onboarding: { step: string; count: number }[];
+  events: { name: string; count: number }[];
+};
 export type Overview = {
   stats: {
     members: {
@@ -247,6 +263,8 @@ export type AdminRecipe = {
   video: boolean;
   createdAt: string;
   updatedAt: string;
+  /** Set while an admin's unpublish holds it out of public view. Missing from older APIs. */
+  unpublishedByAdminAt?: string | null;
   author: Person & { handle: string; suspended: boolean };
   rating: number;
   reviewCount: number;
@@ -256,6 +274,9 @@ export type AdminRecipe = {
 };
 export type AdminRecipeDetail = Recipe & {
   updatedAt: string;
+  /** Set while an admin's unpublish holds it out of public view. Missing from older APIs. */
+  unpublishedByAdminAt?: string | null;
+  unpublishedBy?: string;
   authorEmail: string;
   authorSuspended: boolean;
   conversations: number;

@@ -1,13 +1,23 @@
 import { useI18n } from '../lib/i18n';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Animated, Platform, Text, TextInput, View } from 'react-native';
-import { ArrowRight, ArrowUp, ChevronRight, RotateCcw, Sparkles } from 'lucide-react-native';
+import { ArrowRight, ArrowUp, ChevronRight, RotateCcw, Sparkles } from './icons';
 import { AIJob, AIKind, AIRequest, RecipeInput, emptyRecipe } from '../lib/types';
 import { api } from '../lib/api';
 import { useApp } from '../lib/store';
 import { requestKey } from '../lib/utils';
 import { color, font, radius, s, shadow } from '../lib/theme';
-import { Button, Chip, Dialog, Empty, FoodImage, IconButton, Pill, Press } from './ui';
+import {
+  Button,
+  Chip,
+  Dialog,
+  Empty,
+  FoodImage,
+  IconButton,
+  Pill,
+  Press,
+  motionReduced,
+} from './ui';
 import { VideoPlayer } from './VideoPlayer';
 const finished = (j: AIJob) => j.status === 'completed' || j.status === 'failed';
 const askOf = (prompt: string) => prompt.split('\n\nContext:')[0].split('\nDietary preferences')[0];
@@ -24,13 +34,16 @@ const kindLabel: Record<AIKind, string> = {
 function Thinking({ video }: { video: boolean }) {
   const { t: tr } = useI18n();
   const a = useState(() => new Animated.Value(0))[0];
+  // With reduced motion the dots hold still; the words say it's working.
+  const [still] = useState(motionReduced);
   useEffect(() => {
+    if (still) return;
     const loop = Animated.loop(
       Animated.timing(a, { toValue: 1, duration: 1300, useNativeDriver: Platform.OS !== 'web' }),
     );
     loop.start();
     return () => loop.stop();
-  }, [a]);
+  }, [a, still]);
   return (
     <View accessibilityLiveRegion="polite" style={[s.card, { gap: 12 }]}>
       <View style={[s.row, { gap: 6 }]}>
@@ -42,10 +55,12 @@ function Thinking({ video }: { video: boolean }) {
               height: 8,
               borderRadius: 4,
               backgroundColor: color.ink,
-              opacity: a.interpolate({
-                inputRange: [0, 0.2 + i * 0.2, 0.4 + i * 0.2, 1],
-                outputRange: [0.2, 1, 0.2, 0.2],
-              }),
+              opacity: still
+                ? 0.6
+                : a.interpolate({
+                    inputRange: [0, 0.2 + i * 0.2, 0.4 + i * 0.2, 1],
+                    outputRange: [0.2, 1, 0.2, 0.2],
+                  }),
             }}
           />
         ))}
@@ -74,11 +89,11 @@ export function JobResult({
           {r.recipe.description}
         </Text>
         <Text style={s.small}>
-          {tr('{{v0}} min · {{v1}} servings · {{v2}} ingredients', {
-            v0: r.recipe.minutes,
-            v1: r.recipe.servings,
-            v2: r.recipe.ingredients.length,
-          })}
+          {[
+            tr('minuteCount', { count: r.recipe.minutes }),
+            tr('servingCount', { count: r.recipe.servings }),
+            tr('ingredientCount', { count: r.recipe.ingredients.length }),
+          ].join(' · ')}
         </Text>
         <Text numberOfLines={2} style={[s.small, { color: color.ink }]}>
           {r.recipe.ingredients.map((i) => i.name).join(' · ')}
@@ -277,7 +292,7 @@ export function SousChef({
                 gap: 10,
               }}
             >
-              <Text style={[s.body, { color: color.error }]}>{job.error}</Text>
+              <Text style={[s.body, { color: color.error }]}>{tr(job.error)}</Text>
               <Button
                 title={tr('Try again')}
                 small
@@ -288,7 +303,10 @@ export function SousChef({
           ) : (
             <JobResult
               job={job}
-              onRecipe={onRecipe}
+              // An adaptation keeps a link to the recipe it came from.
+              onRecipe={(r) =>
+                onRecipe(request.derivedFrom ? { ...r, derivedFrom: request.derivedFrom } : r)
+              }
               onMedia={
                 request.onMedia &&
                 ((url) => {
@@ -463,7 +481,7 @@ export function SousChefHistory({
               </Text>
             )}
             {j.status === 'failed' ? (
-              <Text style={[s.muted, { color: color.error }]}>{j.error}</Text>
+              <Text style={[s.muted, { color: color.error }]}>{tr(j.error)}</Text>
             ) : (
               j.status === 'completed' && <JobResult job={j} onRecipe={onRecipe} />
             )}

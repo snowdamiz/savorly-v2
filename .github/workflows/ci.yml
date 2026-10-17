@@ -1,12 +1,21 @@
 name: Verify Savorly
+# Pushes to the long-lived branches and every pull request; a pull request's commits run once, as
+# pull_request. Actions are pinned to commit SHAs (Dependabot proposes updates).
 on:
   push:
+    branches: [main, staging, release]
   pull_request:
 permissions:
   contents: read
+# One run at a time per branch or pull request. A new push to a pull request cancels its running
+# checks; pushes to main, staging and release wait for the run before them, so deploys don't overlap.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   verify:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     services:
       postgres:
         image: postgres:17-alpine
@@ -22,7 +31,8 @@ jobs:
       DATABASE_URL: postgres://savorly:test_only_password@localhost:5432/savorly?sslmode=disable
       TEST_DATABASE_URL: postgres://savorly:test_only_password@localhost:5432/savorly?sslmode=disable
       SEED_DATA: 'true'
-      ALLOWED_ORIGINS: http://localhost:8081
+      # Expo's dev server (8081) and the exported bundle (8082) both call the API on 8080.
+      ALLOWED_ORIGINS: http://localhost:8081,http://localhost:8082
       CI: '1'
       TEST_OBJECT_STORAGE: 'true'
       TEST_S3_ENDPOINT: http://localhost:8333
@@ -35,50 +45,136 @@ jobs:
       S3_PUBLIC_URL: http://localhost:8333/savorly-media
       S3_FORCE_PATH_STYLE: 'true'
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: |
             apps/mobile/package-lock.json
             infra/cloudflare/package-lock.json
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version-file: services/api/go.mod
+          # The newest 1.26 patch, as in the API image (golang:1.26-alpine). Move it with go.mod.
+          go-version: '1.26.x'
+          check-latest: true
           cache-dependency-path: services/api/go.sum
       - run: npm --prefix apps/mobile ci
       - run: npm --prefix infra/cloudflare ci
       - run: npm run typecheck
       - run: npm --prefix apps/mobile run lint
+      - name: Worker helper tests
+        run: npm --prefix infra/cloudflare test
+      # Native-only modules and platform twins, on iOS, Android and web presets (jest-expo).
+      - name: App unit tests
+        run: npm --prefix apps/mobile run test:unit
       - run: docker compose up -d --wait storage
       - run: go vet ./... && go test -race ./...
         working-directory: services/api
-      - run: npm run build
-      - run: npx playwright install --with-deps chromium
+      - name: Export the web app
+        # The production bundle, also served on 8082 for the browser tests below.
+        run: npm run build
+        env:
+          EXPO_PUBLIC_API_URL: http://localhost:8080
+      - name: Worker and container dry run
+        # Builds the API image with Docker and bundles the Worker with the export; uploads nothing.
+        run: npm --prefix infra/cloudflare run build
+      - name: Read the Playwright version
+        id: playwright
+        run: echo "version=$(node -p "require('./apps/mobile/node_modules/@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
+      - name: Install Chromium
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
         working-directory: apps/mobile
-      - run: |
+      - name: Install Chromium's system packages
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
+        working-directory: apps/mobile
+      - name: Start the API, Expo and the exported bundle
+        run: |
           (cd services/api && go run ./cmd/server > /tmp/savorly-api.log 2>&1) &
           (cd apps/mobile && npx expo start --web --port 8081 > /tmp/savorly-web.log 2>&1) &
-          for i in $(seq 1 60); do
-            if curl -fsS http://localhost:8080/health && curl -fsS http://localhost:8081 > /dev/null; then break; fi
+          node scripts/serve-dist.mjs > /tmp/savorly-dist.log 2>&1 &
+          for _ in $(seq 1 60); do
+            if curl -fsS http://localhost:8080/health > /dev/null &&
+              curl -fsS http://localhost:8081 > /dev/null &&
+              curl -fsS http://localhost:8082 > /dev/null; then
+              exit 0
+            fi
             sleep 2
           done
-          npm run test:integration
-          npm --prefix apps/mobile run test:e2e
-      - uses: actions/upload-artifact@v4
+          echo "::error::The API (8080), Expo (8081) or the bundle server (8082) didn't answer within 120 seconds."
+          tail -n 80 /tmp/savorly-*.log
+          exit 1
+      - run: npm run test:integration
+      - name: Browser tests (Expo dev server)
+        run: npm --prefix apps/mobile run test:e2e
+      - name: Browser tests (production bundle)
+        run: npm --prefix apps/mobile run test:e2e -- tests/smoke.spec.ts tests/splash.spec.ts
+        env:
+          TEST_WEB_URL: http://localhost:8082
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: failure()
         with:
           name: browser-failures
           path: apps/mobile/test-results
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: failure()
+        with:
+          name: server-logs
+          path: /tmp/savorly-*.log
+          if-no-files-found: ignore
+  analyze:
+    name: Static analysis and audits
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          # The patch the API image ships with, so the standard library is judged as deployed.
+          go-version: '1.26.x'
+          check-latest: true
+          cache-dependency-path: services/api/go.sum
+      - name: govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+        working-directory: services/api
+      - name: staticcheck
+        run: go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 ./...
+        working-directory: services/api
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - name: npm audit of production dependencies (informational)
+        # Never fails the run: the app's tree carries upstream advisories with no fix yet
+        # (expo-updates → node-forge, metro → braces; docs/VERIFICATION.md). Read the summary.
+        run: |
+          for dir in apps/mobile infra/cloudflare; do
+            echo "::group::npm audit --omit=dev ($dir)"
+            npm audit --omit=dev --prefix "$dir" || echo "::warning title=npm audit::$dir: production dependencies have advisories; see this step's log."
+            echo "::endgroup::"
+            npm audit --omit=dev --json --prefix "$dir" > /tmp/audit.json || true
+            node -e '
+              const v = require("/tmp/audit.json").metadata?.vulnerabilities ?? {};
+              const counts = ["critical", "high", "moderate", "low"].map((s) => (v[s] ?? 0) + " " + s);
+              console.log("npm audit --omit=dev, " + process.argv[1] + ": " + counts.join(", "));
+            ' "$dir" >> "$GITHUB_STEP_SUMMARY"
+          done
   # After verification, the staging branch deploys to staging and release to production: the
   # backend on Cloudflare, then the Android app on EAS. Setup: docs/STAGING.md and
-  # docs/PRODUCTION.md.
+  # docs/PRODUCTION.md; gating: docs/RUNBOOKS.md#release-gating.
   deploy:
     name: Deploy backend
-    needs: verify
+    needs: [verify, analyze]
     if: github.event_name == 'push' && (github.ref == 'refs/heads/staging' || github.ref == 'refs/heads/release')
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     environment:
       name: ${{ github.ref == 'refs/heads/release' && 'production' || 'staging' }}
       url: ${{ github.ref == 'refs/heads/release' && vars.PRODUCTION_URL || vars.STAGING_URL }}
@@ -88,26 +184,33 @@ jobs:
       SITE_URL: ${{ github.ref == 'refs/heads/release' && vars.PRODUCTION_URL || vars.STAGING_URL }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      # Optional: where recipe media is served, for the web app's preconnect (scripts/deploy.sh).
+      EXPO_PUBLIC_MEDIA_ORIGIN: ${{ vars.MEDIA_ORIGIN }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Check the deploy settings
+        # The health wait below is what lets ship-android run, so the site URL is required.
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::error::Add the CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID repository secrets (docs/STAGING.md)."
+            exit 1
+          fi
+          if [ -z "$SITE_URL" ]; then
+            echo "::error::Add the PRODUCTION_URL or STAGING_URL repository variable, so the deploy can wait for /api/health before the app ships (docs/STAGING.md)."
+            exit 1
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: |
             apps/mobile/package-lock.json
             infra/cloudflare/package-lock.json
-      - run: |
-          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
-            echo "::error::Add the CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID repository secrets (docs/STAGING.md)."
-            exit 1
-          fi
       # Code only: Worker secrets uploaded from .env.<target> persist across deployments.
       - run: sh scripts/deploy.sh "$TARGET"
       - name: Wait for the API
-        if: env.SITE_URL != ''
         run: |
-          for i in $(seq 1 30); do
+          for _ in $(seq 1 30); do
             curl -fsS "$SITE_URL/api/health" && exit 0
             sleep 10
           done
@@ -119,14 +222,15 @@ jobs:
     needs: [verify, deploy]
     if: github.event_name == 'push' && (github.ref == 'refs/heads/staging' || github.ref == 'refs/heads/release')
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     # One at a time, so a push right after a native change sees its queued build and ships as an
     # update instead of queuing a second build.
     concurrency: ship-android-${{ github.ref_name }}
     env:
       TARGET: ${{ github.ref == 'refs/heads/release' && 'production' || 'staging' }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
           cache: npm
@@ -138,9 +242,10 @@ jobs:
           fi
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-      - uses: expo/expo-github-action@v9
+      - uses: expo/expo-github-action@eab7a230208c952974db8c3245cfd78402c7b385 # 9.0.0
         with:
-          eas-version: latest
+          # Keep in step with easCli in scripts/ship-app.mjs.
+          eas-version: 24.14.0
           token: ${{ secrets.EXPO_TOKEN }}
       - run: npm ci
         working-directory: apps/mobile
@@ -148,3 +253,5 @@ jobs:
       # changes (a new fingerprint) queue a build on EAS and return; it appears on expo.dev.
       # Staging builds are an installable APK, production a Play Store bundle (.aab).
       - run: node scripts/ship-app.mjs "$TARGET"
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}

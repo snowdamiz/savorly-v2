@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math"
 	"strconv"
 	"strings"
@@ -41,12 +42,14 @@ func (a *App) adminRoutes(v fiber.Router) {
 	g.Get("/reports", a.adminReports)
 	g.Get("/reviews", a.adminReviews)
 	g.Delete("/reviews/:id", a.adminDeleteReview)
+	g.Delete("/comments/:id", a.adminDeleteComment)
 	g.Get("/ai", a.adminAI)
 	g.Get("/jobs", a.adminJobs)
 	g.Get("/jobs/:id", a.adminJob)
 	g.Post("/jobs/:id/cancel", a.adminCancelJob)
 	g.Post("/voice/:id/end", a.adminEndVoice)
 	g.Get("/audit", a.adminAudit)
+	g.Get("/insights", a.adminInsights)
 	g.Get("/settings", a.adminSettings)
 	g.Put("/settings", a.adminSaveSettings)
 }
@@ -71,14 +74,38 @@ type execer interface {
 	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
 }
 
-// audit records one admin action. Summaries are written for people reading the log later.
-func audit(ctx context.Context, db execer, c fiber.Ctx, action, kind, target, summary string, detail fiber.Map) error {
+func adminEmail(c fiber.Ctx) string { e, _ := c.Locals("adminEmail").(string); return e }
+
+const auditInsert = `INSERT INTO admin_actions(admin_id,admin_email,action,target_type,target_id,summary,detail) VALUES($1,$2,$3,$4,$5,$6,$7)`
+
+func auditArgs(c fiber.Ctx, action, kind, target, summary string, detail fiber.Map) []any {
 	if detail == nil {
 		detail = fiber.Map{}
 	}
-	email, _ := c.Locals("adminEmail").(string)
-	_, e := db.Exec(ctx, `INSERT INTO admin_actions(admin_id,admin_email,action,target_type,target_id,summary,detail) VALUES($1,$2,$3,$4,$5,$6,$7)`, userID(c), email, action, kind, target, summary, jsonBytes(detail))
+	return []any{userID(c), adminEmail(c), action, kind, target, summary, jsonBytes(detail)}
+}
+
+// audit records one admin action. Summaries are written for people reading the log later.
+func audit(ctx context.Context, db execer, c fiber.Ctx, action, kind, target, summary string, detail fiber.Map) error {
+	_, e := db.Exec(ctx, auditInsert, auditArgs(c, action, kind, target, summary, detail)...)
 	return e
+}
+
+// auditEntry records an action that leaves work outside the database (Stripe, Apple) to run
+// after commit, and returns the entry so noteOutcome can add how that work went.
+func auditEntry(ctx context.Context, q querier, c fiber.Ctx, action, kind, target, summary string, detail fiber.Map) (int64, error) {
+	var id int64
+	e := q.QueryRow(ctx, auditInsert+` RETURNING id`, auditArgs(c, action, kind, target, summary, detail)...).Scan(&id)
+	return id, e
+}
+
+// noteOutcome adds how that work went to the entry's detail, replacing the followUp note the
+// entry started with (followUp.pending). It's the only change ever made to an entry; if it
+// fails, the entry keeps saying what to check.
+func (a *App) noteOutcome(ctx context.Context, entry int64, outcome fiber.Map) {
+	if _, e := a.DB.Exec(ctx, `UPDATE admin_actions SET detail=(detail-'followUp')||$2 WHERE id=$1`, entry, jsonBytes(outcome)); e != nil {
+		slog.Error("record an admin follow-up", "entry", entry, "error", e)
+	}
 }
 
 const auditJSON = `jsonb_build_object('id',x.id,'adminId',x.admin_id,'adminEmail',x.admin_email,'action',x.action,'targetType',x.target_type,'targetId',x.target_id,'summary',x.summary,'detail',x.detail,'createdAt',x.created_at)`
@@ -93,7 +120,8 @@ func (a *App) jsonRow(ctx context.Context, sql string, args ...any) ([]byte, err
 	return b, e
 }
 
-// adminList pages a query whose columns are one JSON item and count(*) OVER().
+// adminList pages a query whose columns are one JSON item and count(*) OVER(). Its ORDER BY
+// ends on a unique column, so pages never repeat or skip rows that otherwise sort alike.
 func (a *App) adminList(c fiber.Ctx, sql string, args ...any) error {
 	limit, _ := strconv.Atoi(c.Query("limit", "50"))
 	if limit < 1 || limit > 500 {
@@ -158,7 +186,7 @@ func (a *App) adminOverview(c fiber.Ctx) error {
  'assistant',(SELECT jsonb_build_object('queued',count(*) FILTER (WHERE status='queued'),'running',count(*) FILTER (WHERE status='running'),
    'failed24h',count(*) FILTER (WHERE status='failed' AND updated_at>now()-interval '24 hours'),
    'turns24h',count(*) FILTER (WHERE created_at>now()-interval '24 hours')) FROM voice_actions),
- 'conversations',jsonb_build_object('total',(SELECT count(*) FROM voice_projects),'active7d',(SELECT count(*) FROM voice_projects WHERE updated_at>now()-interval '7 days')),
+ 'conversations',jsonb_build_object('total',(SELECT count(*) FROM voice_projects WHERE deleted_at IS NULL),'active7d',(SELECT count(*) FROM voice_projects WHERE deleted_at IS NULL AND updated_at>now()-interval '7 days')),
  'voiceLive',(SELECT count(*) FROM voice_sessions WHERE status IN ('connecting','active')),
  'spend',(SELECT jsonb_build_object(
    'last24h',round(COALESCE(sum(s.cost) FILTER (WHERE s.created_at>now()-interval '24 hours'),0)::numeric,4),
@@ -226,6 +254,21 @@ func (a *App) systemStatus() fiber.Map {
 
 const announcementLimit = 280
 
+// budgetCap bounds a budget override at this many times the environment's budget. The budgets
+// are the one hard stop on AI spend, so no console session can lift it far.
+const budgetCap = 10
+
+// envBudgets are the daily AI budgets the environment sets, which overrides replace.
+func envBudgets() (daily, free float64) {
+	return envFloat("AI_DAILY_BUDGET_USD", 25), envFloat("AI_FREE_DAILY_BUDGET_USD", 5)
+}
+
+const (
+	settingsStale = "Another admin changed these settings after you opened them. Open them again, then make your change."
+	budgetOwners  = "Only an owner can change the AI budgets."
+	budgetRange   = "Budget overrides are between $0 and ten times the environment's budget."
+)
+
 func (a *App) adminSettings(c fiber.Ctx) error {
 	ctx := c.Context()
 	s, e := loadSettings(ctx, a.DB)
@@ -238,18 +281,35 @@ func (a *App) adminSettings(c fiber.Ctx) error {
 	if e != nil && !errors.Is(e, pgx.ErrNoRows) {
 		return e
 	}
+	daily, free := envBudgets()
 	return c.JSON(fiber.Map{"settings": s, "updatedAt": at, "updatedBy": by,
-		"defaults": fiber.Map{"aiDailyBudgetUSD": envFloat("AI_DAILY_BUDGET_USD", 25), "aiFreeDailyBudgetUSD": envFloat("AI_FREE_DAILY_BUDGET_USD", 5)}})
+		"defaults":         fiber.Map{"aiDailyBudgetUSD": daily, "aiFreeDailyBudgetUSD": free},
+		"budgetLimits":     fiber.Map{"aiDailyBudgetUSD": budgetCap * daily, "aiFreeDailyBudgetUSD": budgetCap * free},
+		"canChangeBudgets": isOwner(c)})
 }
 
 func (a *App) adminSaveSettings(c fiber.Ctx) error {
-	var in Settings
+	var in struct {
+		Settings
+		// The updatedAt the admin's form was loaded with, null before the first save. Saving a
+		// stale form would quietly undo another admin's change, so it answers 409 instead.
+		// Clients that send nothing aren't checked.
+		ExpectedUpdatedAt json.RawMessage
+	}
 	if e := decode(c, &in); e != nil {
 		return e
 	}
+	check := len(in.ExpectedUpdatedAt) > 0
+	var expected *time.Time
+	if check && string(in.ExpectedUpdatedAt) != "null" {
+		expected = new(time.Time)
+		if json.Unmarshal(in.ExpectedUpdatedAt, expected) != nil {
+			return fiber.NewError(400, "Invalid JSON request.")
+		}
+	}
 	for _, b := range []*float64{in.AIDailyBudgetUSD, in.AIFreeDailyBudgetUSD} {
-		if b != nil && (math.IsNaN(*b) || *b < 0 || *b > 100000) {
-			return fiber.NewError(400, "Budgets are between $0 and $100,000 a day.")
+		if b != nil && (math.IsNaN(*b) || *b < 0) {
+			return fiber.NewError(400, budgetRange)
 		}
 	}
 	in.Announcement = strings.TrimSpace(in.Announcement)
@@ -268,15 +328,49 @@ func (a *App) adminSaveSettings(c fiber.Ctx) error {
 		return e
 	}
 	defer tx.Rollback(ctx)
+	// Saves queue on the row. Before the first save there's no row to lock, so the insert below
+	// refuses to overwrite a concurrent first save instead.
+	var at *time.Time
+	if e = tx.QueryRow(ctx, `SELECT updated_at FROM app_settings WHERE key='operator' FOR UPDATE`).Scan(&at); e != nil && !errors.Is(e, pgx.ErrNoRows) {
+		return e
+	}
+	if check && !sameTime(at, expected) {
+		return fiber.NewError(409, settingsStale)
+	}
 	old, e := loadSettings(ctx, tx)
 	if e != nil {
 		return e
 	}
-	if _, e = tx.Exec(ctx, `INSERT INTO app_settings(key,value,updated_by) VALUES('operator',$1,$2) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_by=excluded.updated_by,updated_at=now()`, jsonBytes(in), userID(c)); e != nil {
+	daily, free := envBudgets()
+	for _, b := range []struct {
+		was, is *float64
+		limit   float64
+	}{{old.AIDailyBudgetUSD, in.AIDailyBudgetUSD, budgetCap * daily}, {old.AIFreeDailyBudgetUSD, in.AIFreeDailyBudgetUSD, budgetCap * free}} {
+		// Unchanged budgets pass, so admins can save the rest of the form.
+		if sameBudget(b.was, b.is) {
+			continue
+		}
+		if !isOwner(c) {
+			return fiber.NewError(403, budgetOwners)
+		}
+		if b.is != nil && *b.is > b.limit {
+			return fiber.NewError(400, budgetRange)
+		}
+	}
+	value := jsonBytes(in.Settings)
+	if at == nil {
+		r, e := tx.Exec(ctx, `INSERT INTO app_settings(key,value,updated_by) VALUES('operator',$1,$2) ON CONFLICT(key) DO NOTHING`, value, userID(c))
+		if e != nil {
+			return e
+		}
+		if r.RowsAffected() == 0 {
+			return fiber.NewError(409, settingsStale)
+		}
+	} else if _, e = tx.Exec(ctx, `UPDATE app_settings SET value=$1,updated_by=$2,updated_at=now() WHERE key='operator'`, value, userID(c)); e != nil {
 		return e
 	}
-	if changes := settingsChanges(old, in); len(changes) > 0 {
-		if e = audit(ctx, tx, c, "settings.update", "settings", "operator", strings.Join(changes, "; "), fiber.Map{"before": old, "after": in}); e != nil {
+	if changes := settingsChanges(old, in.Settings); len(changes) > 0 {
+		if e = audit(ctx, tx, c, "settings.update", "settings", "operator", strings.Join(changes, "; "), fiber.Map{"before": old, "after": in.Settings}); e != nil {
 			return e
 		}
 	}
@@ -284,6 +378,19 @@ func (a *App) adminSaveSettings(c fiber.Ctx) error {
 		return e
 	}
 	return a.adminSettings(c)
+}
+
+// sameTime compares the stored updatedAt with the one a client echoes back exactly as it was
+// given; both are nil before the first save.
+func sameTime(stored, sent *time.Time) bool {
+	if stored == nil || sent == nil {
+		return stored == sent
+	}
+	return stored.Equal(*sent)
+}
+
+func sameBudget(a, b *float64) bool {
+	return (a == nil && b == nil) || (a != nil && b != nil && *a == *b)
 }
 
 func settingsChanges(old, new Settings) []string {

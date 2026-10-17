@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Linking, Text, View } from 'react-native';
-import { CircleStop, Mic, XCircle } from 'lucide-react-native';
+import { CircleStop, Mic, XCircle } from '../../components/icons';
 import { api } from '../../lib/api';
 import { AdminAI, AdminJob } from '../../lib/admin';
 import { AIKind } from '../../lib/types';

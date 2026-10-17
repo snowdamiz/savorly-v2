@@ -1,13 +1,17 @@
 import { useI18n } from '../lib/i18n';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Animated, StyleSheet, Text, View } from 'react-native';
-import { Camera, Check, Images, Sparkles, Trash2 } from 'lucide-react-native';
+import { Camera, Check, Images, Sparkles, Trash2 } from './icons';
 import { useApp } from '../lib/store';
-import { Crop, Photo, pickPhoto, preparePhoto, touchUpPhoto, uploadPhoto } from '../lib/photos';
+import { Crop, Photo, pickPhoto, preparePhoto, touchUpPhoto, uploadMedia } from '../lib/photos';
 import { haptic } from '../lib/haptics';
 import { color, font, radius, s } from '../lib/theme';
 import { Avatar, Button, Dialog, Press, Segmented, animate, motionReduced } from './ui';
-import { PhotoCrop } from './PhotoCrop';
+import { chunk } from '../lib/chunk';
+
+// The crop loads the first time a photo needs framing, so pages with a profile photo on them
+// (My kitchen, a recipe's "I cooked this") don't carry it.
+const PhotoCrop = lazy(chunk(() => import('./PhotoCrop').then((m) => ({ default: m.PhotoCrop }))));
 
 /** A profile photo that opens the photo sheet: the place to change it from anywhere. */
 export function PhotoButton({
@@ -79,9 +83,13 @@ export function ProfilePhoto({
   const [before, setBefore] = useState('');
   const [showBefore, setShowBefore] = useState(false);
   const [busy, setBusy] = useState<'photo' | 'touch' | 'save' | null>(null);
+  // How much of a new photo has gone up, once it's on its way.
+  const [progress, setProgress] = useState<number | null>(null);
   const [error, setError] = useState('');
   // A new photo, being framed before it's used.
   const [framing, setFraming] = useState<Photo | null>(null);
+  // Mounted from the first photo on, so the crop can close with its own animation.
+  const [cropping, setCropping] = useState(false);
   // Each opening starts from the photo in use.
   const [opened, setOpened] = useState(visible);
   if (opened !== visible) {
@@ -93,15 +101,18 @@ export function ProfilePhoto({
       setBefore('');
       setShowBefore(false);
       setBusy(null);
+      setProgress(null);
       setError('');
     }
   }
-  // Uploads and touch-ups that finish after the sheet closes change nothing.
+  // Uploads and touch-ups that finish after the sheet closes change nothing; an upload stops.
   const live = useRef(visible);
+  const upload = useRef<AbortController | null>(null);
   useEffect(() => {
     live.current = visible;
     return () => {
       live.current = false;
+      upload.current?.abort();
     };
   }, [visible]);
   const choose = async (from: 'camera' | 'library') => {
@@ -112,7 +123,10 @@ export function ProfilePhoto({
       setBusy('photo');
       // An upright copy, small enough to move around smoothly; the crop is cut from it.
       const upright = await preparePhoto(picked, { max: 2048 });
-      if (live.current) setFraming(upright);
+      if (live.current) {
+        setCropping(true);
+        setFraming(upright);
+      }
     } catch (e) {
       if (live.current) setError((e as Error).message);
     } finally {
@@ -129,7 +143,12 @@ export function ProfilePhoto({
       setLocal(ready.uri);
       setBefore('');
       setShowBefore(false);
-      const url = await uploadPhoto(ready.uri, 'profile.jpg');
+      const controller = new AbortController();
+      upload.current = controller;
+      const url = await uploadMedia({ uri: ready.uri, fileName: 'profile.jpg' }, 'image', {
+        signal: controller.signal,
+        onProgress: (sent) => live.current && setProgress(sent),
+      });
       if (live.current) setPhoto(url);
     } catch (e) {
       if (live.current) {
@@ -137,7 +156,11 @@ export function ProfilePhoto({
         setError((e as Error).message);
       }
     } finally {
-      if (live.current) setBusy(null);
+      upload.current = null;
+      if (live.current) {
+        setBusy(null);
+        setProgress(null);
+      }
     }
   };
   const touchUp = async () => {
@@ -180,7 +203,7 @@ export function ProfilePhoto({
         <View style={{ width: 168, height: 168, marginBottom: before ? 20 : 0 }}>
           <Avatar name={name} uri={shown} size={168} />
           {(busy === 'photo' || busy === 'touch') && (
-            <Working touch={busy === 'touch'} radius={84} />
+            <Working touch={busy === 'touch'} radius={84} progress={progress} />
           )}
           {!!before && (
             // Straddles the photo's lower edge, so the comparison sits on what it compares.
@@ -263,11 +286,15 @@ export function ProfilePhoto({
           onPress={() => void save('')}
         />
       )}
-      <PhotoCrop
-        photo={framing}
-        onCancel={() => setFraming(null)}
-        onDone={(area) => void crop(area)}
-      />
+      {cropping && (
+        <Suspense fallback={null}>
+          <PhotoCrop
+            photo={framing}
+            onCancel={() => setFraming(null)}
+            onDone={(area) => void crop(area)}
+          />
+        </Suspense>
+      )}
     </Dialog>
   );
 }
@@ -300,8 +327,19 @@ function Source({
     </Press>
   );
 }
-// A veil over the photo while it uploads; a touch-up also gets a slow sweep of light.
-export function Working({ touch, radius: corner }: { touch: boolean; radius: number }) {
+// A veil over the photo while it uploads, with how far it's got; a touch-up also gets a slow
+// sweep of light.
+export function Working({
+  touch,
+  radius: corner,
+  progress = null,
+}: {
+  touch: boolean;
+  radius: number;
+  /** The share of an upload sent so far, when one is under way. */
+  progress?: number | null;
+}) {
+  const { t: tr, number } = useI18n();
   const sweep = useState(() => new Animated.Value(0))[0];
   useEffect(() => {
     if (!touch || motionReduced()) return;
@@ -342,6 +380,18 @@ export function Working({ touch, radius: corner }: { touch: boolean; radius: num
       ) : (
         <ActivityIndicator color={color.white} />
       )}
+      {!touch && progress !== null && (
+        <Text
+          accessibilityRole="progressbar"
+          accessibilityLabel={tr('Upload progress')}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={Math.round(progress * 100)}
+          style={styles.percent}
+        >
+          {number(progress, { style: 'percent', maximumFractionDigits: 0 })}
+        </Text>
+      )}
     </View>
   );
 }
@@ -368,6 +418,7 @@ const styles = StyleSheet.create({
     bottom: -20,
     alignItems: 'center',
   },
+  percent: { marginTop: 8, color: color.white, fontFamily: font.bold, fontSize: 13 },
   source: {
     width: 44,
     height: 44,

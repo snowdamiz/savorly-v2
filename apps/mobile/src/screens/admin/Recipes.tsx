@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Text, View } from 'react-native';
-import { Ban, Bot, Check, EyeOff, Film, Flag, Trash2, Undo2, UserRound } from 'lucide-react-native';
+import { Ban, Bot, Check, EyeOff, Film, Flag, Trash2, Undo2, UserRound } from '../../components/icons';
 import { api } from '../../lib/api';
 import { AdminRecipe, AdminRecipeDetail, Report } from '../../lib/admin';
 import { Recipe } from '../../lib/types';
@@ -91,7 +91,11 @@ export function Recipes() {
 function RecipeBadges({ r }: { r: AdminRecipe }) {
   return (
     <>
-      {!r.published && <Badge title="Draft" icon={EyeOff} />}
+      {r.unpublishedByAdminAt ? (
+        <Badge title="Unpublished by an admin" tone="warning" icon={EyeOff} />
+      ) : (
+        !r.published && <Badge title="Draft" icon={EyeOff} />
+      )}
       {r.aiGenerated && <Badge title="AI" icon={Bot} />}
       {r.video && <Badge title="Video" icon={Film} />}
       {r.openReports > 0 && <Badge title={`${r.openReports} open`} tone="warning" icon={Flag} />}
@@ -163,7 +167,11 @@ export function RecipeDialog({
   const [confirm, setConfirm] = useState<Pending>(null);
   const [full, setFull] = useState(false);
   const open = r?.reports.filter((p) => p.status === 'open') || [];
-  const restorable = !!r && !r.published && r.history[0]?.action === 'recipe.unpublish';
+  // The recipe says whether an admin's unpublish holds it; older APIs only had the audit log.
+  const held =
+    r?.unpublishedByAdminAt !== undefined
+      ? !!r.unpublishedByAdminAt
+      : !!r && !r.published && r.history[0]?.action === 'recipe.unpublish';
   const done = async (key: string, fn: () => Promise<unknown>, message: string) => {
     if (await action.run(key, fn, message)) setConfirm(null);
   };
@@ -177,8 +185,8 @@ export function RecipeDialog({
             <FoodImage uri={r.image} style={{ height: 200, borderRadius: radius.md }} />
             <View style={[s.wrap, { gap: 6 }]}>
               <Badge
-                title={r.published ? 'Published' : 'Draft'}
-                tone={r.published ? 'success' : 'light'}
+                title={r.published ? 'Published' : held ? 'Unpublished by an admin' : 'Draft'}
+                tone={r.published ? 'success' : held ? 'warning' : 'light'}
                 icon={r.published ? Check : EyeOff}
               />
               {r.aiGenerated && <Badge title="AI-generated" icon={Bot} />}
@@ -222,6 +230,14 @@ export function RecipeDialog({
                 ],
                 ['Created', f.dateTime(r.createdAt)],
                 ['Edited', f.dateTime(r.updatedAt)],
+                ...(r.unpublishedByAdminAt
+                  ? [
+                      [
+                        'Unpublished',
+                        `${f.dateTime(r.unpublishedByAdminAt)} by ${r.unpublishedBy || 'an admin'}; its author can’t publish it until it’s restored`,
+                      ] as [string, string],
+                    ]
+                  : []),
                 ['Sous-chef chats', `${r.conversations} linked`],
                 ['Recipe ID', r.id],
               ]}
@@ -306,7 +322,7 @@ export function RecipeDialog({
                   onPress={() => setConfirm('unpublish')}
                 />
               )}
-              {restorable && (
+              {held && (
                 <Button
                   title="Restore to public"
                   icon={Undo2}
@@ -349,7 +365,7 @@ export function RecipeDialog({
           <Confirm
             visible={confirm === 'unpublish'}
             title="Unpublish this recipe?"
-            text="It leaves Discover, search and profiles at once and becomes a draft its author can still see and edit. Open reports are marked resolved. You can restore it later."
+            text="It leaves Discover, search and profiles at once. Its author can still see and edit it, but can’t publish it again until an admin restores it. Open reports are marked resolved."
             action="Unpublish"
             danger
             input={{

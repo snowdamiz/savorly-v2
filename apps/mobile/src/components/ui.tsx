@@ -5,6 +5,7 @@ import React, {
   useEffect,
   useEffectEvent,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -15,7 +16,6 @@ import {
   Animated,
   BackHandler,
   Easing,
-  Image,
   Keyboard,
   Modal,
   Platform,
@@ -33,6 +33,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Image } from 'expo-image';
 import { GlassView, isGlassEffectAPIAvailable, isLiquidGlassAvailable } from 'expo-glass-effect';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -46,10 +47,12 @@ import {
   Search,
   UserRound,
   X,
-} from 'lucide-react-native';
-import { color, font, radius, s, shadow } from '../lib/theme';
+} from './icons';
+import { color, font, maxFontScale, radius, s, shadow } from '../lib/theme';
 import { haptic } from '../lib/haptics';
+import { DEFAULT_IMAGE_WIDTH, blurred, sized } from '../lib/images';
 import { RevealFocus, useKeyboardLift, useKeyboardScroll, useRevealFocus } from '../lib/keyboard';
+import { onSheetBack, sheetShown, sheetsGone } from '../lib/webHistory';
 export const native = Platform.OS !== 'web';
 // Browsers frost whatever sits behind translucent chrome; native keeps its own materials.
 export const frost = (px: number) =>
@@ -240,7 +243,7 @@ export function Button({
           borderRadius: radius.pill,
           backgroundColor: bg,
           borderWidth: variant === 'secondary' || variant === 'glass' ? 1 : 0,
-          borderColor: variant === 'glass' ? color.glassBorder : color.border,
+          borderColor: variant === 'glass' ? color.glassBorder : color.outline,
         },
         style,
       ]}
@@ -322,7 +325,7 @@ export function IconButton({
                 ? 'transparent'
                 : glass
                   ? 'rgba(255,255,255,0.5)'
-                  : color.border,
+                  : color.outline,
           borderWidth: glassy ? 0 : 1,
           alignItems: 'center',
           justifyContent: 'center',
@@ -381,7 +384,7 @@ export function Chip({
           alignItems: 'center',
           gap: 7,
           borderWidth: 1,
-          borderColor: active ? color.ink : dark ? color.glassBorder : color.border,
+          borderColor: active ? color.ink : dark ? color.glassBorder : color.outline,
           backgroundColor: active ? color.ink : dark ? color.glass : color.white,
         },
       ]}
@@ -417,7 +420,8 @@ export function Pill({
     {
       gap: 5,
       paddingHorizontal: 10,
-      height: 28,
+      paddingVertical: 3,
+      minHeight: 28,
       borderRadius: radius.pill,
       alignSelf: 'flex-start' as const,
     },
@@ -425,7 +429,12 @@ export function Pill({
   const body = (
     <>
       {leading || (Icon && <Icon size={13} color={fg} fill={fill ? fg : 'none'} strokeWidth={2} />)}
-      <Text style={{ fontFamily: font.bold, fontSize: 12, color: fg }}>{title}</Text>
+      <Text
+        maxFontSizeMultiplier={maxFontScale}
+        style={{ fontFamily: font.bold, fontSize: 12, color: fg }}
+      >
+        {title}
+      </Text>
     </>
   );
   // Glass badges sit on photos.
@@ -489,13 +498,13 @@ export function SearchBar({
         flexDirection: 'row',
         alignItems: 'center',
         gap: 10,
-        height: 52,
+        minHeight: 52,
         paddingLeft: 18,
         paddingRight: 8,
         borderRadius: radius.pill,
         backgroundColor: color.white,
         borderWidth: bare ? 0 : 1,
-        borderColor: color.border,
+        borderColor: color.outline,
         flex: 1,
       }}
     >
@@ -507,7 +516,8 @@ export function SearchBar({
         value={value}
         onChangeText={onChangeText}
         returnKeyType="search"
-        style={{ flex: 1, color: color.ink, fontFamily: font.medium, fontSize: 15, height: 48 }}
+        maxFontSizeMultiplier={maxFontScale}
+        style={{ flex: 1, color: color.ink, fontFamily: font.medium, fontSize: 15, minHeight: 48 }}
       />
       {value.length > 0 && (
         <IconButton
@@ -522,8 +532,13 @@ export function SearchBar({
     </View>
   );
 }
+// Photos load through expo-image: cached in memory and on disk, eased in briefly (at once when
+// motion is reduced), and fetched near the size they're shown. An address that fails shows the
+// placeholder until the address changes.
+const imageFade = () => (reduceMotion ? null : 200);
 export function Avatar({ name, uri, size = 36 }: { name: string; uri?: string; size?: number }) {
-  const [failed, setFailed] = useState(false);
+  const [failed, setFailed] = useState('');
+  const source = uri ? sized(uri, size * 2) : '';
   const initials = name
     .split(' ')
     .filter(Boolean)
@@ -531,10 +546,13 @@ export function Avatar({ name, uri, size = 36 }: { name: string; uri?: string; s
     .map((n) => n[0])
     .join('')
     .toUpperCase();
-  return uri && !failed ? (
+  return source && failed !== source ? (
     <Image
-      source={{ uri }}
-      onError={() => setFailed(true)}
+      source={{ uri: source }}
+      cachePolicy="memory-disk"
+      transition={imageFade()}
+      accessibilityLabel=""
+      onError={() => setFailed(source)}
       style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: color.subtle }}
     />
   ) : (
@@ -558,18 +576,52 @@ export function Avatar({ name, uri, size = 36 }: { name: string; uri?: string; s
     </View>
   );
 }
-export function FoodImage({ uri, style }: { uri: string; style?: ViewStyle }) {
-  const [failed, setFailed] = useState(false);
-  const [shown] = useState(() => new Animated.Value(0));
+export function FoodImage({
+  uri,
+  style,
+  label,
+  width,
+  priority,
+}: {
+  uri: string;
+  style?: ViewStyle;
+  /** What the photo shows, for screen readers and the web's alt text. Without one it's decorative. */
+  label?: string;
+  /** The width it's shown at, in points, when the style doesn't give one. */
+  width?: number;
+  /** 'high' for the photo a page is about, such as a recipe's cover. */
+  priority?: 'low' | 'normal' | 'high';
+}) {
+  const [failed, setFailed] = useState('');
+  const shownWidth = width ?? StyleSheet.flatten(style)?.width;
+  // Twice the width for sharp screens, up to a size that's plenty for any of them.
+  const pixels =
+    typeof shownWidth === 'number' && shownWidth > 0
+      ? Math.min(shownWidth * 2, 1600)
+      : DEFAULT_IMAGE_WIDTH;
+  const source = uri ? sized(uri, pixels) : '';
+  const preview = blurred(uri);
   return (
-    <View style={[{ backgroundColor: color.subtle, overflow: 'hidden' }, style]}>
-      {uri && !failed ? (
-        <Animated.Image
-          source={{ uri }}
-          resizeMode="cover"
-          onError={() => setFailed(true)}
-          onLoad={() => animate(shown, 1, 380).start()}
-          style={{ width: '100%', height: '100%', opacity: shown }}
+    <View
+      accessible={!!label}
+      accessibilityRole={label ? 'image' : undefined}
+      accessibilityLabel={label}
+      style={[{ backgroundColor: color.subtle, overflow: 'hidden' }, style]}
+    >
+      {source && failed !== source ? (
+        <Image
+          source={{ uri: source }}
+          // The photo's colours, blurred, until it arrives (where its host can make the preview).
+          placeholder={preview ? { uri: preview } : undefined}
+          placeholderContentFit="cover"
+          contentFit="cover"
+          cachePolicy="memory-disk"
+          priority={priority}
+          loading={priority === 'high' ? 'eager' : undefined}
+          transition={imageFade()}
+          accessibilityLabel={label ?? ''}
+          onError={() => setFailed(source)}
+          style={{ width: '100%', height: '100%' }}
         />
       ) : (
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
@@ -638,7 +690,10 @@ export function SectionTitle({
   return (
     <View style={[s.row, { marginBottom: 14, gap: 12, alignItems: 'flex-start' }]}>
       <View style={{ flex: 1, gap: 3 }}>
-        <Text style={s.h2}>{title}</Text>
+        {/* A section of a page: a heading for screen readers, and an <h2> on the web. */}
+        <Text role="heading" aria-level={2} style={s.h2}>
+          {title}
+        </Text>
         {subtitle && <Text style={s.muted}>{subtitle}</Text>}
       </View>
       {action && (
@@ -683,16 +738,18 @@ export function Rail({
     ref.current?.scrollTo({ x: Math.max(0, m.x + dir * m.view * 0.8), animated: true });
   const edge = (side: 'left' | 'right') => (
     <View
-      style={{
-        position: 'absolute',
-        top: pad,
-        bottom: pad,
-        [side]: 0,
-        width: 88,
-        justifyContent: 'center',
-        alignItems: side === 'left' ? 'flex-start' : 'flex-end',
-        pointerEvents: 'box-none',
-      }}
+      style={[
+        passThrough,
+        {
+          position: 'absolute',
+          top: pad,
+          bottom: pad,
+          [side]: 0,
+          width: 88,
+          justifyContent: 'center',
+          alignItems: side === 'left' ? 'flex-start' : 'flex-end',
+        },
+      ]}
     >
       <LinearGradient
         colors={['rgba(244,244,244,0)', color.bg]}
@@ -764,7 +821,14 @@ export function PageHeading({
     >
       <View style={{ gap: 6, flex: 1 }}>
         {eyebrow && <Text style={s.label}>{eyebrow}</Text>}
-        <Text style={desktop ? s.display : [s.h1, { fontSize: 30, lineHeight: 36 }]}>{title}</Text>
+        {/* The page's title: its <h1> on the web. */}
+        <Text
+          role="heading"
+          aria-level={1}
+          style={desktop ? s.display : [s.h1, { fontSize: 30, lineHeight: 36 }]}
+        >
+          {title}
+        </Text>
         {subtitle && <Text style={[s.muted, { maxWidth: 560 }]}>{subtitle}</Text>}
       </View>
       {children && <View style={[s.row, { gap: 10 }]}>{children}</View>}
@@ -921,7 +985,12 @@ const subscribeSheets = (l: () => void) => {
   };
 };
 const getSheets = () => sheets;
+const topOf = (list: Sheet[]) =>
+  list.length ? list.reduce((a, b) => (b.order > a.order ? b : a)) : undefined;
 const pageOf = (e: Sheet) => `${e.id}:${e.title ?? ''}`;
+const anySheet = () => sheets.length > 0;
+/** Whether any sheet is open. */
+export const useSheetOpen = () => useSyncExternalStore(subscribeSheets, anySheet, anySheet);
 export function Dialog({
   visible,
   onClose,
@@ -1060,41 +1129,49 @@ function sheetDrag(y: Animated.Value, backdrop: Animated.Value) {
     if (claimed) settle(vy);
     claimed = false;
   };
-  const header = Gesture.Pan()
-    .runOnJS(true)
-    .hitSlop({ top: 0, height: HEADER })
-    .activeOffsetY([-6, 6])
-    .failOffsetX([-24, 24])
-    .onStart(() => {
-      if (!off()) begin();
-    })
-    .onUpdate((e) => move(e.translationY))
-    .onEnd((e) => release(e.velocityY / 1000))
-    .onFinalize(() => (claimed = false));
+  const header = () =>
+    Gesture.Pan()
+      .runOnJS(true)
+      .hitSlop({ top: 0, height: HEADER })
+      .activeOffsetY([-6, 6])
+      .failOffsetX([-24, 24])
+      .onStart(() => {
+        if (!off()) begin();
+      })
+      .onUpdate((e) => move(e.translationY))
+      .onEnd((e) => release(e.velocityY / 1000))
+      .onFinalize(() => (claimed = false));
   const scroll = Gesture.Native();
   const claim = (at: number) => {
-    if (off() || scrollY > 0.5) return;
+    // The same line as the host's `scrolled`, which enables this pan.
+    if (off() || scrollY > 1) return;
     begin(at);
     // The content holds still while the sheet follows a pull that began in it.
     host.lockScroll(true);
   };
-  const content = Gesture.Pan()
-    .runOnJS(true)
-    .hitSlop({ top: -HEADER })
-    .activeOffsetY(6)
-    .failOffsetY(-6)
-    .failOffsetX([-24, 24])
-    .simultaneousWithExternalGesture(scroll)
-    .onStart(() => claim(0))
-    .onUpdate((e) => {
-      if (!claimed) claim(e.translationY);
-      move(Math.max(from, e.translationY));
-    })
-    .onEnd((e) => release(e.velocityY / 1000))
-    .onFinalize(() => {
-      claimed = false;
-      host.lockScroll(false);
-    });
+  // A pull in the content moves the sheet only while the content is at its top, so the pan is
+  // only enabled then (see `gestureAt`). An enabled pan claims a downward touch before the scroll
+  // view can, and on iOS that takes the touch from it even when the sheet stays put: a list
+  // scrolled down, or a conversation opened at its end, then couldn't be scrolled back up.
+  const content = (enabled: boolean) =>
+    Gesture.Pan()
+      .runOnJS(true)
+      .enabled(enabled)
+      .hitSlop({ top: -HEADER })
+      .activeOffsetY(6)
+      .failOffsetY(-6)
+      .failOffsetX([-24, 24])
+      .simultaneousWithExternalGesture(scroll)
+      .onStart(() => claim(0))
+      .onUpdate((e) => {
+        if (!claimed) claim(e.translationY);
+        move(Math.max(from, e.translationY));
+      })
+      .onEnd((e) => release(e.velocityY / 1000))
+      .onFinalize(() => {
+        claimed = false;
+        host.lockScroll(false);
+      });
   return {
     scroll,
     sync: (next: SheetDragHost) => {
@@ -1106,7 +1183,12 @@ function sheetDrag(y: Animated.Value, backdrop: Animated.Value) {
     scrolled: (offset: number) => {
       scrollY = offset;
     },
-    gesture: Gesture.Race(header, content),
+    /**
+     * The sheet's drag, for content at its top (a pull moves the sheet) or scrolled down. A new
+     * gesture each time: the detector keeps the gestures it attached first and copies each new
+     * one's settings onto them, so one handed back later would no longer have its own.
+     */
+    gestureAt: (contentAtTop: boolean) => Gesture.Race(header(), content(contentAtTop)),
     reset: () => {
       scrollY = 0;
     },
@@ -1124,10 +1206,13 @@ function sheetDrag(y: Animated.Value, backdrop: Animated.Value) {
 const inWindow = Platform.OS === 'android';
 function SheetLayer({
   visible,
+  label,
   onRequestClose,
   children,
 }: {
   visible: boolean;
+  /** The sheet's title, which names the dialog for screen readers on the web. */
+  label?: string;
   onRequestClose: () => void;
   children: React.ReactNode;
 }) {
@@ -1154,9 +1239,30 @@ function SheetLayer({
       animationType="none"
       onRequestClose={onRequestClose}
       statusBarTranslucent
+      // React Native Web gives the modal the dialog role; this names it.
+      aria-label={native ? undefined : label}
     >
       {children}
     </Modal>
+  );
+}
+/**
+ * Holds the app beneath the shared sheet. On Android the sheet is a layer in the app's own window
+ * rather than a modal window (see above), so while one is open this hides everything under it
+ * from TalkBack, as a modal would. iOS and the web get that from the sheet's native modal.
+ */
+export function UnderSheets({
+  style,
+  children,
+}: {
+  style?: StyleProp<ViewStyle>;
+  children: React.ReactNode;
+}) {
+  const covered = useSheetOpen() && inWindow;
+  return (
+    <View style={style} importantForAccessibility={covered ? 'no-hide-descendants' : 'auto'}>
+      {children}
+    </View>
   );
 }
 // Centered card on desktop; a bottom sheet with a grabber on phones and tablets.
@@ -1164,8 +1270,15 @@ export function SheetHost() {
   const { t: tr } = useI18n();
   const { compact, height, insets, width } = useChrome();
   const entries = useSyncExternalStore(subscribeSheets, getSheets, getSheets);
-  const top = entries.length ? entries.reduce((a, b) => (b.order > a.order ? b : a)) : undefined;
+  const top = topOf(entries);
   const topPage = top && pageOf(top);
+  // On the web an open sheet has its own history entry: Back closes it rather than the page.
+  const topId = top?.id;
+  useEffect(() => {
+    if (topId === undefined) sheetsGone();
+    else sheetShown();
+  }, [topId]);
+  useEffect(() => onSheetBack(() => topOf(getSheets())?.onClose()), []);
   const [open, setOpen] = useState(false);
   const [page, setPage] = useState<string>();
   // While the old page fades out it is frozen; once closed, its last version rides the sheet down.
@@ -1206,6 +1319,8 @@ export function SheetHost() {
     setPage(next);
   };
   const [dragger] = useState(() => sheetDrag(y, backdrop));
+  // Pulls in the content move the sheet only while the content is at its top.
+  const sheetGesture = useMemo(() => dragger.gestureAt(!scrolled), [dragger, scrolled]);
   // While the sheet follows a pull that began in the content, the content holds still.
   const [scrollLocked, setScrollLocked] = useState(false);
   useLayoutEffect(
@@ -1344,11 +1459,11 @@ export function SheetHost() {
   const close = () => top?.onClose();
   // Phones get the drag; the desktop card stays put.
   const draggable = (
-    gesture: typeof dragger.gesture | typeof dragger.scroll,
+    gesture: ReturnType<typeof dragger.gestureAt> | typeof dragger.scroll,
     child: React.ReactElement,
   ) => (compact ? <GestureDetector gesture={gesture}>{child}</GestureDetector> : child);
   return (
-    <SheetLayer visible={open} onRequestClose={close}>
+    <SheetLayer visible={open} label={entry?.title} onRequestClose={close}>
       <GestureHandlerRootView style={{ flex: 1 }}>
         <View
           style={{
@@ -1369,7 +1484,7 @@ export function SheetHost() {
             style={StyleSheet.absoluteFill}
           />
           {draggable(
-            dragger.gesture,
+            sheetGesture,
             <Animated.View
               accessibilityViewIsModal
               onLayout={(e) => dragger.measured(e.nativeEvent.layout.height)}
@@ -1588,7 +1703,8 @@ export function CheckRow({
   return (
     <Pressable
       accessibilityRole="checkbox"
-      accessibilityState={{ checked }}
+      // The web reads only aria-checked; the apps read either.
+      aria-checked={checked}
       onPress={onPress}
       style={[s.row, { gap: 14, paddingVertical: 13 }]}
     >
@@ -1598,7 +1714,7 @@ export function CheckRow({
           height: 24,
           borderRadius: 12,
           borderWidth: 1.5,
-          borderColor: checked ? color.ink : color.line,
+          borderColor: checked ? color.ink : color.outline,
           backgroundColor: color.white,
           justifyContent: 'center',
           alignItems: 'center',
@@ -1685,20 +1801,28 @@ export function NumberField({
     />
   );
 }
+/**
+ * `pointerEvents: 'box-none'` for a layer whose children take touches but whose own box doesn't.
+ * React Native Web turns it into CSS only for a compiled style; written inline it is dropped, and
+ * the layer's whole box takes the clicks meant for the page under it. Use this instead.
+ */
+export const passThrough = StyleSheet.create({ layer: { pointerEvents: 'box-none' } }).layer;
 /** Stacks notices (announcements, app updates) over the top of every screen. */
 export function TopBanners({ children }: { children: React.ReactNode }) {
   const { desktop, insets, gutter } = useChrome();
   return (
     <View
-      style={{
-        position: 'absolute',
-        top: desktop ? insets.top + 84 + 12 : insets.top + 8,
-        left: desktop ? 248 + gutter : 12,
-        right: desktop ? gutter : 12,
-        alignItems: 'center',
-        gap: 8,
-        pointerEvents: 'box-none',
-      }}
+      style={[
+        passThrough,
+        {
+          position: 'absolute',
+          top: desktop ? insets.top + 84 + 12 : insets.top + 8,
+          left: desktop ? 248 + gutter : 12,
+          right: desktop ? gutter : 12,
+          alignItems: 'center',
+          gap: 8,
+        },
+      ]}
     >
       {children}
     </View>
@@ -1723,10 +1847,16 @@ export function Toast({ message, bottom }: { message: string; bottom?: number })
       }).start();
     else animate(a, 0, 200).start(({ finished }) => finished && setLast(''));
   }, [message, a]);
+  // VoiceOver ignores live regions, and on Android an open sheet hides the app (and this toast)
+  // from TalkBack, so the apps announce each message outright; the web keeps the live region.
+  const spoken = message ? tr(message) : '';
+  useEffect(() => {
+    if (native && spoken) AccessibilityInfo.announceForAccessibility(spoken);
+  }, [spoken]);
   if (!shown) return null;
   return (
     <View
-      accessibilityLiveRegion="polite"
+      accessibilityLiveRegion={native ? undefined : 'polite'}
       style={{
         position: 'absolute',
         left: 16,

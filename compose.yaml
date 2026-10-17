@@ -56,6 +56,8 @@ services:
       DATABASE_URL: postgres://savorly:savorly_local_only@db:5432/savorly?sslmode=disable
       PORT: 8080
       S3_ENDPOINT: http://storage:8333
+      # Direct uploads are signed for the browser, which reaches storage on the host port.
+      S3_UPLOAD_ENDPOINT: http://localhost:8333
     ports:
       - '127.0.0.1:8080:8080'
     depends_on:

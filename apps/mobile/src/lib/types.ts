@@ -1,5 +1,13 @@
 export type Ingredient = { name: string; amount: number; unit: string; category: string };
-export type RecipeStep = { title: string; text: string; seconds: number };
+export type RecipeStep = {
+  title: string;
+  text: string;
+  seconds: number;
+  /** A photo of this step (a media URL); missing or '' for none. */
+  image?: string;
+  /** A short clip of this step (a media URL); missing or '' for none. */
+  video?: string;
+};
 export type Creator = {
   id: string;
   name: string;
@@ -26,18 +34,66 @@ export type RecipeInput = {
   calories: number;
   aiGenerated: boolean;
   published: boolean;
+  /**
+   * The language the recipe is written in ('en', 'fr'…), '' when nobody said. Left out or '', the
+   * server keeps what's saved.
+   */
+  language?: string;
+  /** The page an imported recipe came from; '' for none. Left out, the server keeps what's saved. */
+  sourceUrl?: string;
+  /**
+   * The recipe this one adapts. A save sends the original's id (left out, the server keeps what's
+   * saved); recipes from the server carry the original itself, or null.
+   */
+  derivedFrom?: string | RecipeOrigin | null;
 };
-export type Recipe = RecipeInput & {
+/** The recipe an adaptation came from, as recipes from the server name it. */
+export type RecipeOrigin = {
+  id: string;
+  title: string;
+  author: { id: string; name: string; handle: string };
+};
+export type Recipe = Omit<RecipeInput, 'derivedFrom'> & {
   id: string;
   author: Creator;
   rating: number;
   reviewCount: number;
   saveCount: number;
   createdAt: string;
+  /** The recipe this one adapts; null or missing for an original. */
+  derivedFrom?: RecipeOrigin | null;
+  /** Published recipes adapted from this one. Missing on older servers. */
+  variationCount?: number;
+  /** Comments, replies included. Missing on older servers. */
+  commentCount?: number;
+  /** Cooks who marked it as cooked. Missing on older servers. */
+  cookedCount?: number;
+};
+/** How recipe amounts show: as their cooks wrote them (''), or converted. */
+export type Units = '' | 'metric' | 'imperial';
+/** The same choice, as the recipe page names it. */
+export type UnitChoice = Units;
+/** Which push notifications the member wants; each is on unless turned off. */
+export type NotificationPreferences = {
+  follows: boolean;
+  pantry: boolean;
+  reviews: boolean;
+  comments: boolean;
+};
+export type Preferences = {
+  diets: string[];
+  allergies: string[];
+  /** Older servers leave these out: as written, no language yet, everything on. */
+  units?: Units;
+  /** The app's language, which notifications are written in ('' until one is chosen). */
+  language?: string;
+  notifications?: Partial<NotificationPreferences>;
 };
 export type User = Creator & {
   email: string;
-  preferences: { diets: string[]; allergies: string[] };
+  /** False until the address is confirmed with a code; older servers leave it out. */
+  emailVerified?: boolean;
+  preferences: Preferences;
   /** False for kitchens made with Apple or Google until a password is set by email. */
   hasPassword: boolean;
   identities: ('apple' | 'google')[];
@@ -87,14 +143,51 @@ export type Review = {
   rating: number;
   body: string;
   createdAt: string;
+  /** Later than createdAt once the review is rewritten. Missing on older servers. */
+  updatedAt?: string;
   author: Creator;
+  /** The recipe author's answer; null or missing when there is none. */
+  reply?: ReviewReply | null;
+};
+export type ReviewReply = { body: string; repliedAt: string };
+/** Who wrote a comment or a cook's note. */
+export type Commenter = { id: string; name: string; handle: string; avatar: string };
+export type RecipeComment = {
+  id: string;
+  body: string;
+  /** The comment this replies to; replies go one level deep. */
+  parentId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  author: Commenter;
+  /** The signed-in cook may delete it: their own comment, or any on their recipe. */
+  canDelete: boolean;
+};
+/** One cook's "I cooked this", with an optional photo and note. */
+export type RecipeCook = {
+  id: string;
+  photo: string;
+  note: string;
+  createdAt: string;
+  author: Commenter;
 };
 export type Library = {
   savedIds: string[];
   saves: { recipeId: string; collectionId: string | null }[];
-  collections: { id: string; name: string }[];
+  collections: Collection[];
   followingIds: string[];
   recipes: Recipe[];
+  /** Recipes the cook marked as cooked. Missing on older servers. */
+  cookedIds?: string[];
+  /** Every recipe the cook wrote, drafts too, newest first. Missing on older servers. */
+  ownIds?: string[];
+  /** How many of the cook's recipes are published. Missing on older servers. */
+  publishedCount?: number;
+  /**
+   * More recipes than `recipes` holds (GET /library?limit=); page through them with
+   * GET /library/recipes. Older servers send the whole library and leave this out.
+   */
+  hasMore?: boolean;
 };
 export type Plan = {
   id: string;
@@ -110,6 +203,8 @@ export type Grocery = {
   quantity: string;
   category: string;
   checked: boolean;
+  /** Who put it on a household's shared list; null for older items (and missing on older servers). */
+  addedBy?: { id: string; name: string } | null;
 };
 export type PantryItem = { id: string; name: string; quantity: string; expiresOn: string | null };
 export type Kitchen = { plans: Plan[]; groceries: Grocery[]; pantry: PantryItem[] };
@@ -135,6 +230,8 @@ export type AIRequest = {
   suggestions?: string[];
   placeholder?: string;
   onMedia?: (url: string) => void;
+  /** The recipe an adaptation starts from, credited on the recipe it becomes. */
+  derivedFrom?: string;
 };
 export type Announcement = { text: string; tone: 'info' | 'warning' };
 export type Capabilities = {
@@ -156,8 +253,10 @@ export type Capabilities = {
   /** Plans and allowances are live (PAID_PLANS); until then everyone has unlimited use. */
   plans?: boolean;
   billing?: boolean;
-  /** Password-reset email is configured. */
+  /** Password-reset email is configured, and with it email confirmation and email changes. */
   passwordRecovery?: boolean;
+  /** Cloudflare Turnstile's public site key; '' (or missing) when sign-up has no check. */
+  turnstileSiteKey?: string;
   appleSignIn?: boolean;
   googleSignIn?: boolean;
   auth?: {
@@ -222,6 +321,8 @@ export type StudioContext = {
   title: string;
   recipe: { id: string; title: string } | null;
   cookingStep: number | null;
+  /** The interface language for replies the server writes itself; defaults to the app's. */
+  language?: string;
 };
 export type StudioProject = {
   voiceSession?: { id: string; status: string } | null;
@@ -237,4 +338,66 @@ export type StudioProject = {
   error: string;
   updatedAt: string;
   assets: { kind: 'image' | 'video'; status: AIJob['status']; error: string; url?: string }[];
+};
+
+/** One of the member's cookbooks (a library collection). Older servers leave out the last two. */
+export type Collection = {
+  id: string;
+  name: string;
+  /** Anyone with the link can see the cookbook and the published recipes in it. */
+  public?: boolean;
+  description?: string;
+};
+/** A cookbook page, GET /cookbooks/:id: public ones for everyone, private ones for their owner. */
+export type PublicCookbook = {
+  id: string;
+  name: string;
+  description: string;
+  public: boolean;
+  owner: Creator;
+  recipes: Recipe[];
+};
+/** A cook's public cookbook as their profile lists it (GET /creators/:id/cookbooks). */
+export type CookbookSummary = {
+  id: string;
+  name: string;
+  description: string;
+  recipeCount: number;
+  /** A photo from the cookbook, or ''. */
+  cover: string;
+};
+/** One page of the library: GET /library/recipes. */
+export type LibraryPage = { recipes: Recipe[]; hasMore: boolean };
+/** What putting recipes on the grocery list did: new lines, and lines folded into matching ones. */
+export type GroceryMerge = { added: number; merged: number };
+export type HouseholdRole = 'owner' | 'member';
+export type HouseholdMember = {
+  id: string;
+  name: string;
+  handle: string;
+  avatar: string;
+  role: HouseholdRole;
+};
+/** The kitchen's household (GET /household), whose members share one grocery list. */
+export type Household = {
+  id: string;
+  name: string;
+  /** The signed-in member's role. */
+  role: HouseholdRole;
+  members: HouseholdMember[];
+};
+/** An invite code (8 letters and digits) and when it stops working. */
+export type HouseholdInvite = { code: string; expiresAt: string };
+/** A signed-in device, as GET /me/sessions lists it (this one first). */
+export type DeviceSession = {
+  id: string;
+  createdAt: string;
+  lastUsedAt: string;
+  expiresAt: string;
+  userAgent: string;
+  /** Savorly, a browser's name, or '' when unknown. */
+  client: string;
+  /** iPhone, iPad, iOS, Android, macOS, Windows, ChromeOS, Linux, or ''. */
+  system: string;
+  current: boolean;
 };

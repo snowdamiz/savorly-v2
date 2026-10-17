@@ -133,11 +133,12 @@ func providerPhoto(raw string) string {
 
 var googleSize = regexp.MustCompile(`=s\d+(-c)?$`)
 
-func providerName(p string) string {
+// providerMessage picks the sentence written for the provider, so the app can translate it whole.
+func providerMessage(p, apple, google string) string {
 	if p == "apple" {
-		return "Apple"
+		return apple
 	}
-	return "Google"
+	return google
 }
 
 func (a *App) oauthSignIn(c fiber.Ctx) error {
@@ -157,7 +158,7 @@ func (a *App) oauthSignIn(c fiber.Ctx) error {
 	switch {
 	case e == nil:
 		if current != "" && current != owner {
-			return fiber.NewError(409, "This "+providerName(id.Provider)+" account is already connected to a different Savorly kitchen.")
+			return fiber.NewError(409, providerMessage(id.Provider, "This Apple account is already connected to a different Savorly kitchen.", "This Google account is already connected to a different Savorly kitchen."))
 		}
 	case !errors.Is(e, pgx.ErrNoRows):
 		return e
@@ -194,7 +195,7 @@ func (a *App) oauthSignIn(c fiber.Ctx) error {
 
 func (a *App) createProviderUser(ctx context.Context, id providerIdentity, name string) (string, error) {
 	if id.Email == "" || !id.EmailVerified {
-		return "", fiber.NewError(400, "Your "+providerName(id.Provider)+" account needs a verified email to create a kitchen.")
+		return "", fiber.NewError(400, providerMessage(id.Provider, "Your Apple account needs a verified email to create a kitchen.", "Your Google account needs a verified email to create a kitchen."))
 	}
 	if e := a.signupsOpen(ctx); e != nil {
 		return "", e
@@ -204,7 +205,7 @@ func (a *App) createProviderUser(ctx context.Context, id providerIdentity, name 
 		return "", e
 	}
 	if taken {
-		return "", fiber.NewError(409, "A kitchen already uses this email. Sign in with your password, then connect "+providerName(id.Provider)+" from My kitchen.")
+		return "", fiber.NewError(409, providerMessage(id.Provider, "A kitchen already uses this email. Sign in with your password, then connect Apple from My kitchen.", "A kitchen already uses this email. Sign in with your password, then connect Google from My kitchen."))
 	}
 	name = strings.TrimSpace(name)
 	if !validText(name, 2, 70) {

@@ -17,9 +17,10 @@ const platform = 'android';
 const app = fileURLToPath(new URL('../apps/mobile/', import.meta.url));
 const profile = JSON.parse(readFileSync(`${app}eas.json`, 'utf8')).build[target];
 
-// CI installs EAS CLI globally; elsewhere npx fetches the latest.
-const cli =
-  spawnSync('eas', ['--version']).status === 0 ? ['eas'] : ['npx', '--yes', 'eas-cli@latest'];
+// CI installs this EAS CLI version globally (eas-version in .github/workflows/ci.yml; bump both
+// together); elsewhere npx fetches it unless an `eas` is installed.
+const easCli = 'eas-cli@24.14.0';
+const cli = spawnSync('eas', ['--version']).status === 0 ? ['eas'] : ['npx', '--yes', easCli];
 const eas = (args, { json = false, env = {} } = {}) => {
   const flags = json ? ['--json', '--non-interactive'] : ['--non-interactive'];
   const out = execFileSync(cli[0], [...cli.slice(1), ...args, ...flags], {

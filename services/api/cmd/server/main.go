@@ -14,10 +14,15 @@ import (
 )
 
 func main() {
+	// `server -healthcheck` probes a running server and exits (healthcheck.go, Dockerfile).
+	if len(os.Args) > 1 && (os.Args[1] == "-healthcheck" || os.Args[1] == "--healthcheck") {
+		os.Exit(healthcheck())
+	}
 	_ = godotenv.Load("../../.env", ".env")
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	config := app.LoadConfig()
+	app.SetupLogging(config)
 	url := os.Getenv("DATABASE_URL")
 	if url == "" {
 		slog.Error("DATABASE_URL is required")
@@ -36,7 +41,13 @@ func main() {
 		}
 	}
 	server := app.NewWithContext(ctx, db, config)
-	go app.RunWorker(ctx, db, config)
+	worker := make(chan struct{})
+	go func() {
+		defer close(worker)
+		app.RunWorker(ctx, db, config)
+	}()
+	go app.RunJanitor(ctx, db)
+	go app.RunNotifications(ctx, db)
 	go func() {
 		<-ctx.Done()
 		if e := server.ShutdownWithTimeout(10 * time.Second); e != nil {
@@ -46,5 +57,13 @@ func main() {
 	slog.Info("Savorly API listening", "port", app.Env("PORT", "8080"))
 	if e = server.Listen(":" + app.Env("PORT", "8080")); e != nil {
 		slog.Error("server stopped", "error", e)
+	}
+	// In-flight sous-chef turns and AI jobs settle before the pool closes, within the time a
+	// container gets to stop, so a slow provider call can't hold shutdown open.
+	stop()
+	select {
+	case <-worker:
+	case <-time.After(20 * time.Second):
+		slog.Warn("background work was still settling at shutdown")
 	}
 }

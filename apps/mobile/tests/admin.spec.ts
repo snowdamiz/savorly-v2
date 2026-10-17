@@ -1,4 +1,4 @@
-import { test, expect, Page } from '@playwright/test';
+import { test, expect, Page, Route } from '@playwright/test';
 
 const member = {
   id: 'cook',
@@ -164,15 +164,37 @@ async function mockAPI(page: Page, user: typeof member, announcement: unknown = 
       return fulfill({ ...user, onboarded: false });
     }
     if (path === '/admin/settings')
-      return fulfill({
-        settings: method === 'PUT' ? route.request().postDataJSON() : settings,
-        defaults: { aiDailyBudgetUSD: 25, aiFreeDailyBudgetUSD: 5 },
-        updatedAt: null,
-        updatedBy: null,
-      });
+      return fulfill(settingsReply(method === 'PUT' ? route.request().postDataJSON() : settings));
     return fulfill([]);
   });
   return writes;
+}
+
+function settingsReply(saved: object, more: object = {}) {
+  return {
+    settings: saved,
+    defaults: { aiDailyBudgetUSD: 25, aiFreeDailyBudgetUSD: 5 },
+    budgetLimits: { aiDailyBudgetUSD: 250, aiFreeDailyBudgetUSD: 50 },
+    canChangeBudgets: true,
+    updatedAt: null,
+    updatedBy: null,
+    ...more,
+  };
+}
+
+/** Answers requests to a path and below it, ahead of mockAPI's routes. */
+async function answer(
+  page: Page,
+  path: string,
+  fn: (route: Route, rest: string) => [status: number, body: unknown],
+) {
+  await page.route(`**/v1${path}**`, (route) => {
+    const [status, body] = fn(
+      route,
+      new URL(route.request().url()).pathname.slice(3 + path.length),
+    );
+    return route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
+  });
 }
 
 test('members never see the admin console', async ({ page }) => {
@@ -211,12 +233,184 @@ test('admins review reports and change operator settings', async ({ page }) => {
 
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await page.getByRole('switch', { name: 'Pause all AI features' }).click();
+  // Overrides stop at ten times the server's default.
+  await page.getByLabel('Daily AI budget for everyone (USD)').fill('300');
+  await expect(page.getByText(/more than ten times the server’s default/)).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Save settings' })).toBeDisabled();
   await page.getByLabel('Daily AI budget for everyone (USD)').fill('12.5');
   await page.getByRole('button', { name: 'Save settings' }).click();
+  // The save says which version it edits: none yet.
   await expect
     .poll(() => writes.find((w) => w.path === '/admin/settings')?.body)
-    .toMatchObject({ aiPaused: true, aiDailyBudgetUSD: 12.5, aiFreeDailyBudgetUSD: null });
+    .toMatchObject({
+      aiPaused: true,
+      aiDailyBudgetUSD: 12.5,
+      aiFreeDailyBudgetUSD: null,
+      expectedUpdatedAt: null,
+    });
   await expect(page.getByText('Settings saved. They apply from the next request.')).toBeVisible();
+});
+
+test('a save over another admin’s newer settings shows theirs instead', async ({ page }) => {
+  await mockAPI(page, owner);
+  const loaded = '2026-10-16T10:00:00.123456Z';
+  let latest = settingsReply(settings, { updatedAt: loaded, updatedBy: 'owner@example.test' });
+  const saves: unknown[] = [];
+  await answer(page, '/admin/settings', (route) => {
+    if (route.request().method() !== 'PUT') return [200, latest];
+    saves.push(route.request().postDataJSON());
+    // Another admin saved an announcement after this form loaded.
+    latest = settingsReply(
+      { ...settings, announcement: 'Saved by another admin.' },
+      { updatedAt: '2026-10-16T10:05:00.654321Z', updatedBy: 'admin@example.test' },
+    );
+    return [409, { error: 'Another admin changed these settings after you opened them.' }];
+  });
+  await page.goto('/?page=admin&tab=settings');
+  await page.getByRole('switch', { name: 'Pause all AI features' }).click();
+  await page.getByRole('button', { name: 'Save settings' }).click();
+  await expect(
+    page.getByText('Another admin saved these settings while you were editing.', { exact: false }),
+  ).toBeVisible();
+  // The version it was editing goes back exactly as the API sent it.
+  expect(saves).toEqual([expect.objectContaining({ aiPaused: true, expectedUpdatedAt: loaded })]);
+  await expect(page.getByLabel(/^Message/)).toHaveValue('Saved by another admin.');
+  await expect(page.getByText(/by admin@example\.test\.$/)).toBeVisible();
+});
+
+test('appointed admins see the budgets, but only owners change them', async ({ page }) => {
+  await mockAPI(page, { ...owner, id: 'admin', email: 'admin@example.test', adminOwner: false });
+  await answer(page, '/admin/settings', () => [
+    200,
+    settingsReply({ ...settings, aiDailyBudgetUSD: 40 }, { canChangeBudgets: false }),
+  ]);
+  await page.goto('/?page=admin&tab=settings');
+  const budget = page.getByLabel('Daily AI budget for everyone (USD)');
+  await expect(budget).toHaveValue('40');
+  await expect(budget).not.toBeEditable();
+  await expect(page.getByText(/Only owners change the budgets\./)).toBeVisible();
+});
+
+test('restoring follows the recipe’s own hold, not its history', async ({ page }) => {
+  await mockAPI(page, owner);
+  const author = { id: 'cook', name: 'Alex', email: 'alex@example.test', avatar: '' };
+  const recipe = (id: string, title: string, held: string | null) => ({
+    id,
+    title,
+    image: '',
+    cuisine: 'Italian',
+    published: false,
+    aiGenerated: false,
+    video: false,
+    createdAt: '2026-10-10T10:00:00Z',
+    updatedAt: '2026-10-11T10:00:00Z',
+    unpublishedByAdminAt: held,
+    author: { ...author, handle: 'alex', suspended: false },
+    rating: 0,
+    reviewCount: 0,
+    saveCount: 0,
+    openReports: 0,
+    reportCount: 0,
+  });
+  const recipes = [
+    recipe('held', 'Held halloumi', '2026-10-11T10:00:00Z'),
+    // Its author republished and unpublished it, so the last admin action is still an unpublish.
+    recipe('draft', 'Private draft', null),
+  ];
+  await answer(page, '/admin/recipes', (route, rest) => {
+    const r = recipes.find((x) => rest === `/${x.id}`);
+    if (!r) return [200, { items: recipes, total: recipes.length, offset: 0, limit: 50 }];
+    return [
+      200,
+      {
+        ...r,
+        description: 'A recipe to moderate.',
+        minutes: 20,
+        servings: 2,
+        difficulty: 'Easy',
+        photos: [],
+        video: '',
+        ingredients: [],
+        steps: [],
+        tags: [],
+        calories: 0,
+        author: { ...author, handle: 'alex', bio: '' },
+        unpublishedBy: r.unpublishedByAdminAt ? 'owner@example.test' : '',
+        authorEmail: author.email,
+        authorSuspended: false,
+        conversations: 0,
+        reports: [],
+        history: [
+          {
+            id: 1,
+            adminId: 'owner',
+            adminEmail: 'owner@example.test',
+            action: 'recipe.unpublish',
+            targetType: 'recipe',
+            targetId: r.id,
+            summary: `Unpublished “${r.title}” by alex@example.test`,
+            detail: {},
+            createdAt: '2026-10-11T10:00:00Z',
+          },
+        ],
+      },
+    ];
+  });
+  await page.goto('/?page=admin&tab=recipes');
+  await expect(page.getByText('Unpublished by an admin')).toHaveCount(1);
+  await page.getByText('Private draft', { exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Delete recipe' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Restore to public' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Close dialog', exact: true }).click();
+  await page.getByText('Held halloumi', { exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Restore to public' })).toBeVisible();
+  await expect(page.getByText(/its author can’t publish it until it’s restored/)).toBeVisible();
+});
+
+test.describe('French browser', () => {
+  test.use({ locale: 'fr-FR' });
+  test('the console stays in English, but times follow the app’s language', async ({ page }) => {
+    await mockAPI(page, owner);
+    const seen = new Date(Date.now() - 3 * 3600 * 1000).toISOString();
+    await answer(page, '/admin/users', () => [
+      200,
+      {
+        items: [
+          {
+            id: 'cook',
+            name: 'Alex',
+            email: 'alex@example.test',
+            handle: 'alex',
+            avatar: '',
+            createdAt: '2026-10-10T10:00:00Z',
+            plan: 'free',
+            planStatus: '',
+            comped: false,
+            emailVerified: true,
+            hasPassword: true,
+            sample: false,
+            identities: [],
+            admin: false,
+            owner: false,
+            ownerEmail: false,
+            suspendedAt: null,
+            suspendedReason: '',
+            recipeCount: 2,
+            publishedCount: 1,
+            openReports: 0,
+            spend30d: 1.5,
+            lastSignInAt: seen,
+          },
+        ],
+        total: 1,
+        offset: 0,
+        limit: 50,
+      },
+    ]);
+    await page.goto('/?page=admin&tab=members');
+    await expect(page.getByText(/signed in il y a 3 heures/)).toBeVisible();
+    await expect(page.getByText('No members match.')).toHaveCount(0);
+  });
 });
 
 test('an announcement shows to everyone until it is dismissed', async ({ page }) => {

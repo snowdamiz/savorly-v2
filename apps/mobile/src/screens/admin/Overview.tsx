@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { Text, View } from 'react-native';
-import { Check, Minus } from 'lucide-react-native';
-import { Overview as Data } from '../../lib/admin';
-import { color, s } from '../../lib/theme';
+import { Check, Minus } from '../../components/icons';
+import { Overview as Data, Insights as InsightsData } from '../../lib/admin';
+import { color, font, s } from '../../lib/theme';
 import { Segmented } from '../../components/ui';
 import {
   Bars,
@@ -26,6 +26,86 @@ const metrics = [
   { value: 'jobs', label: 'AI jobs', unit: 'AI jobs' },
 ] as const;
 type Metric = (typeof metrics)[number]['value'];
+
+const periods = [
+  { value: '7', label: '7 days' },
+  { value: '30', label: '30 days' },
+] as const;
+type Period = (typeof periods)[number]['value'];
+// The events the app sends (POST /events), as the panel names them.
+const eventNames: Record<string, string> = {
+  search: 'Searches',
+  recipe_open: 'Recipes opened',
+  cook_start: 'Cooking started',
+  studio_start: 'Sous-chef chats started',
+  share: 'Recipes shared',
+  onboarding_step: 'Setup steps seen',
+  onboarding_done: 'Setups finished or skipped',
+  import: 'Recipe imports',
+};
+const setupEnds: Record<string, string> = {
+  done: 'Finished the setup',
+  skipped: 'Skipped the setup',
+};
+/** An API list, or none from an API that doesn't send it. */
+const listOf = <T,>(v: T[] | undefined): T[] => (Array.isArray(v) ? v : []);
+
+/** What people search for, and where the kitchen setup loses them, from the app's own events. */
+function Insights() {
+  const f = useFormat();
+  const [period, setPeriod] = useState<Period>('7');
+  const { data, error } = useLoad<InsightsData>(`/admin/insights?days=${period}`);
+  const section = (title: string, rows: { label: string; value: number }[], empty: string) => (
+    <View style={{ gap: 10, paddingBottom: 8 }}>
+      <Text style={[s.body, { fontFamily: font.semibold }]}>{title}</Text>
+      {rows.length ? (
+        <Bars rows={rows} format={f.number} />
+      ) : (
+        <Text style={[s.muted, { fontSize: 14 }]}>{empty}</Text>
+      )}
+    </View>
+  );
+  return (
+    <Panel
+      title="Insights"
+      subtitle="From the app's own events, kept for 90 days without IP addresses. Setup steps count people; everything else counts events."
+    >
+      <Segmented value={period} onChange={setPeriod} options={[...periods]} />
+      {!data ? (
+        <Loading error={error} />
+      ) : (
+        <Grid min={400}>
+          {section(
+            'Top searches',
+            listOf(data.topSearches).map((x) => ({ label: x.query, value: x.count })),
+            'No searches yet.',
+          )}
+          {section(
+            'Searches that found nothing',
+            listOf(data.zeroResultSearches).map((x) => ({ label: x.query, value: x.count })),
+            'Every search found something.',
+          )}
+          {section(
+            'Kitchen setup',
+            listOf(data.onboarding).map((x) => ({
+              label: setupEnds[x.step] ?? `Step: ${x.step}`,
+              value: x.count,
+            })),
+            'Nobody started the setup.',
+          )}
+          {section(
+            'Events',
+            listOf(data.events).map((x) => ({
+              label: eventNames[x.name] ?? x.name,
+              value: x.count,
+            })),
+            'No events yet.',
+          )}
+        </Grid>
+      )}
+    </Panel>
+  );
+}
 
 export function Overview() {
   const nav = useNav();
@@ -214,6 +294,7 @@ export function Overview() {
           points={data.series.map((d) => ({ label: f.day(d.day), value: d[metric] }))}
         />
       </Panel>
+      <Insights />
       <Grid min={320}>
         <Panel title="Members">
           <Facts

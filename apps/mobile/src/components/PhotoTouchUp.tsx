@@ -1,7 +1,7 @@
 import { useI18n } from '../lib/i18n';
 import React, { useEffect, useRef, useState } from 'react';
 import { Text, View } from 'react-native';
-import { Check, RotateCcw, Sparkles } from 'lucide-react-native';
+import { Check, RotateCcw, Sparkles } from './icons';
 import { useApp } from '../lib/store';
 import { touchUpPhoto } from '../lib/photos';
 import { haptic } from '../lib/haptics';
