@@ -283,7 +283,7 @@ func (a *App) runStudioWorker(ctx context.Context) {
 
 // claimTurn starts the oldest queued turn in a conversation with none running.
 func (a *App) claimTurn(ctx context.Context) (id, project string, through int64, ok bool) {
-	e := a.DB.QueryRow(ctx, `UPDATE voice_actions SET status='running',updated_at=now() WHERE id=(SELECT x.id FROM voice_actions x WHERE x.status='queued' AND NOT EXISTS(SELECT 1 FROM voice_actions busy WHERE busy.project_id=x.project_id AND busy.status='running') AND EXISTS(SELECT 1 FROM voice_projects p WHERE p.id=x.project_id AND p.deleted_at IS NULL) ORDER BY x.created_at FOR UPDATE SKIP LOCKED LIMIT 1) RETURNING id,project_id,through_seq`).Scan(&id, &project, &through)
+	e := a.DB.QueryRow(ctx, `UPDATE voice_actions SET status='running',updated_at=now(),started_at=now() WHERE id=(SELECT x.id FROM voice_actions x WHERE x.status='queued' AND NOT EXISTS(SELECT 1 FROM voice_actions busy WHERE busy.project_id=x.project_id AND busy.status='running') AND EXISTS(SELECT 1 FROM voice_projects p WHERE p.id=x.project_id AND p.deleted_at IS NULL) ORDER BY x.created_at FOR UPDATE SKIP LOCKED LIMIT 1) RETURNING id,project_id,through_seq`).Scan(&id, &project, &through)
 	var pe *pgconn.PgError
 	switch {
 	case e == nil:

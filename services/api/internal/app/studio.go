@@ -578,6 +578,7 @@ const turnFailed = "Your sous-chef couldn't finish that step. Your conversation 
 const turnFailedAfterChanges = "Your sous-chef couldn't finish that step, but some changes were already saved. Check them before asking again."
 
 func (a *App) processVoiceAction(ctx context.Context, id, project string, through int64) {
+	started := time.Now()
 	turn, cancel := context.WithTimeout(ctx, 3*time.Minute)
 	defer cancel()
 	// The member can stop it (studioCancel) while it runs here.
@@ -599,9 +600,11 @@ func (a *App) processVoiceAction(ctx context.Context, id, project string, throug
 	if e == nil {
 		input, e = a.agentInput(turn, state)
 	}
+	channel := map[bool]string{true: "voice", false: "text"}[run.voice]
 	if in, ok := input.(fiber.Map); ok {
-		in["channel"] = map[bool]string{true: "voice", false: "text"}[run.voice]
+		in["channel"] = channel
 	}
+	run.trace = turnTrace{Model: a.AI.AgentModel, Channel: channel, Rounds: []traceRound{}}
 	if e == nil {
 		e = a.applyAnswer(turn, id, run, input)
 	}
@@ -609,7 +612,13 @@ func (a *App) processVoiceAction(ctx context.Context, id, project string, throug
 	reply, cost, called := "", 0.0, false
 	if e == nil {
 		called = true
-		reply, cost, e = a.AI.Agent(turn, input, data, agentTools, func(name string, args json.RawMessage) string { return a.agentTool(turn, run, name, args) }, screenOnly(run))
+		tool := func(name string, args json.RawMessage) string {
+			began := time.Now()
+			out := a.agentTool(turn, run, name, args)
+			run.trace.tool(name, time.Since(began), out)
+			return out
+		}
+		reply, cost, e = a.AI.Agent(turn, input, data, agentTools, tool, ai.AgentHooks{Round: run.trace.round, Settled: screenOnly(run)})
 	}
 	if e == nil && reply == "" {
 		e = errors.New("empty assistant reply")
@@ -626,6 +635,10 @@ func (a *App) processVoiceAction(ctx context.Context, id, project string, throug
 			slog.Warn("assistant turn failed", "action", id, "error", e)
 			reply = publicError(e)
 		}
+	}
+	run.trace.Ms = time.Since(started).Milliseconds()
+	if e != nil {
+		run.trace.Error = truncate(e.Error(), 300)
 	}
 	// The turn's own deadline (or the worker stopping) must not keep it from settling, or it
 	// would stay running, refusing new messages, until the stalled-turn sweep.
@@ -729,7 +742,7 @@ func (a *App) settleTurn(ctx context.Context, id, project string, run *agentRun,
 		status, message = "failed", reply
 		cost = 0 // A partial run keeps its conservative reservation.
 	}
-	r, e := tx.Exec(ctx, `UPDATE voice_actions SET status=$2,reply=$3,estimated_cost=CASE WHEN $5 THEN 0 ELSE COALESCE(NULLIF($4::numeric,0),estimated_cost) END,updated_at=now() WHERE id=$1 AND status='running'`, id, status, reply, cost, released)
+	r, e := tx.Exec(ctx, `UPDATE voice_actions SET status=$2,reply=$3,estimated_cost=CASE WHEN $5 THEN 0 ELSE COALESCE(NULLIF($4::numeric,0),estimated_cost) END,trace=$6,updated_at=now() WHERE id=$1 AND status='running'`, id, status, reply, cost, released, jsonBytes(run.trace))
 	if e != nil || r.RowsAffected() == 0 {
 		return e // The stalled-turn sweep already answered for it.
 	}

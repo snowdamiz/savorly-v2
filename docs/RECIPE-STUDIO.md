@@ -72,7 +72,7 @@ For local development, restart SeaweedFS after updating `infra/seaweedfs/s3.json
 
 For R2, provision a **separate private bucket** named by `S3_SOURCE_BUCKET`, leave `r2.dev` disabled, and do not attach a public custom domain. Grant the backend credentials access to both buckets. The source bucket is not automatically provisioned in production. Source photos are read through authenticated S3 and sent to the vision model as data URLs, so local SeaweedFS does not need to be publicly reachable. Do not make the source bucket public.
 
-Restart the API after changing its environment. Migrations `004_voice_recipes.sql` through `006_studio_confirmation.sql`, `009_assistant_cards.sql`, `010_assistant_context.sql`, `019_ai_worker.sql`, `020_studio_retention.sql`, `024_sous_chef_answers.sql`, and `025_sous_chef_receipts.sql` run automatically. No provider calls are made during migrations or ordinary browsing.
+Restart the API after changing its environment. Migrations `004_voice_recipes.sql` through `006_studio_confirmation.sql`, `009_assistant_cards.sql`, `010_assistant_context.sql`, `019_ai_worker.sql`, `020_studio_retention.sql`, `024_sous_chef_answers.sql`, `025_sous_chef_receipts.sql`, and `026_sous_chef_traces.sql` run automatically. No provider calls are made during migrations or ordinary browsing.
 
 ## Expo and Cloudflare
 
@@ -100,6 +100,18 @@ The application, not the model, enforces ownership, validates recipe shape, writ
 ### Deleting and retention
 
 Deleting a conversation (`DELETE /v1/recipe-studio/:id`) erases its content at once: transcripts, private photos (their objects are queued for removal from the bucket), links to its draft and media, the assistant's replies, any pending action, and what the app reported having open. Recipes made in it stay as they are. A contentless shell stays behind with the conversation's turns and voice sessions, because they carry the member's spend and allowance use for the rolling 30 days. Deleting history therefore doesn't give allowances back. A turn still waiting is cancelled and releases its reservation, since it never reached the provider. A turn already with the provider keeps its reservation, and its answer is not written back. Deleted conversations disappear from lists and reads, and messages, context, photos and voice for them answer `404`. The worker purges a shell 35 days after deletion, once its records have left every 30-day window.
+
+## Traces and evals
+
+Each turn keeps a trace (`voice_actions.trace`): the model, whether it came from the chat or a call, how long it took, and for each model round its time, its cost and the tools it called, each with its time and the error the model was told. It holds no conversation text or tool arguments. Admins see turns under **AI & jobs** (`GET /v1/admin/turns`, filtered by status, channel and member; `GET /v1/admin/turns/:id` adds the trace and the reply), to follow up a member's report or a slow or failing tool.
+
+The tools are one table (`agentToolDefs` in `services/api/internal/app/agent.go`): each has what the model is told, the step a running turn shows, and its handler, a method on `toolTurn`.
+
+The evals are saved conversations run against the real model, to check what it does before a release or a model change: planning for tomorrow, adding groceries, asking before deleting, ignoring instructions inside a recipe, moving a cooking step in one round in a call, saving a nutrition estimate, crediting a twist's original, and resolving "the second one". They cost real money, so they run only when asked:
+
+```bash
+SAVORLY_EVALS=1 OPENROUTER_API_KEY=… TEST_DATABASE_URL=… go test ./internal/app -run TestSousChefEvals -v
+```
 
 ## Verification and limits
 

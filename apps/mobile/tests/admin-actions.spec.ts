@@ -5,6 +5,7 @@ import type {
   AdminMemberDetail,
   AdminRecipe,
   AdminRecipeDetail,
+  AdminTurn,
 } from '../src/lib/admin';
 import { empty, failure, json, mockApi, recipe } from './mockApi';
 
@@ -193,6 +194,43 @@ async function adminConsole(page: Page, tab: string) {
     ending = true;
     return empty();
   });
+  const turn: AdminTurn = {
+    id: 'turn-1',
+    status: 'completed',
+    channel: 'text',
+    cost: 0.002,
+    createdAt: at,
+    startedAt: at,
+    updatedAt: at,
+    project: 'chat-1',
+    model: 'openai/gpt-6-luna',
+    ms: 2400,
+    rounds: 2,
+    tools: ['get_recipe', 'plan_meal'],
+    toolErrors: 1,
+    user: sam,
+  };
+  api.on('GET', '/admin/turns', () => json(paged([turn])));
+  api.on('GET', '/admin/turns/turn-1', () =>
+    json({
+      ...turn,
+      reply: 'That recipe isn’t there any more.',
+      trace: {
+        ms: 2400,
+        rounds: [
+          {
+            ms: 1200,
+            cost: 0.001,
+            tools: [
+              { name: 'get_recipe', ms: 40 },
+              { name: 'plan_meal', ms: 35, error: 'Recipe not found.' },
+            ],
+          },
+          { ms: 900, cost: 0.001 },
+        ],
+      },
+    } satisfies AdminTurn),
+  );
   api.on('GET', '/admin/jobs', () => json(paged(Object.values(jobs))));
   api.on('GET', /^\/admin\/jobs\/([^/]+)$/, ({ params: [id] }) => json(jobs[id]));
   api.on('POST', '/admin/jobs/clip/cancel', () => {
@@ -362,4 +400,21 @@ test('a job with the provider is cancelled, and a live voice session ended', asy
   await expect(page.getByRole('button', { name: 'Cancel job' })).toHaveCount(0);
   expect(api.sentTo('/admin/jobs/clip/cancel')).toEqual([['POST', undefined]]);
   expect(api.sentTo(/^\/admin\/jobs\/draft/)).toEqual([]);
+});
+
+test('a sous-chef turn shows its rounds, tools and reply', async ({ page }) => {
+  await adminConsole(page, 'ai');
+  const row = page.getByRole('button', { name: /^Chat turn · Sam Spam/ });
+  await expect(row).toContainText('2 rounds · get_recipe, plan_meal · 1 tool error');
+  await row.click();
+  await expect(page.getByRole('heading', { name: 'Chat turn', exact: true })).toBeVisible();
+  await expect(sheet(page).getByText('2.4 s', { exact: true })).toBeVisible();
+  await expect(sheet(page).getByText('get_recipe · 40 ms', { exact: true })).toBeVisible();
+  await expect(
+    sheet(page).getByText('plan_meal · 35 ms · Recipe not found.', { exact: true }),
+  ).toBeVisible();
+  await expect(sheet(page).getByText('Answered in text.', { exact: true })).toBeVisible();
+  await expect(
+    sheet(page).getByText('That recipe isn’t there any more.', { exact: true }),
+  ).toBeVisible();
 });

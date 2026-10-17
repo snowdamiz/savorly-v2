@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http/httptest"
+	"savorly/api/internal/ai"
 	"strings"
 	"testing"
 
@@ -106,7 +107,7 @@ func TestDeletingAConversationStopsItsTurns(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	reply, cost, e := a.AI.Agent(ctx, input, nil, agentTools, func(name string, args json.RawMessage) string { return a.agentTool(ctx, run, name, args) }, nil)
+	reply, cost, e := a.AI.Agent(ctx, input, nil, agentTools, func(name string, args json.RawMessage) string { return a.agentTool(ctx, run, name, args) }, ai.AgentHooks{})
 	if e != nil || deleted != 204 {
 		t.Fatalf("turn %v, delete %d", e, deleted)
 	}

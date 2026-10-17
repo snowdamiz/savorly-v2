@@ -37,6 +37,7 @@ export type AdminNav = {
   member: (id: string) => void;
   recipe: (id: string) => void;
   job: (id: string) => void;
+  turn: (id: string) => void;
   go: (section: AdminSection) => void;
   /** After a change, every open list and record reloads. */
   changed: () => void;
