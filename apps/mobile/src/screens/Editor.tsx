@@ -58,6 +58,7 @@ import { LocalMedia, pickPhoto, preparePhoto, uploadMedia } from '../lib/photos'
 import { CuisineIcon } from '../components/CuisineIcon';
 import { CuisinePicker } from '../components/CuisinePicker';
 import { PhotoTouchUp } from '../components/PhotoTouchUp';
+import { postCreator, postPlatform } from '../lib/recipeImport';
 import { DangerButton, SignInKitchen } from './Kitchen';
 const tagOptions = [
   'Vegetarian',
@@ -649,9 +650,14 @@ function EditorForm({ initial, onPublished, onAI }: EditorProps) {
   const cover = () => void media('images', 'cover', (url) => update('image', url));
   const photos = r.photos || [];
   const canTouchUp = !!app.capabilities?.imageAI;
-  // An imported recipe credits the page it came from, and links back to it.
+  // An imported recipe credits the page or post it came from, and links back to it: a post by
+  // its platform's name, and its creator where the address names them.
   const sourceUrl = r.sourceUrl || '';
-  const source = siteOf(sourceUrl);
+  const source = siteOf(sourceUrl) && (postPlatform(sourceUrl) || siteOf(sourceUrl));
+  const creator = postCreator(sourceUrl);
+  const importedFrom = creator
+    ? tr('Imported from {{v0}} on {{v1}}', { v0: creator, v1: source })
+    : tr('Imported from {{v0}}', { v0: source });
   // Languages go by their own names, as in the language settings.
   const languageName =
     languages.find((option) => option.code === r.language)?.name ?? tr('Not set');
@@ -890,17 +896,25 @@ function EditorForm({ initial, onPublished, onAI }: EditorProps) {
               {!!source && (
                 <Press
                   accessibilityRole="link"
-                  accessibilityLabel={tr('Imported from {{v0}}', { v0: source })}
+                  accessibilityLabel={importedFrom}
                   onPress={() => void Linking.openURL(sourceUrl).catch(() => {})}
                   scale={0.98}
                   style={[s.row, { gap: 12, minHeight: 44 }]}
                 >
                   <Link2 size={18} color={color.ink} strokeWidth={2} />
                   <Text style={[s.body, { flex: 1 }]} numberOfLines={2}>
-                    {tr('Imported from {{v0}}', { v0: source })}
+                    {importedFrom}
                   </Text>
                   <ExternalLink size={16} color={color.muted} strokeWidth={2} />
                 </Press>
+              )}
+              {/* Read by the model, amounts can be off: the original is a tap away to compare. */}
+              {!!source && r.aiGenerated && !r.published && (
+                <Text style={[s.small, { marginLeft: 30, marginBottom: 8, lineHeight: 17 }]}>
+                  {tr(
+                    'The sous-chef read this from the original. Check the amounts against it before you share it.',
+                  )}
+                </Text>
               )}
               {!!origin && !originGone && (
                 <View style={[s.row, { gap: 12, minHeight: 44 }]}>

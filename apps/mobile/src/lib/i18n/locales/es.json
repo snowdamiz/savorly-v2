@@ -1308,9 +1308,7 @@
   "Add a photo for step {{v0}}": "Añadir una foto al paso {{v0}}",
   "The language this recipe is written in. Cooking mode reads its steps aloud in it.": "El idioma en que está escrita esta receta. El modo cocina lee los pasos en voz alta en ese idioma.",
   "Import from a link": "Importar desde un enlace",
-  "Paste a recipe’s web address. We’ll bring it in for you to edit.": "Pega la dirección web de una receta. La traeremos para que la edites.",
   "Import a recipe from a link": "Importar una receta desde un enlace",
-  "Paste the address of a recipe page. We’ll bring the recipe into the editor for you to check.": "Pega la dirección de una página de receta. Llevaremos la receta al editor para que la revises.",
   "Recipe link": "Enlace de la receta",
   "Enter the full address of a web page, like https://example.com/recipe.": "Escribe la dirección completa de una página web, como https://example.com/recipe.",
   "The sous-chef is reading the page…": "El asistente está leyendo la página…",
@@ -1455,5 +1453,12 @@
   "You’ve translated a lot of recipes in the last hour. Please try again later.": "Has traducido muchas recetas en la última hora. Inténtalo de nuevo más tarde.",
   "We couldn’t translate this recipe. Please try again.": "No pudimos traducir esta receta. Inténtalo de nuevo.",
   "Translation is busy. Please try again in a moment.": "La traducción está ocupada. Inténtalo de nuevo en un momento.",
-  "Turn automatic translation on or off.": "Activa o desactiva la traducción automática."
+  "Turn automatic translation on or off.": "Activa o desactiva la traducción automática.",
+  "Paste a link to a recipe page or a cooking video. We’ll bring it in for you to edit.": "Pega el enlace de una página de receta o de un vídeo de cocina. Traeremos la receta para que la edites.",
+  "Paste the address of a recipe page, or of a video on TikTok, Instagram, YouTube, Facebook or Pinterest. We’ll bring the recipe into the editor for you to check.": "Pega la dirección de una página de receta o de un vídeo de TikTok, Instagram, YouTube, Facebook o Pinterest. Llevaremos la receta al editor para que la revises.",
+  "The sous-chef is reading the post…": "El asistente está leyendo la publicación…",
+  "We couldn’t find a recipe in that post’s caption. Try the link to the full recipe if the creator shared one.": "No encontramos ninguna receta en la descripción de esa publicación. Prueba con el enlace a la receta completa, si su creador lo compartió.",
+  "We couldn’t open that post. It may be private or no longer available.": "No pudimos abrir esa publicación. Puede que sea privada o que ya no esté disponible.",
+  "Imported from {{v0}} on {{v1}}": "Importada de {{v0}} en {{v1}}",
+  "The sous-chef read this from the original. Check the amounts against it before you share it.": "El asistente sacó esta receta del original. Compara las cantidades con él antes de compartirla."
 }

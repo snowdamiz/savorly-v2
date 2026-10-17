@@ -1308,9 +1308,7 @@
   "Add a photo for step {{v0}}": "Добавить фото к шагу {{v0}}",
   "The language this recipe is written in. Cooking mode reads its steps aloud in it.": "Язык, на котором написан рецепт. В режиме готовки шаги читаются вслух на этом языке.",
   "Import from a link": "Импорт по ссылке",
-  "Paste a recipe’s web address. We’ll bring it in for you to edit.": "Вставьте адрес страницы с рецептом. Мы перенесём его, чтобы вы могли его изменить.",
   "Import a recipe from a link": "Импортировать рецепт по ссылке",
-  "Paste the address of a recipe page. We’ll bring the recipe into the editor for you to check.": "Вставьте адрес страницы с рецептом. Мы откроем рецепт в редакторе, чтобы вы его проверили.",
   "Recipe link": "Ссылка на рецепт",
   "Enter the full address of a web page, like https://example.com/recipe.": "Введите полный адрес веб-страницы, например https://example.com/recipe.",
   "The sous-chef is reading the page…": "Помощник читает страницу…",
@@ -1455,5 +1453,12 @@
   "You’ve translated a lot of recipes in the last hour. Please try again later.": "За последний час вы перевели много рецептов. Попробуйте позже.",
   "We couldn’t translate this recipe. Please try again.": "Не удалось перевести этот рецепт. Попробуйте ещё раз.",
   "Translation is busy. Please try again in a moment.": "Перевод сейчас загружен. Попробуйте через минуту.",
-  "Turn automatic translation on or off.": "Включите или выключите автоматический перевод."
+  "Turn automatic translation on or off.": "Включите или выключите автоматический перевод.",
+  "Paste a link to a recipe page or a cooking video. We’ll bring it in for you to edit.": "Вставьте ссылку на страницу с рецептом или на кулинарное видео. Мы перенесём рецепт, чтобы вы могли его изменить.",
+  "Paste the address of a recipe page, or of a video on TikTok, Instagram, YouTube, Facebook or Pinterest. We’ll bring the recipe into the editor for you to check.": "Вставьте адрес страницы с рецептом или видео в TikTok, Instagram, YouTube, Facebook или Pinterest. Мы откроем рецепт в редакторе, чтобы вы его проверили.",
+  "The sous-chef is reading the post…": "Помощник читает публикацию…",
+  "We couldn’t find a recipe in that post’s caption. Try the link to the full recipe if the creator shared one.": "В подписи к этой публикации не нашлось рецепта. Попробуйте ссылку на полный рецепт, если автор ею поделился.",
+  "We couldn’t open that post. It may be private or no longer available.": "Не удалось открыть эту публикацию. Возможно, она закрыта или больше недоступна.",
+  "Imported from {{v0}} on {{v1}}": "Импортировано из {{v1}}, автор — {{v0}}",
+  "The sous-chef read this from the original. Check the amounts against it before you share it.": "Помощник перенёс этот рецепт из оригинала. Сверьте с ним количества, прежде чем делиться."
 }

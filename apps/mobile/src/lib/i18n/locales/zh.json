@@ -1308,9 +1308,7 @@
   "Add a photo for step {{v0}}": "为步骤 {{v0}} 添加照片",
   "The language this recipe is written in. Cooking mode reads its steps aloud in it.": "这份食谱使用的语言。烹饪模式会用这种语言朗读步骤。",
   "Import from a link": "从链接导入",
-  "Paste a recipe’s web address. We’ll bring it in for you to edit.": "粘贴食谱的网页地址，我们会导入供你编辑。",
   "Import a recipe from a link": "从链接导入食谱",
-  "Paste the address of a recipe page. We’ll bring the recipe into the editor for you to check.": "粘贴食谱页面的地址，我们会把食谱放进编辑器供你检查。",
   "Recipe link": "食谱链接",
   "Enter the full address of a web page, like https://example.com/recipe.": "请输入完整的网页地址，例如 https://example.com/recipe。",
   "The sous-chef is reading the page…": "厨师助手正在阅读页面…",
@@ -1455,5 +1453,12 @@
   "You’ve translated a lot of recipes in the last hour. Please try again later.": "你在过去一小时内翻译了很多食谱，请稍后再试。",
   "We couldn’t translate this recipe. Please try again.": "无法翻译这份食谱，请重试。",
   "Translation is busy. Please try again in a moment.": "翻译服务繁忙，请稍后再试。",
-  "Turn automatic translation on or off.": "请开启或关闭自动翻译。"
+  "Turn automatic translation on or off.": "请开启或关闭自动翻译。",
+  "Paste a link to a recipe page or a cooking video. We’ll bring it in for you to edit.": "粘贴食谱页面或烹饪视频的链接，我们会导入供你编辑。",
+  "Paste the address of a recipe page, or of a video on TikTok, Instagram, YouTube, Facebook or Pinterest. We’ll bring the recipe into the editor for you to check.": "粘贴食谱页面的地址，或 TikTok、Instagram、YouTube、Facebook、Pinterest 上视频的地址，我们会把食谱放进编辑器供你检查。",
+  "The sous-chef is reading the post…": "厨师助手正在阅读帖子…",
+  "We couldn’t find a recipe in that post’s caption. Try the link to the full recipe if the creator shared one.": "在该帖子的说明文字中没有找到食谱。如果创作者分享了完整食谱的链接，请试试那个链接。",
+  "We couldn’t open that post. It may be private or no longer available.": "无法打开该帖子。它可能是私密的，或已不存在。",
+  "Imported from {{v0}} on {{v1}}": "导入自 {{v1}} 上的 {{v0}}",
+  "The sous-chef read this from the original. Check the amounts against it before you share it.": "厨师助手从原文中读取了这份食谱。分享前请对照原文核对用量。"
 }

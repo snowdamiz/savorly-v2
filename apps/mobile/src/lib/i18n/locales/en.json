@@ -1308,9 +1308,7 @@
   "Add a photo for step {{v0}}": "Add a photo for step {{v0}}",
   "The language this recipe is written in. Cooking mode reads its steps aloud in it.": "The language this recipe is written in. Cooking mode reads its steps aloud in it.",
   "Import from a link": "Import from a link",
-  "Paste a recipe’s web address. We’ll bring it in for you to edit.": "Paste a recipe’s web address. We’ll bring it in for you to edit.",
   "Import a recipe from a link": "Import a recipe from a link",
-  "Paste the address of a recipe page. We’ll bring the recipe into the editor for you to check.": "Paste the address of a recipe page. We’ll bring the recipe into the editor for you to check.",
   "Recipe link": "Recipe link",
   "Enter the full address of a web page, like https://example.com/recipe.": "Enter the full address of a web page, like https://example.com/recipe.",
   "The sous-chef is reading the page…": "The sous-chef is reading the page…",
@@ -1455,5 +1453,12 @@
   "You’ve translated a lot of recipes in the last hour. Please try again later.": "You’ve translated a lot of recipes in the last hour. Please try again later.",
   "We couldn’t translate this recipe. Please try again.": "We couldn’t translate this recipe. Please try again.",
   "Translation is busy. Please try again in a moment.": "Translation is busy. Please try again in a moment.",
-  "Turn automatic translation on or off.": "Turn automatic translation on or off."
+  "Turn automatic translation on or off.": "Turn automatic translation on or off.",
+  "Paste a link to a recipe page or a cooking video. We’ll bring it in for you to edit.": "Paste a link to a recipe page or a cooking video. We’ll bring it in for you to edit.",
+  "Paste the address of a recipe page, or of a video on TikTok, Instagram, YouTube, Facebook or Pinterest. We’ll bring the recipe into the editor for you to check.": "Paste the address of a recipe page, or of a video on TikTok, Instagram, YouTube, Facebook or Pinterest. We’ll bring the recipe into the editor for you to check.",
+  "The sous-chef is reading the post…": "The sous-chef is reading the post…",
+  "We couldn’t find a recipe in that post’s caption. Try the link to the full recipe if the creator shared one.": "We couldn’t find a recipe in that post’s caption. Try the link to the full recipe if the creator shared one.",
+  "We couldn’t open that post. It may be private or no longer available.": "We couldn’t open that post. It may be private or no longer available.",
+  "Imported from {{v0}} on {{v1}}": "Imported from {{v0}} on {{v1}}",
+  "The sous-chef read this from the original. Check the amounts against it before you share it.": "The sous-chef read this from the original. Check the amounts against it before you share it."
 }
