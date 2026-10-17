@@ -128,5 +128,5 @@ export function ReviewReply({
 
 const styles = StyleSheet.create({
   reply: { marginLeft: 16, paddingLeft: 16, borderLeftWidth: 2, borderColor: color.line },
-  input: { minHeight: 84, backgroundColor: color.bg, borderColor: color.outline },
+  input: { minHeight: 84, backgroundColor: color.bg, borderColor: color.border },
 });

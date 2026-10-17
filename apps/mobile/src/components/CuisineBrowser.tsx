@@ -58,7 +58,7 @@ export function CuisineBrowser({
                       justifyContent: 'center',
                       backgroundColor: active ? color.ink : color.white,
                       borderWidth: 1,
-                      borderColor: active || hovered ? color.ink : color.outline,
+                      borderColor: active ? color.ink : hovered ? color.line : color.border,
                       boxShadow: active ? '0px 6px 14px rgba(0,0,0,0.16)' : undefined,
                       transform: [{ scale: pressed ? 0.93 : 1 }],
                     }}
