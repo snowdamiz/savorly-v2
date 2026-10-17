@@ -40,7 +40,9 @@ export function CookMode({
   onStep,
   command,
   onCooked,
+  translatedTo,
 }: {
+  /** The recipe as the cook reads it: translated, when they read it translated. */
   recipe: Recipe;
   onClose: () => void;
   onAsk: () => void;
@@ -49,6 +51,8 @@ export function CookMode({
   command?: CookCommand | null;
   /** After the last step: "I cooked this" on the recipe page, with a photo or a note. */
   onCooked?: () => void;
+  /** The language `recipe` is translated into, so its steps are read aloud in it; null as written. */
+  translatedTo?: string | null;
 }) {
   const { t: tr, locale } = useI18n();
   const page = useSlideOver(onClose);
@@ -60,7 +64,12 @@ export function CookMode({
   );
   const [remaining, setRemaining] = useState(recipe.steps[step].seconds);
   const [endAt, setEndAt] = useState<number | null>(null);
-  const { state: narrationState, speaking, read, stop } = useCookingNarration(recipe, step);
+  const {
+    state: narrationState,
+    speaking,
+    read,
+    stop,
+  } = useCookingNarration(recipe, step, translatedTo);
   const [done, setDone] = useState(false);
   // The end time is the timer, and the countdown is redrawn from it. JavaScript timers stand still
   // while the app is in the background and slow down in a hidden browser tab, so the countdown is
@@ -198,18 +207,24 @@ export function CookMode({
         <View style={{ flex: 1, width: '100%', maxWidth: 720, alignSelf: 'center', gap: 20 }}>
           <View style={[s.between, { gap: 12 }]}>
             <IconButton icon={X} dark label={tr('Close cooking mode')} onPress={close} />
-            <Text
-              numberOfLines={1}
-              style={{
-                flex: 1,
-                textAlign: 'center',
-                color: color.onInk,
-                fontFamily: font.semibold,
-                fontSize: 14,
-              }}
-            >
-              {recipe.title}
-            </Text>
+            <View style={{ flex: 1 }}>
+              <Text
+                numberOfLines={1}
+                style={{
+                  textAlign: 'center',
+                  color: color.onInk,
+                  fontFamily: font.semibold,
+                  fontSize: 14,
+                }}
+              >
+                {recipe.title}
+              </Text>
+              {!!translatedTo && (
+                <Text style={[s.small, { color: color.onInk, textAlign: 'center' }]}>
+                  {tr('Translated by AI')}
+                </Text>
+              )}
+            </View>
             <IconButton
               icon={Sparkles}
               dark

@@ -250,14 +250,9 @@ func TestAVoiceTurnThatOnlyMovesTheScreenEndsInOneRound(t *testing.T) {
 		if reply, n := turn(c.voice, c.message); n != 2 || reply != "Second round." {
 			t.Errorf("%s: %d rounds, %q", name, n, reply)
 		}
-	}
-	// The cases ran in map order, so the channel is checked after a call of its own.
-	turn(true, writing("Step 1.", "app_action", cooking))
-	if channel != "voice" {
-		t.Fatal(channel)
-	}
-	turn(false, writing("Step 1.", "app_action", cooking))
-	if channel != "text" {
-		t.Fatal(channel)
+		// The model is told which one it's answering in.
+		if want := map[bool]string{true: "voice", false: "text"}[c.voice]; channel != want {
+			t.Errorf("%s: channel %v", name, channel)
+		}
 	}
 }

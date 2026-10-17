@@ -25,15 +25,20 @@ func narrationKey(recipe string, step int, text, voice string) string {
 }
 
 // Only saved instructions are synthesized. Neither arbitrary text nor provider
-// settings from the mobile client can spend the application's voice budget.
-func (a *App) narrationStep(c fiber.Ctx) (string, string, int, error) {
+// settings from the mobile client can spend the application's voice budget. With a language
+// (a reader cooking the recipe translated), the step is its saved translation's (translatedStep).
+func (a *App) narrationStep(c fiber.Ctx, language string) (string, string, int, error) {
 	id := strings.Clone(c.Params("id"))
 	step, err := strconv.Atoi(c.Params("step"))
 	if err != nil || step < 0 || step > 99 {
 		return "", "", 0, fiber.NewError(400, "Invalid cooking step.")
 	}
 	var text string
-	err = a.DB.QueryRow(c.Context(), `SELECT steps->($2::int)->>'text' FROM recipes WHERE id=$1 AND (published OR author_id=$3) AND jsonb_array_length(steps)>$2::int`, id, step, userID(c)).Scan(&text)
+	if language != "" {
+		text, err = translatedStep(c.Context(), a.DB, id, step, userID(c), language)
+	} else {
+		err = a.DB.QueryRow(c.Context(), `SELECT steps->($2::int)->>'text' FROM recipes WHERE id=$1 AND (published OR author_id=$3) AND jsonb_array_length(steps)>$2::int`, id, step, userID(c)).Scan(&text)
+	}
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", "", 0, fiber.NewError(404, "Cooking step not found.")
 	}
@@ -50,14 +55,20 @@ func (a *App) prepareNarration(c fiber.Ctx) error {
 	if !a.Narrator.Enabled() {
 		return fiber.NewError(503, "Natural-voice read-aloud isn't set up on this server.")
 	}
-	id, text, step, err := a.narrationStep(c)
-	if err != nil {
-		return err
-	}
 	var in struct {
 		Text string `json:"text"`
+		// The language of the recipe's translation the cook is reading; "" for the recipe as written.
+		Language string `json:"language"`
 	}
-	if err = decode(c, &in); err != nil {
+	if err := decode(c, &in); err != nil {
+		return err
+	}
+	language, ok := recipeLanguage(in.Language)
+	if !ok {
+		return fiber.NewError(400, "Choose a supported language.")
+	}
+	id, text, step, err := a.narrationStep(c, language)
+	if err != nil {
 		return err
 	}
 	if in.Text != text {
@@ -86,7 +97,11 @@ func (a *App) prepareNarration(c fiber.Ctx) error {
 		}
 	}
 	c.Set("Cache-Control", "no-store")
-	return c.JSON(fiber.Map{"path": fmt.Sprintf("/recipes/%s/steps/%d/narration/%s", id, step, key), "model": narration.Model})
+	path := fmt.Sprintf("/recipes/%s/steps/%d/narration/%s", id, step, key)
+	if language != "" {
+		path += "?language=" + language
+	}
+	return c.JSON(fiber.Map{"path": path, "model": narration.Model})
 }
 
 func (a *App) generateNarration(ctx context.Context, key, recipe, owner, text string, stream *narration.Stream) error {
@@ -260,7 +275,11 @@ func (a *App) readNarration(c fiber.Ctx) error {
 	if a.Narrator == nil {
 		return fiber.NewError(503, "Read-aloud is unavailable.")
 	}
-	id, text, step, err := a.narrationStep(c)
+	language, ok := recipeLanguage(c.Query("language"))
+	if !ok {
+		return fiber.NewError(400, "Choose a supported language.")
+	}
+	id, text, step, err := a.narrationStep(c, language)
 	if err != nil {
 		return err
 	}

@@ -81,6 +81,8 @@ import { amountText, UnitsSwitch, useUnits } from './Units';
 import { Comments } from './Comments';
 import { CookPhotos, CookSheets, useCooked } from './CookedIt';
 import { Lineage } from './Variations';
+import { TranslationBar } from './TranslationBar';
+import { useRecipeTranslation } from '../lib/useRecipeTranslation';
 import { DangerButton } from '../screens/Kitchen';
 import { RevealFocus, useKeyboardLift, useKeyboardScroll } from '../lib/keyboard';
 import { foodConflicts, joinNames, pantryLines, useFood } from '../lib/food';
@@ -160,6 +162,10 @@ export function RecipeDetail({
   const [collections, setCollections] = useState(false);
   const [busy, setBusy] = useState<Partial<Record<Action, boolean>>>({});
   const [titleBottom, setTitleBottom] = useState(0);
+  // Written in another language, the recipe can show translated: `reading` is what the page shows
+  // (the recipe, or its translation), while amounts, units and everything else stay the recipe's.
+  const translation = useRecipeTranslation(recipe);
+  const reading = translation.shown;
   const saved = app.library.savedIds.includes(recipe.id);
   const following = app.library.followingIds.includes(recipe.author.id);
   const mine = app.user?.id === recipe.author.id;
@@ -266,7 +272,7 @@ export function RecipeDetail({
         app.notify('Link copied to your clipboard.');
       } else
         await Share.share({
-          message: tr('shareMessage', { title: recipe.title, count: recipe.minutes, link }),
+          message: tr('shareMessage', { title: reading.title, count: recipe.minutes, link }),
         });
     });
   // An ingredient's amount for the servings on screen, in the units the cook picked.
@@ -277,18 +283,18 @@ export function RecipeDetail({
     const site = siteName(recipe.sourceUrl);
     printRecipe({
       lang: locale,
-      title: recipe.title,
+      title: reading.title,
       byline: tr('by {{v0}}', { v0: recipe.author.name }),
       facts: [
         tr('minuteCount', { count: recipe.minutes }),
         tr('servingCount', { count: servings }),
       ],
-      description: recipe.description,
+      description: reading.description,
       image: recipe.image,
       ingredientsTitle: tr('Ingredients'),
-      ingredients: recipe.ingredients.map((i) => ({ name: i.name, amount: amountOf(i) })),
+      ingredients: reading.ingredients.map((i) => ({ name: i.name, amount: amountOf(i) })),
       methodTitle: tr('Method'),
-      steps: recipe.steps.map((st) => ({ title: st.title, text: st.text })),
+      steps: reading.steps.map((st) => ({ title: st.title, text: st.text })),
       credits: [
         recipe.derivedFrom
           ? tr('Adapted from {{title}} by {{name}}', {
@@ -327,6 +333,8 @@ export function RecipeDetail({
         },
     { icon: Gauge, value: recipe.difficulty, label: tr('Level') },
   ];
+  // The checklist goes by the recipe's own names, so a check stays when the language changes.
+  const own = (n: number) => recipe.ingredients[n]?.name ?? '';
   const twistChips = twists(tr).map(([title, prompt]) => (
     <Chip key={title} title={tr(title)} icon={foodIcon(title)} onPress={() => onAsk(prompt)} />
   ));
@@ -362,7 +370,7 @@ export function RecipeDetail({
           />
         </View>
       </View>
-      <FoodWarning recipe={recipe} conflicts={conflicts} />
+      <FoodWarning recipe={reading} conflicts={conflicts} />
       {/* Only amounts with a size to convert need the choice; eggs and cloves don't. */}
       {recipe.ingredients.some((i) => knownUnit(i.unit)) && (
         <UnitsSwitch value={units} onChange={setUnits} />
@@ -371,7 +379,7 @@ export function RecipeDetail({
       <View
         style={webPage ? { marginRight: -8 } : [s.card, { paddingVertical: 4, paddingRight: 8 }]}
       >
-        {recipe.ingredients.map((i, n) => (
+        {reading.ingredients.map((i, n) => (
           <View
             key={n}
             style={[
@@ -381,12 +389,12 @@ export function RecipeDetail({
           >
             <View style={{ flex: 1 }}>
               <CheckRow
-                checked={checked.includes(i.name)}
+                checked={checked.includes(own(n))}
                 onPress={() =>
                   setChecked(
-                    checked.includes(i.name)
-                      ? checked.filter((v) => v !== i.name)
-                      : [...checked, i.name],
+                    checked.includes(own(n))
+                      ? checked.filter((v) => v !== own(n))
+                      : [...checked, own(n)],
                   )
                 }
               >
@@ -495,7 +503,7 @@ export function RecipeDetail({
         {tr('Let’s make it')}
       </Text>
       <View style={webPage ? [s.card, { paddingVertical: 6, paddingHorizontal: 28 }] : { gap: 12 }}>
-        {recipe.steps.map((st, i) => (
+        {reading.steps.map((st, i) => (
           <View
             key={i}
             style={
@@ -678,7 +686,8 @@ export function RecipeDetail({
       <CookSheets cooked={cooks} />
       {cooking && (
         <CookMode
-          recipe={recipe}
+          recipe={reading}
+          translatedTo={translation.translatedTo}
           command={cookCommand}
           onStep={onCooking}
           onAsk={onAsk}
@@ -724,7 +733,7 @@ export function RecipeDetail({
           <FoodImage uri={recipe.image} style={{ width: 52, height: 52, borderRadius: 16 }} />
           <View style={{ flex: 1 }}>
             <Text numberOfLines={1} style={s.h3}>
-              {recipe.title}
+              {reading.title}
             </Text>
             <Text style={s.small}>{tr('servingCount', { count: servings })}</Text>
           </View>
@@ -966,6 +975,9 @@ export function RecipeDetail({
     </View>
   );
   const lineage = <Lineage recipe={recipe} onOpen={onOpen} onCreator={onCreator} />;
+  const translationBar = (
+    <TranslationBar language={recipe.language ?? ''} translation={translation} />
+  );
   const facts = (
     <View
       style={[
@@ -1103,7 +1115,7 @@ export function RecipeDetail({
               <View style={split ? { flex: 1.1, gap: 12 } : { gap: 12 }}>
                 <FoodImage
                   uri={photos[photo] || ''}
-                  label={recipe.title}
+                  label={reading.title}
                   priority="high"
                   style={{
                     width: '100%',
@@ -1144,13 +1156,14 @@ export function RecipeDetail({
                   aria-level={1}
                   style={[s.display, { fontSize: 44, lineHeight: 50, letterSpacing: -1.6 }]}
                 >
-                  {recipe.title}
+                  {reading.title}
                 </Text>
-                {!!recipe.description && (
+                {!!reading.description && (
                   <Text style={[s.muted, { fontSize: 17, lineHeight: 27 }]}>
-                    {recipe.description}
+                    {reading.description}
                   </Text>
                 )}
+                {translationBar}
                 {byline}
                 {lineage}
                 {facts}
@@ -1241,14 +1254,15 @@ export function RecipeDetail({
                   }
                   style={[s.display, !wide && { fontSize: 29, lineHeight: 35 }]}
                 >
-                  {recipe.title}
+                  {reading.title}
                 </Text>
                 {byline}
-                {!!recipe.description && (
+                {!!reading.description && (
                   <Text style={[s.muted, { fontSize: 15, lineHeight: 23 }]}>
-                    {recipe.description}
+                    {reading.description}
                   </Text>
                 )}
+                {translationBar}
                 {lineage}
               </FadeIn>
               {/* The facts in one card and the things to do in one row, so the page goes
@@ -1336,7 +1350,7 @@ export function RecipeDetail({
               },
             ]}
           >
-            {recipe.title}
+            {reading.title}
           </Animated.Text>
           <View style={[s.row, { gap: 10 }]}>
             {canPrint && (

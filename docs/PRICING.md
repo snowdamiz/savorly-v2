@@ -23,7 +23,7 @@ Allowances cover a rolling 30 days once `PAID_PLANS=true`.
 | Natural-voice read-alouds (new steps) |     5 |               30 |                30 |
 | AI spend ceiling (`SpendCap`)         | $0.50 |            $3.80 |             $7.65 |
 
-Everything else (recipes, cookbooks, planner, groceries, pantry, community, device read-aloud) stays free. Comparable apps charge $4.99–$9.99 a month: Samsung Food+ $6.99/$59.99, SideChef $4.99/$49.99, Plan to Eat $5.95/$49, Ollie from $9.99 (October 2026 store listings).
+Everything else (recipes, cookbooks, planner, groceries, pantry, community, device read-aloud, recipes translated into your language) stays free. Comparable apps charge $4.99–$9.99 a month: Samsung Food+ $6.99/$59.99, SideChef $4.99/$49.99, Plan to Eat $5.95/$49, Ollie from $9.99 (October 2026 store listings).
 
 ## Why these numbers are cash-flow positive
 
@@ -36,6 +36,7 @@ Everything else (recipes, cookbooks, planner, groceries, pantry, community, devi
 | AI cover photo                    |                                                                       ~$0.01–0.02 (reserved $0.05) | GPT Image 2.5 Flare, OpenRouter image endpoints                                     |
 | AI video (5 s, 720p)              |                                                                            $1.005 (reserved $1.50) | Seedance 2.5 Eco, reapi.ai/models/seedance-2-5                                      |
 | Read-aloud step (~300 characters) |                                                                                            ~$0.012 | OpenRouter elevenlabs/eleven-v4-turbo, regular $0.04 per 1K characters; launch discount excluded                                 |
+| Recipe translation (~3,000 characters), once per recipe and language | ~$0.005 (reserved $0.01 + $1 per million characters) | GPT-6 Luna fast tier with low reasoning: the recipe in, the same text out; shared by every later reader |
 
 **Per-member guarantee.** Every AI cost is recorded against the member (the `ai_spend` view). A request is refused once it would take the member past their plan's `SpendCap` for the last 30 days. Sous-chef turns settle to the cost OpenRouter reports, voice to the connected seconds, and media keeps its (higher) reservation, so recorded spend never undercounts. Each plan's allowances at the costs above fit inside its ceiling, so members reach their allowances before the ceiling in normal use.
 
@@ -49,6 +50,8 @@ Everything else (recipes, cookbooks, planner, groceries, pantry, community, devi
 | Pro yearly   |        $11.84 |         $7.65 |          65% |
 
 So even a member who maxes out everything leaves at least 35% of net revenue. Yearly plans collect twelve months up front. Typical members use a fraction of their allowances, so the realistic margin is much higher.
+
+**Shared translations.** A recipe's translation is made once per language and read by everyone after, so no member pays for it and it counts toward no plan: it comes out of the free members' daily budget below, reserved at a cent plus $1 per million characters and settled to the reported cost. Only signed-in members start one, 30 an hour each, so crawlers can't spend that budget ([API](API.md#recipe-translations)).
 
 **Free use is paid for.** Free members share a daily budget of `AI_FREE_DAILY_BUDGET_USD` (default $5, about $150 a month at most) plus 15% of paying members' daily net revenue. A hard daily circuit breaker (`AI_DAILY_BUDGET_USD`, default $25, plus every paying member's ceiling ÷ 30) stops runaway spend from a bug without blocking members inside their plan. Complimentary plans granted in the admin console bring no revenue, so they add to neither; their use comes out of the base budgets. Owners can override the base budgets from the console, up to ten times the environment's values ([admin console](ADMIN.md#operator-settings)).
 

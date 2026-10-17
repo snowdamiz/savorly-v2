@@ -599,6 +599,10 @@ func TestAssistantEditsOwnRecipesAndConfirmsConsequentialActions(t *testing.T) {
 	if out = tool(agentTurn(t, a, p), "confirm_action", nil); !strings.Contains(out, "Nothing is waiting") {
 		t.Fatalf("confirmation replayed in a later turn: %s", out)
 	}
+	// Making it private changes what others see too, so it waits as well.
+	if out = tool(agentTurn(t, a, p), "edit_recipe", map[string]any{"recipe_id": "mine", "published": false}); !strings.Contains(out, "needsConfirmation") || !strings.Contains(out, "makes it private") || !current().Published {
+		t.Fatalf("made private without confirmation: %s", out)
+	}
 	if out = tool(run, "review_recipe", map[string]any{"recipe_id": "mine", "rating": 5, "text": "So good"}); !strings.Contains(out, "other cooks' published recipes") {
 		t.Fatalf("reviewed own recipe: %s", out)
 	}

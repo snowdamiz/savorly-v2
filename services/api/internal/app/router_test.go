@@ -40,6 +40,9 @@ var publicRoutes = map[string]bool{
 	"GET /v1/cookbooks/:id":          true,
 	"GET /v1/creators/:id/cookbooks": true,
 	"POST /v1/events":                true, // anonymous analytics; names the member when signed in
+
+	// Guests read the translations members made; making one needs a session (translations.go).
+	"GET /v1/recipes/:id/translation": true,
 }
 
 // Rejections the middleware makes before a handler runs.

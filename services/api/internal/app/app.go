@@ -57,6 +57,8 @@ type App struct {
 	oidcOnce  sync.Once
 	verifiers map[string]*oidc.IDTokenVerifier
 	throttles accountThrottles
+	// translations shares and limits recipe translations (translations.go).
+	translations translationWork
 }
 
 // errorHandler answers in JSON. requestId lets support find the request's log lines.
@@ -152,6 +154,7 @@ func NewWithContext(ctx context.Context, db *pgxpool.Pool, config Config) *fiber
 			"textAI": a.AI.TextEnabled(), "recipeModel": a.AI.RecipeModel, "agentModel": a.AI.AgentModel,
 			"imageAI": a.AI.TextEnabled(), "imageModel": a.AI.ImageModel, "imageEditModel": a.AI.ImageEditModel,
 			"videoAI": a.AI.VideoEnabled(), "videoProvider": "reAPI", "videoModel": a.AI.VideoModel, "videoEstimateUSD": 1.005,
+			"recipeTranslation": a.AI.TextEnabled(), "translationModel": a.AI.TranslationModel,
 			"passwordRecovery": emailEnabled(),
 			"turnstileSiteKey": turnstileSiteKey(),
 			"plans":            paidPlans(), "billing": billingEnabled(), "appleSignIn": len(oauthAudiences("apple")) > 0, "googleSignIn": len(oauthAudiences("google")) > 0,
@@ -227,5 +230,6 @@ func NewWithContext(ctx context.Context, db *pgxpool.Pool, config Config) *fiber
 	a.engagementRoutes(v)
 	a.adminRoutes(v)
 	a.foodRoutes(v)
+	a.translationRoutes(v)
 	return f
 }

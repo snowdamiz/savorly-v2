@@ -21,6 +21,8 @@ type Client struct {
 	RecipeModel, AgentModel, ImageModel, VideoModel  string
 	// Retouches photos people already have.
 	ImageEditModel string
+	// Translates recipes for readers in other languages (translate.go).
+	TranslationModel string
 }
 
 func env(k, d string) string {
@@ -40,22 +42,28 @@ func New() *Client {
 		ImageModel:     env("OPENROUTER_IMAGE_MODEL", DefaultImageModel),
 		ImageEditModel: env("OPENROUTER_IMAGE_EDIT_MODEL", DefaultImageEditModel),
 		VideoModel:     env("REAPI_VIDEO_MODEL", "doubao-seedance-2.5-eco"),
+		// Its own setting, so translations can move to a cheaper model than the agent's.
+		TranslationModel: env("OPENROUTER_TRANSLATION_MODEL", DefaultTranslationModel),
 	}
 }
 func (c *Client) TextEnabled() bool  { return c.OpenRouterKey != "" }
 func (c *Client) VideoEnabled() bool { return c.VideoKey != "" }
+
+// ErrNotSent marks a call that failed before it reached the provider, so it cost nothing.
+var ErrNotSent = errors.New("provider request not sent")
+
 func (c *Client) request(ctx context.Context, method, url, key string, payload, out any) error {
 	var body io.Reader
 	if payload != nil {
 		b, e := json.Marshal(payload)
 		if e != nil {
-			return e
+			return fmt.Errorf("%w: %v", ErrNotSent, e)
 		}
 		body = bytes.NewReader(b)
 	}
 	req, e := http.NewRequestWithContext(ctx, method, url, body)
 	if e != nil {
-		return e
+		return fmt.Errorf("%w: %v", ErrNotSent, e)
 	}
 	req.Header.Set("Authorization", "Bearer "+key)
 	req.Header.Set("Content-Type", "application/json")
