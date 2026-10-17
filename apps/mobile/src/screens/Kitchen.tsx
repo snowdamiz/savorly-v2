@@ -17,7 +17,7 @@ import {
 } from '../components/icons';
 import { useApp } from '../lib/store';
 import { api } from '../lib/api';
-import { AIRequest, GroceryMerge, Kitchen, Plan, Recipe, Screen } from '../lib/types';
+import { GroceryMerge, Kitchen, Plan, Recipe, Screen } from '../lib/types';
 import { useShelf } from '../lib/shelf';
 import { color, font, maxFontScale, radius, s } from '../lib/theme';
 import {
@@ -415,10 +415,11 @@ function useWeekPlans(from: string, to: string, today: string, userId: string | 
 }
 export function Planner({
   onOpen,
-  onAI,
+  onAsk,
 }: {
   onOpen: (r: Recipe) => void;
-  onAI: (r: AIRequest) => void;
+  /** Opens the sous-chef's conversation with a message. */
+  onAsk: (message: string) => void;
 }) {
   const { t: tr, locale } = useI18n();
   const app = useApp();
@@ -708,21 +709,7 @@ export function Planner({
           <AskCard
             title={tr('Plan my week for me')}
             text={tr('Get a balanced week that reuses ingredients and fits your diet.')}
-            onPress={() =>
-              onAI({
-                kind: 'plan',
-                title: tr('Plan a lovely week'),
-                context: app.kitchen.pantry.length
-                  ? `Use these pantry ingredients where possible: ${app.kitchen.pantry.map((p) => p.name).join(', ')}`
-                  : undefined,
-                suggestions: [
-                  tr('Five easy dinners for two'),
-                  tr('A vegetarian week'),
-                  tr('Family favorites on a budget'),
-                  tr('High-protein lunches to meal prep'),
-                ],
-              })
-            }
+            onPress={() => onAsk(tr('Plan my dinners for this week'))}
           />
         </>
       ) : (
@@ -917,10 +904,11 @@ export function Planner({
 }
 export function Pantry({
   onOpen,
-  onAI,
+  onAsk,
 }: {
   onOpen: (r: Recipe) => void;
-  onAI: (r: AIRequest) => void;
+  /** Opens the sous-chef's conversation with a message. */
+  onAsk: (message: string) => void;
 }) {
   const { t: tr, locale } = useI18n();
   const app = useApp();
@@ -956,28 +944,11 @@ export function Pantry({
         .slice(0, 6),
     [app.recipes, app.kitchen.pantry],
   );
-  const pantryList = app.kitchen.pantry
-    .map(
-      (p) =>
-        `${p.name}${p.quantity ? ` (${p.quantity})` : ''}${p.expiresOn ? `, best before ${p.expiresOn}` : ''}`,
-    )
-    .join('; ');
   const ask = (
     <AskCard
       title={tr('What can I make with this?')}
       text={tr('The sous-chef builds a recipe around your pantry, using what expires first.')}
-      onPress={() =>
-        onAI({
-          kind: 'recipe',
-          title: tr('Cook from your pantry'),
-          context: pantryList ? `My pantry: ${pantryList}` : 'My pantry is nearly empty.',
-          suggestions: [
-            tr('Something quick, under 30 minutes'),
-            tr('Something cozy and comforting'),
-            tr('Use what expires soonest'),
-          ],
-        })
-      }
+      onPress={() => onAsk(tr('What can I make with my pantry?'))}
     />
   );
   const add = (

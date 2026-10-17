@@ -1,24 +1,15 @@
 import { useI18n } from '../lib/i18n';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Animated, Platform, Text, TextInput, View } from 'react-native';
-import { ArrowRight, ArrowUp, ChevronRight, RotateCcw, Sparkles } from './icons';
+import { ActivityIndicator, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ArrowRight, ChevronRight, RotateCcw, Send, Sparkles } from './icons';
 import { AIJob, AIKind, AIRequest, RecipeInput, emptyRecipe } from '../lib/types';
 import { api } from '../lib/api';
 import { useApp } from '../lib/store';
 import { requestKey } from '../lib/utils';
-import { color, font, radius, s, shadow } from '../lib/theme';
-import {
-  Button,
-  Chip,
-  Dialog,
-  Empty,
-  FoodImage,
-  IconButton,
-  Pill,
-  Press,
-  motionReduced,
-} from './ui';
+import { color, font, radius, s } from '../lib/theme';
+import { Button, Dialog, Empty, FoodImage, IconButton, Pill, Press } from './ui';
 import { VideoPlayer } from './VideoPlayer';
+import { Asked, Reply, SousChefMark, Thinking } from './ChatBubbles';
 const finished = (j: AIJob) => j.status === 'completed' || j.status === 'failed';
 const askOf = (prompt: string) => prompt.split('\n\nContext:')[0].split('\nDietary preferences')[0];
 const kindLabel: Record<AIKind, string> = {
@@ -31,58 +22,23 @@ const kindLabel: Record<AIKind, string> = {
   image: 'Food photo',
   video: 'Recipe clip',
 };
-function Thinking({ video }: { video: boolean }) {
-  const { t: tr } = useI18n();
-  const a = useState(() => new Animated.Value(0))[0];
-  // With reduced motion the dots hold still; the words say it's working.
-  const [still] = useState(motionReduced);
-  useEffect(() => {
-    if (still) return;
-    const loop = Animated.loop(
-      Animated.timing(a, { toValue: 1, duration: 1300, useNativeDriver: Platform.OS !== 'web' }),
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [a, still]);
-  return (
-    <View accessibilityLiveRegion="polite" style={[s.card, { gap: 12 }]}>
-      <View style={[s.row, { gap: 6 }]}>
-        {[0, 1, 2].map((i) => (
-          <Animated.View
-            key={i}
-            style={{
-              width: 8,
-              height: 8,
-              borderRadius: 4,
-              backgroundColor: color.ink,
-              opacity: still
-                ? 0.6
-                : a.interpolate({
-                    inputRange: [0, 0.2 + i * 0.2, 0.4 + i * 0.2, 1],
-                    outputRange: [0.2, 1, 0.2, 0.2],
-                  }),
-            }}
-          />
-        ))}
-      </View>
-      <Text style={s.h3}>{video ? tr('Filming your clip…') : tr('Thinking it through…')}</Text>
-    </View>
-  );
-}
 export function JobResult({
   job,
   onRecipe,
   onMedia,
+  bare,
 }: {
   job: AIJob;
   onRecipe: (r: RecipeInput) => void;
   onMedia?: (url: string) => void;
+  /** In a reply bubble, which is its card. */
+  bare?: boolean;
 }) {
   const { t: tr } = useI18n();
   const r = job.result;
   if (r.recipe)
     return (
-      <View style={[s.card, { gap: 10 }]}>
+      <View style={[!bare && s.card, { gap: 10 }]}>
         <Text style={s.label}>{tr(kindLabel[job.kind])}</Text>
         <Text style={s.h2}>{r.recipe.title}</Text>
         <Text numberOfLines={4} style={s.muted}>
@@ -142,8 +98,8 @@ export function JobResult({
   }
   if (r.text)
     return (
-      <View style={s.card}>
-        <Text selectable style={[s.body, { lineHeight: 25 }]}>
+      <View style={!bare && s.card}>
+        <Text selectable style={[s.body, !bare && { lineHeight: 25 }]}>
           {r.text}
         </Text>
       </View>
@@ -232,26 +188,11 @@ export function SousChef({
       clearInterval(timer);
     };
   }, [job]);
+  // The chat's header, bubbles, thinking dots and message box, so it's one sous-chef wherever it's
+  // asked; the answer grows out of the thinking bubble.
   return (
-    <Dialog visible onClose={onClose}>
-      <View style={{ gap: 8 }}>
-        <View style={[s.row, { gap: 8 }]}>
-          <View
-            style={{
-              width: 26,
-              height: 26,
-              borderRadius: 13,
-              backgroundColor: color.ink,
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <Sparkles size={13} color={color.white} strokeWidth={2.2} />
-          </View>
-          <Text style={s.label}>{tr('Sous-chef')}</Text>
-        </View>
-        <Text style={[s.h2, { fontSize: 22, lineHeight: 28 }]}>{tr(request.title)}</Text>
-      </View>
+    <Dialog visible onClose={onClose} title={tr('Sous-chef')} leading={<SousChefMark />}>
+      <Text style={s.h3}>{tr(request.title)}</Text>
       {!enabled && (
         <View
           style={{ backgroundColor: color.warningBg, borderRadius: radius.md, padding: 16, gap: 4 }}
@@ -267,22 +208,12 @@ export function SousChef({
         </View>
       )}
       {job ? (
-        <>
-          <View
-            style={{
-              alignSelf: 'flex-end',
-              maxWidth: '88%',
-              backgroundColor: color.ink,
-              borderRadius: 22,
-              borderBottomRightRadius: 6,
-              paddingHorizontal: 16,
-              paddingVertical: 11,
-            }}
-          >
-            <Text style={[s.body, { color: color.white }]}>{prompt}</Text>
-          </View>
+        <View style={{ gap: 12 }}>
+          <Asked>{prompt}</Asked>
           {!finished(job) ? (
-            <Thinking video={kind === 'video'} />
+            <Thinking
+              label={kind === 'video' ? tr('Filming your clip…') : tr('Thinking it through…')}
+            />
           ) : job.status === 'failed' ? (
             <View
               style={{
@@ -301,20 +232,24 @@ export function SousChef({
               />
             </View>
           ) : (
-            <JobResult
-              job={job}
-              // An adaptation keeps a link to the recipe it came from.
-              onRecipe={(r) =>
-                onRecipe(request.derivedFrom ? { ...r, derivedFrom: request.derivedFrom } : r)
-              }
-              onMedia={
-                request.onMedia &&
-                ((url) => {
-                  request.onMedia!(url);
-                  onClose();
-                })
-              }
-            />
+            <Reply grow>
+              <Text style={{ ...s.small, color: color.muted }}>{tr('Sous-chef')}</Text>
+              <JobResult
+                bare
+                job={job}
+                // An adaptation keeps a link to the recipe it came from.
+                onRecipe={(r) =>
+                  onRecipe(request.derivedFrom ? { ...r, derivedFrom: request.derivedFrom } : r)
+                }
+                onMedia={
+                  request.onMedia &&
+                  ((url) => {
+                    request.onMedia!(url);
+                    onClose();
+                  })
+                }
+              />
+            </Reply>
           )}
           {finished(job) && (
             <Button
@@ -327,7 +262,7 @@ export function SousChef({
               }}
             />
           )}
-        </>
+        </View>
       ) : (
         <View
           style={{ gap: 16, opacity: enabled ? 1 : 0.45, pointerEvents: enabled ? 'auto' : 'none' }}
@@ -337,23 +272,18 @@ export function SousChef({
               <Text style={s.small}>{tr('Tap to ask')}</Text>
               <View style={[s.wrap, { gap: 8 }]}>
                 {request.suggestions.map((t) => (
-                  <Chip key={t} title={tr(t)} onPress={() => void run(tr(t))} />
+                  <Button
+                    key={t}
+                    title={tr(t)}
+                    small
+                    variant="secondary"
+                    onPress={() => void run(tr(t))}
+                  />
                 ))}
               </View>
             </View>
           )}
-          <View
-            style={{
-              backgroundColor: color.white,
-              borderRadius: 26,
-              padding: 8,
-              paddingLeft: 18,
-              flexDirection: 'row',
-              alignItems: 'flex-end',
-              gap: 10,
-              boxShadow: shadow.card,
-            }}
-          >
+          <View style={styles.composer}>
             <TextInput
               accessibilityLabel={tr('Your request')}
               value={prompt}
@@ -366,26 +296,27 @@ export function SousChef({
               multiline
               maxLength={4000}
               style={{
+                ...s.body,
                 flex: 1,
-                minHeight: 44,
+                minHeight: 40,
                 maxHeight: 160,
-                paddingVertical: 11,
-                fontFamily: font.medium,
-                fontSize: 15,
-                color: color.ink,
+                paddingHorizontal: 6,
+                paddingVertical: 10,
+                lineHeight: 20,
               }}
             />
             {busy ? (
               <View
-                style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}
+                style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}
               >
                 <ActivityIndicator color={color.ink} />
               </View>
             ) : (
               <IconButton
-                icon={ArrowUp}
+                icon={Send}
                 label={tr('Ask the sous-chef')}
                 selected
+                size={40}
                 disabled={prompt.trim().length < 3}
                 onPress={() => void run(prompt)}
               />
@@ -491,7 +422,7 @@ export function SousChefHistory({
     </Dialog>
   );
 }
-// The inline entry point used across the app: one tap opens the sheet with relevant suggestions.
+// A screen's card for the sous-chef: one tap opens the conversation with the screen's prompt.
 export function AskCard({
   title,
   text,
@@ -529,3 +460,17 @@ export function AskCard({
     </Press>
   );
 }
+const styles = StyleSheet.create({
+  // The chat's message box.
+  composer: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 2,
+    padding: 6,
+    paddingLeft: 12,
+    backgroundColor: color.white,
+    borderRadius: 26,
+    borderWidth: 1,
+    borderColor: color.border,
+  },
+});

@@ -1,7 +1,7 @@
 import { useI18n } from '../lib/i18n';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
-import { Camera, Check, ChefHat, Images, Trash2, X } from './icons';
+import { Camera, Check, CookingPot, Images, Trash2, X } from './icons';
 import { api, ApiError } from '../lib/api';
 import { haptic } from '../lib/haptics';
 import { pickPhoto, preparePhoto, uploadMedia } from '../lib/photos';
@@ -16,21 +16,17 @@ const NOTE_LIMIT = 500;
 const SHOWN = 12;
 
 /**
- * "I cooked this": a toggle with an optional photo and note, how many cooks made the recipe, and
- * the photos they shared. Whether you cooked it comes from the library (`cookedIds`), or from the
- * cooks themselves on a server that doesn't list them there.
+ * "I cooked this": whether you cooked the recipe, with an optional photo and note, how many cooks
+ * made it, and the photos they shared. Whether you cooked it comes from the library
+ * (`cookedIds`), or from the cooks themselves on a server that doesn't list them there. The
+ * recipe page puts the toggle with its other actions and the photos with the reviews, so the
+ * state lives here: `CookPhotos` and `CookSheets` show it.
  */
-export function CookedIt({
-  recipe,
-  wide,
-  request,
-}: {
-  recipe: Recipe;
-  wide?: boolean;
+export function useCooked(
+  recipe: Recipe,
   /** Changes when another part of the page asks to open the sheet, e.g. after cooking. */
-  request?: number;
-}) {
-  const { t: tr, locale } = useI18n();
+  request?: number,
+) {
   const app = useApp();
   const userId = app.user?.id ?? null;
   const [cooks, setCooks] = useState<RecipeCook[] | null>(null);
@@ -41,7 +37,6 @@ export function CookedIt({
   const [sheet, setSheet] = useState(false);
   // A cook's photo, opened large; `at` is when, for "2 days ago".
   const [open, setOpen] = useState<{ cook: RecipeCook; at: number } | null>(null);
-  const viewing = open?.cook;
   const live = useRef(true);
   useEffect(
     () => () => {
@@ -77,42 +72,59 @@ export function CookedIt({
   const listed = app.library.cookedIds;
   const cooked = !!userId && (mark ?? (listed ? listed.includes(recipe.id) : !!mine));
   const shown = Math.max(count, cooks?.length ?? 0, cooked ? 1 : 0);
-  const changed = (next: boolean, total?: number) => {
-    const step = next === cooked ? 0 : next ? 1 : -1;
-    setMark(next);
-    setCount(total ?? Math.max(0, shown + step));
-    setSheet(false);
-    void loadCooks();
-    void app.refreshLibrary().catch(() => {});
+  return {
+    recipe,
+    /** The server keeps no cooks, so there's nothing to show or mark. */
+    off,
+    cooked,
+    mine,
+    count: shown,
+    photos: (cooks ?? []).filter((c) => !!c.photo),
+    sheet,
+    open,
+    /** Opens the sheet that marks the recipe cooked, or changes or takes back the mark. */
+    start: () => app.requireUser(() => setSheet(true)),
+    view: (cook: RecipeCook) => setOpen({ cook, at: Date.now() }),
+    closeSheet: () => setSheet(false),
+    closePhoto: () => setOpen(null),
+    changed: (next: boolean, total?: number) => {
+      const step = next === cooked ? 0 : next ? 1 : -1;
+      setMark(next);
+      setCount(total ?? Math.max(0, shown + step));
+      setSheet(false);
+      void loadCooks();
+      void app.refreshLibrary().catch(() => {});
+    },
   };
-  if (off) return null;
-  const photos = (cooks ?? []).filter((c) => !!c.photo);
+}
+export type Cooked = ReturnType<typeof useCooked>;
+
+/** How many cooks made the recipe, and the photos they shared. */
+export function CookPhotos({ cooked, wide }: { cooked: Cooked; wide?: boolean }) {
+  const { t: tr } = useI18n();
+  const { photos } = cooked;
+  if (cooked.off || (!cooked.count && !photos.length)) return null;
   const thumbs = photos.map((c) => (
     <Press
       key={c.id}
       accessibilityRole="button"
       accessibilityLabel={tr('Photo by {{v0}}', { v0: c.author.name })}
-      onPress={() => setOpen({ cook: c, at: Date.now() })}
+      onPress={() => cooked.view(c)}
       scale={0.96}
     >
       <FoodImage uri={c.photo} style={{ width: 72, height: 72, borderRadius: radius.md }} />
     </Press>
   ));
   return (
-    <View style={[s.card, { gap: 14, paddingVertical: 16 }, wide && { padding: 20 }]}>
-      <View style={[s.row, { gap: 12, flexWrap: 'wrap' }]}>
-        <Button
-          title={cooked ? tr('You cooked this') : tr('I cooked this')}
-          icon={cooked ? Check : ChefHat}
-          variant={cooked ? 'primary' : 'secondary'}
-          onPress={() => app.requireUser(() => setSheet(true))}
-        />
-        {shown > 0 && (
-          <Text style={[s.muted, { flex: 1, minWidth: 120 }]}>
-            {tr('cookedCount', { count: shown })}
+    <View style={{ gap: 12 }}>
+      {cooked.count > 0 && (
+        <View style={[s.row, { gap: 8 }]}>
+          <CookingPot size={16} color={color.ink} strokeWidth={2} />
+          <Text style={[s.h3, { fontSize: 14, lineHeight: 20 }]}>
+            {tr('cookedCount', { count: cooked.count })}
           </Text>
-        )}
-      </View>
+        </View>
+      )}
       {photos.length > 0 &&
         (wide ? (
           <View style={[s.row, { gap: 8, flexWrap: 'wrap' }]}>{thumbs}</View>
@@ -126,17 +138,28 @@ export function CookedIt({
             {thumbs}
           </ScrollView>
         ))}
+    </View>
+  );
+}
+
+/** The sheet that marks the recipe cooked, and a cook's photo opened large. */
+export function CookSheets({ cooked }: { cooked: Cooked }) {
+  const { t: tr, locale } = useI18n();
+  const { open } = cooked;
+  const viewing = open?.cook;
+  return (
+    <>
       <CookSheet
-        visible={sheet}
-        recipe={recipe}
-        cooked={cooked}
-        mine={mine}
-        onClose={() => setSheet(false)}
-        onChanged={changed}
+        visible={cooked.sheet}
+        recipe={cooked.recipe}
+        cooked={cooked.cooked}
+        mine={cooked.mine}
+        onClose={cooked.closeSheet}
+        onChanged={cooked.changed}
       />
       <Dialog
         visible={!!open}
-        onClose={() => setOpen(null)}
+        onClose={cooked.closePhoto}
         title={viewing?.author.name}
         leading={
           viewing ? (
@@ -157,7 +180,7 @@ export function CookedIt({
           </>
         )}
       </Dialog>
-    </View>
+    </>
   );
 }
 
