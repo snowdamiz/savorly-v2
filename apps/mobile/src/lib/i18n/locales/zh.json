@@ -1383,5 +1383,7 @@
   "We couldn’t find a recipe in that post’s caption. Try the link to the full recipe if the creator shared one.": "在该帖子的说明文字中没有找到食谱。如果创作者分享了完整食谱的链接，请试试那个链接。",
   "We couldn’t open that post. It may be private or no longer available.": "无法打开该帖子。它可能是私密的，或已不存在。",
   "Imported from {{v0}} on {{v1}}": "导入自 {{v1}} 上的 {{v0}}",
-  "The sous-chef read this from the original. Check the amounts against it before you share it.": "厨师助手从原文中读取了这份食谱。分享前请对照原文核对用量。"
+  "The sous-chef read this from the original. Check the amounts against it before you share it.": "厨师助手从原文中读取了这份食谱。分享前请对照原文核对用量。",
+  "Free AI use is at capacity today. Try again tomorrow.": "今日免费 AI 用量已满，请明天再试。",
+  "Today's AI budget is reached. Try again tomorrow.": "今日 AI 预算已用完，请明天再试。"
 }

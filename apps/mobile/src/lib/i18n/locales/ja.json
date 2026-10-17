@@ -1383,5 +1383,7 @@
   "We couldn’t find a recipe in that post’s caption. Try the link to the full recipe if the creator shared one.": "その投稿の説明文にレシピが見つかりませんでした。投稿者がレシピ全文へのリンクを載せている場合は、そちらをお試しください。",
   "We couldn’t open that post. It may be private or no longer available.": "その投稿を開けませんでした。非公開か、すでに削除されている可能性があります。",
   "Imported from {{v0}} on {{v1}}": "{{v1}}の{{v0}}から取り込み",
-  "The sous-chef read this from the original. Check the amounts against it before you share it.": "料理アシスタントが元の投稿やページから読み取りました。共有する前に、分量を元のものと照らし合わせてください。"
+  "The sous-chef read this from the original. Check the amounts against it before you share it.": "料理アシスタントが元の投稿やページから読み取りました。共有する前に、分量を元のものと照らし合わせてください。",
+  "Free AI use is at capacity today. Try again tomorrow.": "本日の無料AI利用は上限に達しました。明日もう一度お試しください。",
+  "Today's AI budget is reached. Try again tomorrow.": "本日のAI予算の上限に達しました。明日もう一度お試しください。"
 }

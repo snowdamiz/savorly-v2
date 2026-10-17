@@ -1383,5 +1383,7 @@
   "We couldn’t find a recipe in that post’s caption. Try the link to the full recipe if the creator shared one.": "No encontramos ninguna receta en la descripción de esa publicación. Prueba con el enlace a la receta completa, si su creador lo compartió.",
   "We couldn’t open that post. It may be private or no longer available.": "No pudimos abrir esa publicación. Puede que sea privada o que ya no esté disponible.",
   "Imported from {{v0}} on {{v1}}": "Importada de {{v0}} en {{v1}}",
-  "The sous-chef read this from the original. Check the amounts against it before you share it.": "El asistente sacó esta receta del original. Compara las cantidades con él antes de compartirla."
+  "The sous-chef read this from the original. Check the amounts against it before you share it.": "El asistente sacó esta receta del original. Compara las cantidades con él antes de compartirla.",
+  "Free AI use is at capacity today. Try again tomorrow.": "El uso gratuito de la IA ha llegado a su límite por hoy. Inténtalo de nuevo mañana.",
+  "Today's AI budget is reached. Try again tomorrow.": "Se ha alcanzado el presupuesto de IA de hoy. Inténtalo de nuevo mañana."
 }

@@ -1383,5 +1383,7 @@
   "We couldn’t find a recipe in that post’s caption. Try the link to the full recipe if the creator shared one.": "В подписи к этой публикации не нашлось рецепта. Попробуйте ссылку на полный рецепт, если автор ею поделился.",
   "We couldn’t open that post. It may be private or no longer available.": "Не удалось открыть эту публикацию. Возможно, она закрыта или больше недоступна.",
   "Imported from {{v0}} on {{v1}}": "Импортировано из {{v1}}, автор — {{v0}}",
-  "The sous-chef read this from the original. Check the amounts against it before you share it.": "Помощник перенёс этот рецепт из оригинала. Сверьте с ним количества, прежде чем делиться."
+  "The sous-chef read this from the original. Check the amounts against it before you share it.": "Помощник перенёс этот рецепт из оригинала. Сверьте с ним количества, прежде чем делиться.",
+  "Free AI use is at capacity today. Try again tomorrow.": "Лимит бесплатного ИИ на сегодня исчерпан. Попробуйте завтра.",
+  "Today's AI budget is reached. Try again tomorrow.": "Дневной бюджет на ИИ исчерпан. Попробуйте завтра."
 }

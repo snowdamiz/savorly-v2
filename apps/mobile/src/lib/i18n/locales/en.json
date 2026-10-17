@@ -1383,5 +1383,7 @@
   "We couldn’t find a recipe in that post’s caption. Try the link to the full recipe if the creator shared one.": "We couldn’t find a recipe in that post’s caption. Try the link to the full recipe if the creator shared one.",
   "We couldn’t open that post. It may be private or no longer available.": "We couldn’t open that post. It may be private or no longer available.",
   "Imported from {{v0}} on {{v1}}": "Imported from {{v0}} on {{v1}}",
-  "The sous-chef read this from the original. Check the amounts against it before you share it.": "The sous-chef read this from the original. Check the amounts against it before you share it."
+  "The sous-chef read this from the original. Check the amounts against it before you share it.": "The sous-chef read this from the original. Check the amounts against it before you share it.",
+  "Free AI use is at capacity today. Try again tomorrow.": "Free AI use is at capacity today. Try again tomorrow.",
+  "Today's AI budget is reached. Try again tomorrow.": "Today's AI budget is reached. Try again tomorrow."
 }
