@@ -22,6 +22,13 @@ const mark = (size, monochrome = false) =>
   `<svg x="${(1024 - size) / 2}" y="${(1024 - size) / 2}" width="${size}" height="${size}" viewBox="${artwork.mascot.viewBox}">${mascot(monochrome)}</svg>`;
 const background = `<rect width="1024" height="1024" fill="${cream}"/>`;
 const icon = svg(background + mark(704));
+// Match Splash.tsx's resting frame: a 112px chef, 10px gap and 64x10px shadow,
+// centered as a 132px-tall group within the native splash's 160px image.
+const splash = svg(
+  `<svg x="24" y="14" width="112" height="112" viewBox="${artwork.mascot.viewBox}">${mascot()}</svg>` +
+    '<rect x="48" y="136" width="64" height="10" rx="5" fill="rgba(27,28,26,0.16)"/>',
+  '0 0 160 160',
+);
 
 const config = JSON.parse(await readFile(new URL('../app.json', assets), 'utf8'));
 if (config.expo.android.adaptiveIcon.backgroundColor !== cream) {
@@ -48,7 +55,7 @@ try {
     [512, 'android-icon-foreground.png', svg(mark(560))],
     // Themed icons use alpha only: light details are cutouts, with opaque pupil islands.
     [512, 'android-icon-monochrome.png', svg(mark(560, true))],
-    [1024, 'splash-icon.png', svg(mark(704))],
+    [1024, 'splash-icon.png', splash],
   ]) {
     const page = await browser.newPage({
       viewport: { width: size, height: size },
