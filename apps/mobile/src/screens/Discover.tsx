@@ -19,7 +19,7 @@ import {
   Zap,
 } from '../components/icons';
 import { useApp } from '../lib/store';
-import { AIRequest, Creator, Recipe, Screen } from '../lib/types';
+import { Creator, Recipe, Screen } from '../lib/types';
 import { color, font, maxFontScale, radius, s } from '../lib/theme';
 import { haptic } from '../lib/haptics';
 import {
@@ -61,7 +61,7 @@ const categories = [
   ['High protein', 'High protein'],
   ['Comfort food', 'Comfort food'],
 ];
-// One-tap starting points for the sous-chef; the prompt runs as soon as the sheet opens.
+// One-tap starting points for the sous-chef: each sends its prompt as the conversation opens.
 const ideas = [
   {
     title: 'Dinner in 20 minutes',
@@ -88,7 +88,7 @@ export function Discover({
   onOpen,
   navigate,
   onCreator,
-  onAI,
+  onAsk,
   onActivity,
   onAccount,
   onHeader,
@@ -99,7 +99,8 @@ export function Discover({
   onOpen: (r: Recipe) => void;
   navigate: (s: Screen) => void;
   onCreator: (c: Creator) => void;
-  onAI: (r: AIRequest) => void;
+  /** Opens the sous-chef's conversation, sending `message` when there is one. */
+  onAsk: (message?: string) => void;
   onActivity: () => void;
   onAccount: () => void;
   /** Height of the phone's black header, so the shell can turn the status bar light past it. */
@@ -162,14 +163,6 @@ export function Discover({
     setCuisine(allCuisines);
     setSort('For you');
     setQuick(false);
-  };
-  const fridge: AIRequest = {
-    kind: 'recipe',
-    title: tr('What are you in the mood for?'),
-    placeholder: tr('Eggs, spinach and feta — something quick…'),
-    context: app.kitchen.pantry.length
-      ? `In my pantry: ${app.kitchen.pantry.map((p) => p.name).join(', ')}`
-      : undefined,
   };
   const tileWidth = Math.min(250, Math.round(width * 0.6));
   // On phones the feed is a light sheet that rises over the black header on rounded top corners.
@@ -393,14 +386,8 @@ export function Discover({
                     icon={Sparkles}
                     variant="secondary"
                     small
-                    onPress={() =>
-                      onAI({
-                        ...fridge,
-                        title: tr('A recipe for {{v0}}', { v0: query }),
-                        // In the cook's language: it's their own message, and the model's cue.
-                        prompt: tr('Create a recipe for {{v0}}.', { v0: query }),
-                      })
-                    }
+                    // In the cook's language: it's their own message, and the model's cue.
+                    onPress={() => onAsk(tr('Create a recipe for {{v0}}.', { v0: query }))}
                   />
                 )}
               </View>
@@ -487,7 +474,7 @@ export function Discover({
                 <Press
                   accessibilityRole="button"
                   accessibilityLabel={tr('Ask the sous-chef for a recipe')}
-                  onPress={() => onAI(fridge)}
+                  onPress={() => onAsk()}
                   scale={0.98}
                   style={[
                     s.row,
@@ -520,7 +507,7 @@ export function Discover({
                       key={title}
                       accessibilityRole="button"
                       accessibilityLabel={tr('Ask the sous-chef: {{v0}}', { v0: tr(title) })}
-                      onPress={() => onAI({ ...fridge, title: tr(title), prompt })}
+                      onPress={() => onAsk(tr(prompt))}
                       scale={0.95}
                       style={styles.idea}
                     >

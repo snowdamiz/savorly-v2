@@ -28,7 +28,6 @@ import {
   MicOff,
   Minimize2,
   Send,
-  Sparkles,
   Square,
   SquarePen,
   Video,
@@ -48,6 +47,7 @@ import {
 import { color, radius, s, shadow } from '../lib/theme';
 import { Button, Dialog, FoodImage, IconButton, Pill, Press, animate, motionReduced } from './ui';
 import { RecipeCamera } from './RecipeCamera';
+import { Reply, SousChefMark, Thinking, bubble } from './ChatBubbles';
 import { useSousChefDock } from './sousChefDock';
 import { fileForm } from '../lib/photos';
 import { requestKey } from '../lib/utils';
@@ -153,8 +153,11 @@ export function RecipeStudio({
   onClose,
   onRecipe,
 }: {
-  /** Each explicit start (Speak, Scan, the launcher) asks for its mode, even while already open. */
-  start: { mode: StudioMode; n: number };
+  /**
+   * Each explicit start (Speak, Scan, the launcher) asks for its mode, even while already open; a
+   * screen's prompt (the home's ideas, the planner) also brings the message to send.
+   */
+  start: { mode: StudioMode; n: number; message?: string };
   /** Minimized: the panel folds into the launcher, or a pill keeps a live conversation going. */
   hidden: boolean;
   onHide: (hidden: boolean) => void;
@@ -603,7 +606,27 @@ export function RecipeStudio({
     }
   };
   const ready = !!project && !busy && !project.busy;
+  // A start's message goes once, as soon as the conversation can take it.
+  const prompted = useRef(0);
+  useEffect(() => {
+    if (!start.message || prompted.current === start.n || !ready) return;
+    prompted.current = start.n;
+    void send(start.message, null);
+    // Sent once per start; send itself changes every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [start, ready]);
   const groups = mergeEvents(events);
+  // The reply that arrives as the thinking bubble goes grows out of it.
+  const thinking = !!project?.busy;
+  const newest = groups[groups.length - 1];
+  const [wait, setWait] = useState({ thinking, newest: newest?.seq ?? 0 });
+  const [grown, setGrown] = useState(0);
+  const settled = useCallback(() => setGrown(0), []);
+  if (wait.thinking !== thinking || wait.newest !== (newest?.seq ?? 0)) {
+    setWait({ thinking, newest: newest?.seq ?? 0 });
+    const ended = wait.thinking && !thinking && newest?.role === 'assistant';
+    if (ended && newest.seq !== wait.newest && !hidden) setGrown(newest.seq);
+  }
   const nearby = context.recipe
     ? context.cookingStep
       ? cookingSuggestions
@@ -764,69 +787,66 @@ export function RecipeStudio({
           <Text style={s.small}>{tr('Your conversation saves automatically.')}</Text>
         </View>
       )}
-      {groups.map((event) => (
-        <View
-          key={event.seq}
-          style={{
-            alignSelf: event.role === 'user' ? 'flex-end' : 'flex-start',
-            maxWidth: '92%',
-            padding: 15,
-            borderRadius: radius.md,
-            backgroundColor: event.role === 'user' ? color.ink : color.white,
-            gap: 5,
-          }}
-        >
-          <Text
-            style={{
-              ...s.small,
-              color: event.role === 'user' ? color.onInk : color.muted,
-            }}
-          >
-            {event.role === 'user' ? tr('You') : tr('Sous-chef')}
-            {event.imageCount ? tr('recipePhotos', { count: event.imageCount }) : ''}
-          </Text>
-          <Text
-            selectable
-            style={{ ...s.body, color: event.role === 'user' ? color.white : color.ink }}
-          >
-            {event.content}
-          </Text>
-          {!!event.recipes?.length && (
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ gap: 10, paddingTop: 6 }}
+      {groups.map((event) => {
+        const body = (
+          <>
+            <Text
+              style={{
+                ...s.small,
+                color: event.role === 'user' ? color.onInk : color.muted,
+              }}
             >
-              {event.recipes.map((r) => (
-                <Press
-                  key={r.id}
-                  accessibilityRole="button"
-                  accessibilityLabel={tr('Open {{v0}}', { v0: r.title })}
-                  onPress={() => void openRecipe(r.id)}
-                  style={{ width: 148, gap: 6 }}
-                >
-                  <FoodImage
-                    uri={r.image}
-                    style={{ width: 148, height: 104, borderRadius: radius.sm }}
-                  />
-                  <Text numberOfLines={2} style={s.h3}>
-                    {r.title}
-                  </Text>
-                  <Text style={s.small}>{tr('minuteCount', { count: r.minutes })}</Text>
-                </Press>
-              ))}
-            </ScrollView>
-          )}
-        </View>
-      ))}
-      {project?.busy && (
-        <View style={[s.row, { gap: 9, padding: 10 }]}>
-          <ActivityIndicator size="small" color={color.ink} />
-          <Text accessibilityLiveRegion="polite" style={s.muted}>
-            {tr('Your sous-chef is working…')}
-          </Text>
-        </View>
-      )}
+              {event.role === 'user' ? tr('You') : tr('Sous-chef')}
+              {event.imageCount ? tr('recipePhotos', { count: event.imageCount }) : ''}
+            </Text>
+            <Text
+              selectable
+              style={{ ...s.body, color: event.role === 'user' ? color.white : color.ink }}
+            >
+              {event.content}
+            </Text>
+            {!!event.recipes?.length && (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ gap: 10, paddingTop: 6 }}
+              >
+                {event.recipes.map((r) => (
+                  <Press
+                    key={r.id}
+                    accessibilityRole="button"
+                    accessibilityLabel={tr('Open {{v0}}', { v0: r.title })}
+                    onPress={() => void openRecipe(r.id)}
+                    style={{ width: 148, gap: 6 }}
+                  >
+                    <FoodImage
+                      uri={r.image}
+                      style={{ width: 148, height: 104, borderRadius: radius.sm }}
+                    />
+                    <Text numberOfLines={2} style={s.h3}>
+                      {r.title}
+                    </Text>
+                    <Text style={s.small}>{tr('minuteCount', { count: r.minutes })}</Text>
+                  </Press>
+                ))}
+              </ScrollView>
+            )}
+          </>
+        );
+        return event.role === 'user' ? (
+          <View
+            key={event.seq}
+            style={[bubble, { alignSelf: 'flex-end', backgroundColor: color.ink }]}
+          >
+            {body}
+          </View>
+        ) : (
+          <Reply key={event.seq} grow={event.seq === grown} onGrown={settled}>
+            {body}
+          </Reply>
+        );
+      })}
+      {thinking && <Thinking />}
       {runningVoice && (
         <Text style={[s.small, { textAlign: 'center' }]}>
           {tr('Voice is processed live. We save your transcript, not an audio recording.')}
@@ -1076,20 +1096,7 @@ export function RecipeStudio({
     <RecipeCamera onPhoto={(uri) => void upload(uri)} onCancel={() => setCamera(false)} />
   );
   const title = camera ? tr('Take a photo') : tr('Sous-chef');
-  const avatar = (
-    <View
-      style={{
-        width: 32,
-        height: 32,
-        borderRadius: 16,
-        backgroundColor: color.ink,
-        alignItems: 'center',
-        justifyContent: 'center',
-      }}
-    >
-      <Sparkles size={15} color={color.white} strokeWidth={2.2} />
-    </View>
-  );
+  const avatar = <SousChefMark />;
   // Live voice keeps the header to what matters: on a sheet, stepping aside to keep talking.
   const actions = runningVoice ? (
     !floating && (

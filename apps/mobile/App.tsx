@@ -192,34 +192,40 @@ function Shell({ onReady }: { onReady: (ready: boolean) => void }) {
     asked === 'failed'
       ? app.recipes.filter((r) => app.library.followingIds.includes(r.author.id))
       : asked;
-  // Each explicit start counts, so Speak or Scan reaches a sous-chef that is already open.
-  const [studio, setStudio] = useState<{ mode: StudioMode; n: number } | null>(null);
+  // Each explicit start counts, so Speak or Scan reaches a sous-chef that is already open. A start
+  // from a screen's prompt (the home's ideas, the planner) carries the message to send.
+  const [studio, setStudio] = useState<{ mode: StudioMode; n: number; message?: string } | null>(
+    null,
+  );
   // Minimized keeps the conversation (and any live voice) while the user looks at the app.
   const [studioHidden, setStudioHidden] = useState(false);
   const [studioLive, setStudioLive] = useState(false);
   const [cookingStep, setCookingStep] = useState<number | null>(null);
   const [cookCommand, setCookCommand] = useState<CookCommand | null>(null);
-  const [pendingStudio, setPendingStudio] = useState<StudioMode | null>(null);
+  const [pendingStudio, setPendingStudio] = useState<{
+    mode: StudioMode;
+    message?: string;
+  } | null>(null);
   const [creating, setCreating] = useState(false);
   const welcoming = useWelcomePending();
   // Signing in, from the welcome or anywhere else, counts as having been welcomed.
   useEffect(() => {
     if (app.user && welcoming) finishWelcome();
   }, [app.user, welcoming]);
-  const startStudio = (mode: StudioMode) => {
+  const startStudio = (mode: StudioMode, message?: string) => {
     if (!app.user) {
-      setPendingStudio(mode);
+      setPendingStudio({ mode, message });
       app.setAuthOpen(true);
     } else {
       track('studio_start', { mode });
-      setStudio((old) => ({ mode, n: (old?.n || 0) + 1 }));
+      setStudio((old) => ({ mode, n: (old?.n || 0) + 1, message }));
       setStudioHidden(false);
     }
   };
   useEffect(() => {
     if (app.user && pendingStudio) {
-      track('studio_start', { mode: pendingStudio });
-      setStudio((old) => ({ mode: pendingStudio, n: (old?.n || 0) + 1 }));
+      track('studio_start', { mode: pendingStudio.mode });
+      setStudio((old) => ({ ...pendingStudio, n: (old?.n || 0) + 1 }));
       setStudioHidden(false);
       setPendingStudio(null);
     }
@@ -380,6 +386,9 @@ function Shell({ onReady }: { onReady: (ready: boolean) => void }) {
     return () => sub.remove();
   }, [openById, openCookbook, toTop]);
   const openSousChef = () => (studio ? setStudioHidden(false) : startStudio('chat'));
+  // The screens' sous-chef cards open the same conversation, with their prompt as the message.
+  const askSousChef = (message?: string) =>
+    message ? startStudio('chat', message) : openSousChef();
   const recipeAt = (id: string) => api<Recipe>(`/recipes/${encodeURIComponent(id)}`);
   const act = (action: AppAction) => {
     if (action.type === 'set_language') void setLanguage(action.language as LanguagePreference);
@@ -465,15 +474,15 @@ function Shell({ onReady }: { onReady: (ready: boolean) => void }) {
           onOpen={open}
           navigate={navigate}
           onCreator={setCreator}
-          onAI={ai}
+          onAsk={askSousChef}
           onActivity={openActivity}
           onAccount={account}
           onHeader={setHeaderHeight}
         />
       )}
       {screen === 'saved' && <Cookbooks onOpen={open} navigate={navigate} />}
-      {screen === 'planner' && <Planner onOpen={open} onAI={ai} />}
-      {screen === 'pantry' && <Pantry onOpen={open} onAI={ai} />}
+      {screen === 'planner' && <Planner onOpen={open} onAsk={askSousChef} />}
+      {screen === 'pantry' && <Pantry onOpen={open} onAsk={askSousChef} />}
       {screen === 'create' && (
         <Suspense fallback={<PageLoading />}>
           <Editor

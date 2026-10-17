@@ -29,7 +29,9 @@ import {
   RefreshCw,
   RotateCcw,
   Save,
+  ShoppingBasket,
   Sparkles,
+  Timer,
   Trash2,
   X,
 } from '../components/icons';
@@ -91,6 +93,127 @@ function Section({
   );
 }
 const inset = { backgroundColor: color.bg, borderColor: color.bg };
+// The smaller boxes of an ingredient row.
+const rowInput = {
+  ...inset,
+  minHeight: 46,
+  paddingVertical: 11,
+  paddingHorizontal: 12,
+  borderRadius: 14,
+};
+type IngredientInput = RecipeInput['ingredients'][number];
+// The ingredients as compact rows: one line each where there's room, under the column names; on a
+// phone, each name over its amount, unit and aisle. The boxes keep their names for screen readers.
+function IngredientRows({
+  ingredients,
+  onChange,
+  onRemove,
+}: {
+  ingredients: IngredientInput[];
+  onChange: (n: number, patch: Partial<IngredientInput>) => void;
+  onRemove: (n: number) => void;
+}) {
+  const { t: tr } = useI18n();
+  const [width, setWidth] = useState(0);
+  const oneLine = width >= 520;
+  return (
+    <View onLayout={(e) => setWidth(e.nativeEvent.layout.width)} style={{ gap: oneLine ? 8 : 12 }}>
+      {oneLine && (
+        <View aria-hidden style={[s.row, { gap: 8 }]}>
+          <Text style={[styles.fieldLabel, { width: 88 }]}>{tr('Amount')}</Text>
+          <Text style={[styles.fieldLabel, { width: 96 }]}>{tr('Unit')}</Text>
+          <Text style={[styles.fieldLabel, { flex: 1 }]}>{tr('Ingredient')}</Text>
+          <Text style={[styles.fieldLabel, { width: 150 }]}>{tr('Aisle')}</Text>
+          <View style={{ width: 40 }} />
+        </View>
+      )}
+      {ingredients.map((i, n) => {
+        const amount = (
+          <NumberField
+            accessibilityLabel={tr('Amount')}
+            value={i.amount}
+            placeholder={tr('Amount')}
+            style={rowInput}
+            onChange={(v) => onChange(n, { amount: v })}
+          />
+        );
+        const unit = (
+          <Field
+            accessibilityLabel={tr('Unit')}
+            placeholder={tr('g, tbsp…')}
+            value={i.unit}
+            onChangeText={(v) => onChange(n, { unit: v })}
+            style={rowInput}
+          />
+        );
+        const name = (
+          <Field
+            accessibilityLabel={tr('Ingredient {{v0}}', { v0: n + 1 })}
+            placeholder={tr('Ingredient name')}
+            value={i.name}
+            onChangeText={(v) => onChange(n, { name: v })}
+            style={rowInput}
+          />
+        );
+        // The basket says what the aisle is for where no column name does.
+        const aisle = (
+          <View>
+            <Field
+              accessibilityLabel={tr('Aisle')}
+              placeholder={tr('Aisle')}
+              value={i.category}
+              onChangeText={(v) => onChange(n, { category: v })}
+              style={[rowInput, { paddingLeft: 34 }]}
+            />
+            <View style={styles.aisleIcon}>
+              <ShoppingBasket size={15} color={color.muted} strokeWidth={2} />
+            </View>
+          </View>
+        );
+        const remove = (
+          <IconButton
+            icon={Trash2}
+            plain
+            size={40}
+            label={tr('Remove ingredient {{v0}}', { v0: n + 1 })}
+            onPress={() => onRemove(n)}
+          />
+        );
+        return oneLine ? (
+          <View key={n} style={[s.row, { gap: 8 }]}>
+            <View style={{ width: 88 }}>{amount}</View>
+            <View style={{ width: 96 }}>{unit}</View>
+            <View style={{ flex: 1 }}>{name}</View>
+            <View style={{ width: 150 }}>{aisle}</View>
+            {remove}
+          </View>
+        ) : (
+          <View
+            key={n}
+            style={[
+              { gap: 8 },
+              n > 0 && {
+                paddingTop: 12,
+                borderTopWidth: StyleSheet.hairlineWidth,
+                borderColor: color.line,
+              },
+            ]}
+          >
+            <View style={[s.row, { gap: 4 }]}>
+              <View style={{ flex: 1 }}>{name}</View>
+              {remove}
+            </View>
+            <View style={[s.row, { gap: 8 }]}>
+              <View style={{ flex: 1.1 }}>{amount}</View>
+              <View style={{ flex: 1 }}>{unit}</View>
+              <View style={{ flex: 1.6 }}>{aisle}</View>
+            </View>
+          </View>
+        );
+      })}
+    </View>
+  );
+}
 // What the cook wrote, in a fixed shape and order, so a device draft and the copy it came from
 // compare as text. Newer fields join only when set, so drafts kept before them still match; a
 // step photo or clip the cook removed stays as '', so a restored draft removes it again.
@@ -192,16 +315,24 @@ function MinutesField({
   // while it still comes to the same seconds.
   if (Math.round(minutes * 60) !== seconds) setMinutes(toMinutes(seconds));
   return (
-    <NumberField
-      label={tr('Timer in minutes (optional)')}
-      value={minutes}
-      placeholder="0"
-      style={inset}
-      onChange={(next) => {
-        setMinutes(next);
-        onChange(Math.round(next * 60));
-      }}
-    />
+    <View style={[s.row, { gap: 10 }]}>
+      <Timer size={16} color={color.muted} strokeWidth={2} />
+      <Text aria-hidden style={[styles.fieldLabel, { flex: 1 }]}>
+        {tr('Timer in minutes (optional)')}
+      </Text>
+      <View style={{ width: 96 }}>
+        <NumberField
+          accessibilityLabel={tr('Timer in minutes (optional)')}
+          value={minutes}
+          placeholder="0"
+          style={rowInput}
+          onChange={(next) => {
+            setMinutes(next);
+            onChange(Math.round(next * 60));
+          }}
+        />
+      </View>
+    </View>
   );
 }
 // A small button on a gallery thumbnail: it looks small and answers to a 44 pt touch.
@@ -906,65 +1037,16 @@ function EditorForm({ initial, onPublished, onAI }: EditorProps) {
                 </View>
               </Section>
               <Section title={tr('Ingredients')}>
-                {r.ingredients.map((i, n) => (
-                  <View
-                    key={n}
-                    style={[
-                      { gap: 10 },
-                      n > 0 && {
-                        paddingTop: 16,
-                        borderTopWidth: StyleSheet.hairlineWidth,
-                        borderColor: color.line,
-                      },
-                    ]}
-                  >
-                    <View style={[s.row, { gap: 8, alignItems: 'flex-end' }]}>
-                      <Field
-                        label={tr('Ingredient {{v0}}', { v0: n + 1 })}
-                        placeholder={tr('Ingredient name')}
-                        value={i.name}
-                        onChangeText={(v) => setIngredient(n, { name: v })}
-                        style={inset}
-                      />
-                      <View style={{ paddingBottom: 6 }}>
-                        <IconButton
-                          icon={Trash2}
-                          plain
-                          size={44}
-                          label={tr('Remove ingredient {{v0}}', { v0: n + 1 })}
-                          onPress={() =>
-                            update(
-                              'ingredients',
-                              r.ingredients.filter((_, k) => k !== n),
-                            )
-                          }
-                        />
-                      </View>
-                    </View>
-                    <View style={[s.row, { gap: 8 }]}>
-                      <NumberField
-                        label={tr('Amount')}
-                        value={i.amount}
-                        placeholder="1"
-                        style={inset}
-                        onChange={(v) => setIngredient(n, { amount: v })}
-                      />
-                      <Field
-                        label={tr('Unit')}
-                        placeholder={tr('g, tbsp…')}
-                        value={i.unit}
-                        onChangeText={(v) => setIngredient(n, { unit: v })}
-                        style={inset}
-                      />
-                      <Field
-                        label={tr('Aisle')}
-                        value={i.category}
-                        onChangeText={(v) => setIngredient(n, { category: v })}
-                        style={inset}
-                      />
-                    </View>
-                  </View>
-                ))}
+                <IngredientRows
+                  ingredients={r.ingredients}
+                  onChange={setIngredient}
+                  onRemove={(n) =>
+                    update(
+                      'ingredients',
+                      r.ingredients.filter((_, k) => k !== n),
+                    )
+                  }
+                />
                 <Button
                   title={tr('Add an ingredient')}
                   icon={Plus}
@@ -1026,15 +1108,16 @@ function EditorForm({ initial, onPublished, onAI }: EditorProps) {
                         }
                       />
                     </View>
+                    {/* The step's header names its boxes; screen readers still hear each name. */}
                     <Field
-                      label={tr('Step {{v0}} title', { v0: n + 1 })}
+                      accessibilityLabel={tr('Step {{v0}} title', { v0: n + 1 })}
                       placeholder={tr('A short, helpful title')}
                       value={step.title}
                       onChangeText={(v) => setStep(n, { title: v })}
                       style={inset}
                     />
                     <Field
-                      label={tr('Step {{v0}} instructions', { v0: n + 1 })}
+                      accessibilityLabel={tr('Step {{v0}} instructions', { v0: n + 1 })}
                       multiline
                       placeholder={tr('Explain it like a friend is cooking alongside you…')}
                       value={step.text}
@@ -1042,8 +1125,7 @@ function EditorForm({ initial, onPublished, onAI }: EditorProps) {
                       style={inset}
                     />
                     <View style={[s.wrap, { gap: 14 }]}>
-                      <View style={{ gap: 8 }}>
-                        <Text style={styles.fieldLabel}>{tr('Step photo (optional)')}</Text>
+                      <View>
                         {step.image ? (
                           <View style={{ alignSelf: 'flex-start' }}>
                             <FoodImage
@@ -1093,8 +1175,7 @@ function EditorForm({ initial, onPublished, onAI }: EditorProps) {
                           </Pressable>
                         )}
                       </View>
-                      <View style={{ gap: 8 }}>
-                        <Text style={styles.fieldLabel}>{tr('Step clip (optional)')}</Text>
+                      <View>
                         {step.video ? (
                           <View style={{ alignSelf: 'flex-start' }}>
                             <StepClip
@@ -1370,6 +1451,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   fieldLabel: { fontFamily: font.semibold, fontSize: 13, color: color.muted },
+  aisleIcon: {
+    position: 'absolute',
+    left: 12,
+    top: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    pointerEvents: 'none',
+  },
   stepPhoto: { width: 128, height: 96, borderRadius: radius.sm },
   emptyPhoto: {
     borderWidth: 1.5,
