@@ -158,7 +158,7 @@ function Line({
           borderRadius: radius.pill,
           backgroundColor: color.white,
           borderWidth: 1,
-          borderColor: color.outline,
+          borderColor: color.border,
           opacity: pressed ? 0.8 : 1,
         },
       ]}

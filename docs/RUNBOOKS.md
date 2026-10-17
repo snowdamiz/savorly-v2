@@ -149,5 +149,7 @@ repository changes them):
    For `main`, block force pushes and require the same checks; once there are other maintainers,
    require pull requests with a review from code owners (`.github/CODEOWNERS`).
 3. **Security** (Settings → Advanced Security): turn on private vulnerability reporting
-   ([SECURITY.md](../SECURITY.md)), Dependabot alerts and security updates (version updates are
-   configured in `.github/dependabot.yml`).
+   ([SECURITY.md](../SECURITY.md)). Dependabot's update pull requests are off on purpose, since
+   they didn't respect the versions the Expo SDK pins; dependencies are updated by hand
+   ([CONTRIBUTING.md](../CONTRIBUTING.md)). Dependabot alerts open no pull requests and can be
+   turned on here for security notices.

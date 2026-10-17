@@ -159,7 +159,7 @@ export function CookbookSettings({
             value={form.public}
             onValueChange={(on) => setForm((f) => ({ ...f, public: on }))}
             accessibilityLabel={tr('Public cookbook')}
-            trackColor={{ false: color.outline, true: color.ink }}
+            trackColor={{ false: color.line, true: color.ink }}
             thumbColor={color.white}
             {...(Platform.OS === 'web' ? { activeThumbColor: color.white } : {})}
           />

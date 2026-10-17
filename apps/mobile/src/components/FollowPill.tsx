@@ -44,7 +44,7 @@ export function FollowPill({
         styles.pill,
         stretch && { alignSelf: 'stretch' },
         following
-          ? { backgroundColor: color.white, borderColor: color.outline }
+          ? { backgroundColor: color.white, borderColor: color.border }
           : { backgroundColor: color.ink, borderColor: color.ink },
       ]}
     >

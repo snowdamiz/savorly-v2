@@ -16,7 +16,7 @@ export const providerButton = (provider: Provider): ViewStyle => ({
   gap: 10,
   backgroundColor: provider === 'apple' ? '#000' : color.white,
   borderWidth: provider === 'apple' ? 0 : 1,
-  borderColor: color.outline,
+  borderColor: color.border,
 });
 
 export function GoogleMark({ size = 18 }: { size?: number }) {

@@ -243,7 +243,7 @@ export function Button({
           borderRadius: radius.pill,
           backgroundColor: bg,
           borderWidth: variant === 'secondary' || variant === 'glass' ? 1 : 0,
-          borderColor: variant === 'glass' ? color.glassBorder : color.outline,
+          borderColor: variant === 'glass' ? color.glassBorder : color.border,
         },
         style,
       ]}
@@ -325,7 +325,7 @@ export function IconButton({
                 ? 'transparent'
                 : glass
                   ? 'rgba(255,255,255,0.5)'
-                  : color.outline,
+                  : color.border,
           borderWidth: glassy ? 0 : 1,
           alignItems: 'center',
           justifyContent: 'center',
@@ -384,7 +384,7 @@ export function Chip({
           alignItems: 'center',
           gap: 7,
           borderWidth: 1,
-          borderColor: active ? color.ink : dark ? color.glassBorder : color.outline,
+          borderColor: active ? color.ink : dark ? color.glassBorder : color.border,
           backgroundColor: active ? color.ink : dark ? color.glass : color.white,
         },
       ]}
@@ -504,7 +504,7 @@ export function SearchBar({
         borderRadius: radius.pill,
         backgroundColor: color.white,
         borderWidth: bare ? 0 : 1,
-        borderColor: color.outline,
+        borderColor: color.border,
         flex: 1,
       }}
     >
@@ -1714,7 +1714,7 @@ export function CheckRow({
           height: 24,
           borderRadius: 12,
           borderWidth: 1.5,
-          borderColor: checked ? color.ink : color.outline,
+          borderColor: checked ? color.ink : color.line,
           backgroundColor: color.white,
           justifyContent: 'center',
           alignItems: 'center',

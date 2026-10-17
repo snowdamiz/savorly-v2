@@ -1488,7 +1488,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     backgroundColor: color.white,
     borderWidth: 1,
-    borderColor: color.outline,
+    borderColor: color.border,
   },
   actionText: { fontFamily: font.bold, fontSize: 13, color: color.ink, flexShrink: 1 },
   webHeading: { fontSize: 24, lineHeight: 30, letterSpacing: -0.6 },
