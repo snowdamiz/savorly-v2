@@ -11,6 +11,7 @@ Code: `services/api/internal/app/cook_insights.go` (step events, questions, the 
 - **Questions cooks keep asking**, under **Often asked here**: each a row that opens to its answer, once 3 different cooks asked it at that step in the last 90 days. Cooks see the two asked most at a step, never the cooks' own words (each is reworded), and, opened, whether the answer is the sous-chef's or the recipe's cook's.
 - **Finished by 9 in 10 who started**, once 20 sessions are over (finished, or a day old). Tenths round down, so 96% is still 9 in 10, and "Finished by everyone who started" needs everyone.
 - **In the sous-chef's answers.** In cooking mode, hands-free questions and the sous-chef get a line about the step the cook is on: how long other cooks' sessions usually took there and what they often ask, with the answer. So "Chef, how long do I simmer it?" can say "Cooks here usually needed 12 minutes, not 8."
+- **In the meal timeline.** A step that 5 cooks measured takes their median time when it's planned with other dishes ([meal timeline](MEAL-TIMELINE.md)), and each dish of a meal cooked together sends its step events on its own session.
 - **Explore and the feed.** Explore's filters have **Tested by cooks** (`cookTested=true`; the sous-chef's search has `cook_tested` too), and the home feed ranks a cook-tested recipe as if it had half as many saves again this week, and at least two more.
 
 ## What authors see

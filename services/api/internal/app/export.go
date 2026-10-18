@@ -59,7 +59,7 @@ const exportSQL = `SELECT json_build_object(
  'notificationDevices',COALESCE((SELECT json_agg(json_build_object('platform',platform,'registeredAt',created_at,'lastSeenAt',last_seen_at) ORDER BY created_at) FROM push_tokens WHERE user_id=u.id),'[]'),
  'usageEvents',COALESCE((SELECT json_agg(json_build_object('name',name,'details',props,'at',created_at) ORDER BY created_at) FROM events WHERE user_id=u.id),'[]'),
  'cookSessions',COALESCE((SELECT json_agg(json_build_object('recipeId',k.recipe_id,'recipeTitle',r.title,'startedAt',k.started_at,'finishedAt',k.finished_at,
-   'stepReached',k.step_reached,'steps',k.steps,'verifiedCook',k.verified,
+   'stepReached',k.step_reached,'steps',k.steps,'verifiedCook',k.verified,'mealId',k.meal_id,
    'stepEvents',COALESCE((SELECT json_agg(json_build_object('kind',e.kind,'step',e.step,'atMs',e.at_ms) ORDER BY e.seq) FROM cook_step_events e WHERE e.session_id=k.id),'[]'))
    ORDER BY k.started_at) FROM cook_sessions k JOIN recipes r ON r.id=k.recipe_id WHERE k.user_id=u.id),'[]'),
  'cookQuestions',COALESCE((SELECT json_agg(json_build_object('recipeId',q.recipe_id,'recipeTitle',r.title,'step',q.step,'question',q.question,'askedAt',q.created_at) ORDER BY q.created_at)

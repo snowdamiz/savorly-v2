@@ -124,6 +124,10 @@ func applyFix(r *RecipeInput, part string, place int, after fixPart) {
 	switch part {
 	case "step":
 		s := &r.Steps[place-1]
+		// Its timing was for the words it had; the server estimates the new ones.
+		if s.Text != after.Text {
+			s.Timing = nil
+		}
 		s.Title, s.Text = after.Title, after.Text
 		if after.Seconds != nil {
 			s.Seconds = *after.Seconds
@@ -553,10 +557,11 @@ func (a *App) answerSuggestion(c fiber.Ctx) error {
 const fixContentSQL = `SELECT jsonb_build_object('ingredients',ingredients,'steps',steps) FROM recipes WHERE id=$1`
 
 // saveFixed saves owner's recipe as a fix or its undo left it, in tx. Every step carries its own
-// photo and clip, so none is matched to another step's (keepStepMedia), even after a new one.
+// photo, clip, family voice and timing, so none is matched to another step's (keepStepMedia,
+// keepStepVoices, keepStepTiming), even after a new one.
 func saveFixed(ctx context.Context, tx pgx.Tx, owner, recipe string, r RecipeInput) error {
 	for i := range r.Steps {
-		r.Steps[i].imageSet, r.Steps[i].videoSet = true, true
+		r.Steps[i].imageSet, r.Steps[i].videoSet, r.Steps[i].voiceSet, r.Steps[i].timingSet = true, true, true, true
 	}
 	return saveOwnRecipe(ctx, tx, owner, recipe, r)
 }

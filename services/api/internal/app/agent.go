@@ -37,8 +37,9 @@ var draftRecipe = object([]string{"title", "description", "cuisine", "minutes", 
 	"minutes": field("integer", "1–1440"), "servings": field("integer", "1–100"), "difficulty": choice("", "Easy", "Medium", "Advanced"),
 	"tags": list(field("string", ""), 12), "calories": field("integer", "Estimated per serving"),
 	"ingredients": list(object([]string{"name", "amount", "unit", "category"}, props{"name": field("string", ""), "amount": field("number", ""), "unit": field("string", ""), "category": field("string", "e.g. Produce, Dairy, Pantry")}), 80),
-	"steps":       list(object([]string{"title", "text", "seconds"}, props{"title": field("string", ""), "text": field("string", ""), "seconds": field("integer", "Timer length, 0 if none")}), 40),
-	"equipment":   list(field("string", "A pot, pan, appliance or tool the recipe needs, as the cook would name it (\"Large pot\", \"Blender\"); up to 60 characters"), 20),
+	"steps": list(object([]string{"title", "text", "seconds"}, props{"title": field("string", ""), "text": field("string", ""), "seconds": field("integer", "Timer length, 0 if none"),
+		"timing": object(nil, props{"active": field("integer", "Seconds that need the cook's hands"), "wait": field("integer", "Seconds that need no attention: baking, simmering, resting"), "oven": field("integer", "The oven's heat in °C while the step runs, 0 if none; a step that only preheats has only this"), "burners": field("integer", "Burners of the hob it uses")})}), 40),
+	"equipment": list(field("string", "A pot, pan, appliance or tool the recipe needs, as the cook would name it (\"Large pot\", \"Blender\"); up to 60 characters"), 20),
 })
 var none = object(nil, props{})
 var editableRecipe = object(nil, draftRecipe["properties"].(props))
@@ -852,6 +853,8 @@ func (t *toolTurn) editRecipe() string {
 		if json.Unmarshal(jsonBytes(changes), &next) != nil {
 			return toolError("Check the recipe fields.")
 		}
+		// Timing the model wrote is its estimate; what it kept as it read it stays the cook's.
+		fitTiming(next.Steps, current.Steps)
 	}
 	if t.in.Published != nil {
 		next.Published = *t.in.Published
@@ -1063,6 +1066,13 @@ func (t *toolTurn) draftAction() string {
 	// imported page without one does.
 	if t.in.Recipe != nil && strings.TrimSpace(t.in.Recipe.Cuisine) == "" {
 		t.in.Recipe.Cuisine = "Other"
+	}
+	if t.in.Recipe != nil {
+		var saved []Step
+		if t.run.state.Recipe != nil {
+			saved = t.run.state.Recipe.Steps
+		}
+		fitTiming(t.in.Recipe.Steps, saved)
 	}
 	if t.in.SourceURL != "" && t.in.Recipe != nil {
 		// Credit only a page the user shared: the model has no other way to know one.

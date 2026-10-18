@@ -37,6 +37,7 @@ Every route allows 300 requests a minute per visitor address ([deployment](DEPLO
 | Your version | `GET` or `PUT /recipes/:id/my-version`, `PATCH` or `DELETE /recipe-edits/:id`, `GET` or `POST /me/kitchen-notes`, `DELETE /me/kitchen-notes/:id`; see [your version](YOUR-VERSION.md#api) |
 | Recipe fixes | `GET` or `POST /recipes/:id/suggestions`, `PUT` or `DELETE /suggestions/:id/vote`, `PATCH` or `DELETE /suggestions/:id`, `GET /recipes/:id/history`, `POST /recipes/:id/history/:version/undo`; see [recipe fixes](#recipe-fixes) |
 | Assistants | [`GET` or `POST /oauth/authorize`, `GET /me/connected-apps`, `DELETE /me/connected-apps/:id`](#assistants); the MCP server and its OAuth endpoints at the root, outside `/v1` |
+| Meal timeline | `POST /meals/timeline`, `POST /meals/cook-sessions`; see [meal timeline](#meal-timeline) |
 | Admin | `/admin/*` for admins only, the cook-along and founding creators included; see [admin console](ADMIN.md#api) |
 
 ## Usernames
@@ -110,6 +111,8 @@ The shared Expo contract lives in `apps/mobile/src/lib/types.ts`; server validat
 ```
 
 Recipes the API returns also carry `allergens`, the recipe's allergen and diet groups, and `ingredientFood`, one entry per ingredient in order: `{ "key", "allergens", "terms" }` ([allergens and diets](#allergens-diets-and-the-pantry)). Both are read from the ingredients when a recipe is saved; anything sent in them is ignored.
+
+Each step may also carry `timing`, how it spends its time for the [meal timeline](#meal-timeline): `{ "active", "wait", "oven", "burners", "estimated" }`, seconds that need the cook's hands and seconds that need no attention (each 0–86,400), the oven's heat in °C while it runs (0 for none, else 50–300), the burners it takes (0–6), and `estimated` when a model or a reading of its words guessed them; any of them may be left out as 0 (`400` otherwise). A step with only an oven heat preheats it. Leaving `timing` out on an update, as older apps and the sous-chef do, keeps the saved timing of the step with the same text; `null` clears it, and the server estimates the step instead. Imports fill in what a page's steps say as estimates, and recipe jobs and the sous-chef's drafts ask the model for it.
 
 `equipment` is optional: what the recipe needs besides its ingredients (pots, pans, appliances, tools), as its author names them and in their order, up to 20 names of 1–60 characters (`400` otherwise); names are trimmed and blank or repeated ones (ignoring case) dropped. Leaving it out on an update, as older apps and the sous-chef's drafts do, keeps the saved list; `[]` clears it. Recipes the API returns always carry `equipment` (`[]` for none) and `equipmentDetected`, the equipment the method mentions ([equipment](#equipment)), which is read from the steps when a recipe is saved; anything sent in it is ignored.
 
@@ -209,7 +212,7 @@ Many recipes at once, read on the server into private drafts one at a time, so t
 
 ## Cook sessions and the creator fund
 
-Cooking mode records a session for a signed-in member; the rules and the money are in [creator fund](CREATOR-FUND.md). A session is `{ "id", "recipeId", "steps", "stepReached", "startedAt", "finishedAt", "verified" }`.
+Cooking mode records a session for a signed-in member; the rules and the money are in [creator fund](CREATOR-FUND.md). A session is `{ "id", "recipeId", "steps", "stepReached", "startedAt", "finishedAt", "verified", "mealId" }`, `mealId` naming the [meal](#meal-timeline) it was cooked in, or `null`.
 
 - `POST /recipes/:id/cook-sessions` (no body; 60 an hour per member) starts one on a published recipe or the member's own and answers `201` with it; anything else, or a recipe without steps, is `404`.
 - `PATCH /cook-sessions/:id` takes `{ "step", "finished" }`, both optional: `step` (1-based, 0–1000, else `400`) raises the furthest step reached, never lowers it, and is capped at the recipe's step count; `"finished": true` ends the session and decides `verified`. It answers the session. A finished session doesn't change, and asking again answers it as it is; one started more than 24 hours ago is `409`; someone else's is `404`. An "I cooked this" post is separate and never makes a session verified.
@@ -235,6 +238,13 @@ Changes cooks who made a recipe suggest, and its author's answer; the rules are 
 - `PUT /suggestions/:id/vote` is "same for me" from another verified cook (`403` otherwise, `400` for one's own) and `DELETE /suggestions/:id/vote` takes it back; both answer the suggestion. `DELETE /suggestions/:id` withdraws the caller's own (`204`).
 - `PATCH /suggestions/:id` is the recipe author's answer: `{ "action": "accept", "change" }` (`change` optional, when they edited it) saves the recipe and answers its version, or `{ "action": "decline", "response" }` (up to 500 characters) answers `204`. Accepting one whose part changed since is `409`; another recipe's is `404`.
 - `GET /recipes/:id/history` (no session needed) answers `{ "versions": [{ "id", "number", "kind", "part", "before", "after", "createdAt", "by", "undoable", "suggestionId" }] }`, the accepted fixes newest first; `undoable` is true for the author's latest while nothing changed the recipe since. `POST /recipes/:id/history/:version/undo` restores the ingredients and steps from before it (`204`; `409` once the recipe changed since).
+
+## Meal timeline
+
+Two to four recipes cooked together so they're ready at once ([meal timeline](MEAL-TIMELINE.md)). Both routes need a session.
+
+- `POST /meals/timeline` takes `{ "recipes", "eatAt", "timeZone", "kitchen" }`: 2 to 4 different recipe ids (else `400`), each published by a cook in good standing or the caller's own (else `404`); when to eat, as RFC 3339 or a local `2026-10-17T19:30` read in `timeZone` (an IANA name, UTC when left out; `400` for another), from 12 hours ago to 60 days ahead (else `400`); and optionally `{ "burners", "ovens" }` (1–12 and 1–3, else `400`; 4 and 1 when left out). It answers the plan, times in RFC 3339 in that zone: `{ "eatAt", "startAt", "kitchen", "dishes", "steps", "free", "warnings" }`. `dishes` are `{ "recipeId", "title", "image", "startAt", "readyAt", "estimated", "tested" }` in the order asked. `steps` are every step of every dish, in the order they start: `{ "recipeId", "step", "title", "startAt", "endAt", "active", "wait", "oven", "burners", "preheat", "estimated", "tested" }`, `step` 1-based, seconds in whole minutes, `oven` in °C, `preheat` for a step that heats the oven ahead of an oven step (it starts 15 minutes before it), `tested` when 5 cooks' median time replaced the written one and `estimated` when its times are an estimate. `free` is `{ "startAt", "endAt" }` for each stretch of 5 minutes or more with nothing hands-on to do. `warnings` are what the kitchen can't do, never a step left out: `{ "kind": "oven", "at", "recipeIds", "heats" }` (heats at once in °C, more than it has ovens), `{ "kind": "burners", "at", "recipeIds", "needed", "have" }`, and `{ "kind": "hands", "at", "recipeIds", "minutes" }` (cooked food waiting that long because the cook's hands were busy). Nothing is saved and no AI is asked. Members may ask 120 an hour.
+- `POST /meals/cook-sessions` takes `{ "recipes" }` (2 to 4, as above) and answers `201` with `{ "mealId", "sessions" }`: a [cook session](#cook-sessions-and-the-creator-fund) for each recipe that counts (published, someone else's), linked by `mealId`, which sessions then carry. The caller's own recipes get none. Each session is updated, finished and sent step events as cooking one recipe does. Members may start 30 an hour.
 
 ## Shared cookbooks
 

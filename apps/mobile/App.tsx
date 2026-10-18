@@ -101,6 +101,7 @@ import { SousChef } from './src/components/SousChef';
 import { Discover } from './src/screens/Discover';
 import { Splash } from './src/components/Splash';
 import { Cookbooks, Pantry, Planner } from './src/screens/Kitchen';
+import { MealCookingHost } from './src/components/MealCookMode';
 import { CookbookPage } from './src/screens/CookbookPage';
 import { Community, CreatorDialog, Profile } from './src/screens/Profile';
 // Loaded the first time they're needed, so a first visit (often a shared recipe) doesn't download
@@ -994,6 +995,8 @@ function Shell({ onReady }: { onReady: (ready: boolean) => void }) {
         onOpen={(id) => void openById(id, 'family')}
       />
       {!webPage && recipePage}
+      {/* A meal cooked together (docs/MEAL-TIMELINE.md) covers everything, as cooking mode does. */}
+      <MealCookingHost />
       {studio && app.user && (
         <Suspense fallback={null}>
           <RecipeStudio

@@ -6,7 +6,7 @@ Code: `services/api/internal/app/cook_sessions.go` (sessions, verification, cook
 
 ## Verified cooks
 
-Cooking mode records a **cook session** for a signed-in member: it starts when cooking mode opens (`POST /v1/recipes/:id/cook-sessions`), keeps the furthest step reached as the cook moves on, and finishes at "Dinner is served" (`PATCH /v1/cook-sessions/:id`). Guests record nothing, and the app records nothing for a recipe's own author. Sessions never slow cooking down: the app sends them in the background and drops any that fail.
+Cooking mode records a **cook session** for a signed-in member: it starts when cooking mode opens (`POST /v1/recipes/:id/cook-sessions`), keeps the furthest step reached as the cook moves on, and finishes at "Dinner is served" (`PATCH /v1/cook-sessions/:id`). Guests record nothing, and the app records nothing for a recipe's own author. A meal cooked together records one session per dish (`POST /v1/meals/cook-sessions`, [meal timeline](MEAL-TIMELINE.md)), so each dish counts by the same rules. Sessions never slow cooking down: the app sends them in the background and drops any that fail.
 
 A finished session is a **verified cook** when it plausibly happened:
 
