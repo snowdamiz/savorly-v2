@@ -7,6 +7,7 @@ import { existsSync } from 'node:fs';
 // PLAYWRIGHT_CHANNEL picks a browser explicitly (`chrome`, `msedge`, …).
 const bundled = existsSync(chromium.executablePath());
 const channel = process.env.PLAYWRIGHT_CHANNEL || (bundled ? undefined : 'chrome');
+const workers = process.env.TEST_WORKERS;
 if (!bundled && !process.env.PLAYWRIGHT_CHANNEL && !process.env.TEST_WORKER_INDEX)
   console.warn(
     'Playwright’s Chromium isn’t installed, so the tests run in Google Chrome rather than the ' +
@@ -15,9 +16,15 @@ if (!bundled && !process.env.PLAYWRIGHT_CHANNEL && !process.env.TEST_WORKER_INDE
 
 export default defineConfig({
   testDir: './tests',
+  // The pre-push hook (scripts/browser-tests.mjs) runs without the API, so it leaves out the one
+  // spec that needs it.
+  testIgnore: process.env.TEST_WITHOUT_API ? ['smoke.spec.ts'] : [],
   timeout: 60000,
+  // Spec files run side by side, and a file's tests one after another. By default there are half
+  // as many workers as the machine has cores (Playwright's default); TEST_WORKERS sets a number
+  // or a percentage of the cores, as on a busy machine.
   fullyParallel: false,
-  workers: 1,
+  workers: /^\d+$/.test(workers ?? '') ? Number(workers) : workers || undefined,
   use: {
     baseURL: process.env.TEST_WEB_URL || 'http://localhost:8081',
     headless: true,

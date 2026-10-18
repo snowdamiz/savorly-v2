@@ -79,12 +79,13 @@ services/api/
 infra/cloudflare/             Worker (site.ts helpers, worker.ts), wrangler.jsonc, the API container
 infra/seaweedfs/              Local S3 access policy (Docker)
 scripts/
+  browser-tests.mjs           Runs the browser tests against Expo started from this checkout
   check-services.mjs          Stops `make check` early when Postgres or SeaweedFS isn't running
   deploy.sh                   Deploys staging or production (secrets, web export, Worker, API)
   integration.py              Real API + Postgres integration checks
   loadtest.mjs                Load test against a local API or staging (creates accounts)
   render-brand.mjs            Renders the logo, app icons, web icons and preview image
-  serve-dist.mjs              Serves the exported web app like the Worker (CI browser tests)
+  serve-dist.mjs              Serves the exported web app like the Worker (browser tests)
   ship-app.mjs                Ships the Android app: an over-the-air update or an EAS build
   web-postbuild.mjs           Adds font preloads and the media preconnect to the web export
 docs/                         Setup, deployment, operations, runbooks, design decisions
@@ -105,9 +106,9 @@ npm --prefix infra/cloudflare run build
 
 `make check` runs `npm run typecheck` (the app and the Worker), lint (which rejects warnings), the Worker's helper tests (`npm --prefix infra/cloudflare test`), `go vet`, and `go test -race` with the database and object-storage suites switched on against `make services`: `TEST_DATABASE_URL` defaults to the Compose Postgres and `TEST_S3_ENDPOINT` to SeaweedFS. Those tests use isolated schemas and their own objects, so the development data is safe; point them elsewhere with `make check TEST_DATABASE_URL=…`, and `make check` stops with instructions when the services aren't running. Plain `npm test` runs only `go test ./...` without those settings, so the database and storage suites skip themselves (35 tests today): a quick check, not the full one.
 
-Browser tests run in Playwright's pinned Chromium in CI, and locally too once it is installed (`npx playwright install chromium`); until then they fall back to the installed Google Chrome. API integration tests create isolated accounts and remove them; run against a development database. Provider tests use local mock servers and do not spend money. CI also runs `govulncheck`, `staticcheck`, an informational `npm audit`, and the smoke and splash browser tests against the exported bundle (`node scripts/serve-dist.mjs` serves `apps/mobile/dist` on 8082). See [contributing](CONTRIBUTING.md).
+CI doesn't run the browser tests, which took most of its time. The pre-push hook (`.githooks/pre-push`, turned on by `make setup` or `make hooks`) runs them instead when a push brings app changes the remote doesn't have: `node scripts/browser-tests.mjs` starts Expo from the checkout on a free port from 8090 and runs every spec but `smoke.spec.ts`, which needs the real API. Spec files run side by side, on half as many workers as the machine has cores (about 3 minutes on a 15-core Mac; `TEST_WORKERS` sets another number). `git push --no-verify` or `SKIP_BROWSER_TESTS=1` skips them. Browser tests use Playwright's pinned Chromium once it is installed (`npx playwright install chromium`); until then they fall back to the installed Google Chrome. To check the production bundle, `npm run build` with `EXPO_PUBLIC_API_URL` set, then `node scripts/serve-dist.mjs` serves `apps/mobile/dist` on 8082 for `TEST_WEB_URL=http://localhost:8082 npm --prefix apps/mobile run test:e2e -- smoke.spec.ts splash.spec.ts`. API integration tests create isolated accounts and remove them; run against a development database. Provider tests use local mock servers and do not spend money. CI also runs `govulncheck`, `staticcheck` and an informational `npm audit`. See [contributing](CONTRIBUTING.md).
 
-`make setup` installs both the app and Worker dependencies. Browser screenshots go to the ignored `test-results` directory.
+`make setup` installs both the app and Worker dependencies and turns on the pre-push hook. Browser screenshots go to the ignored `test-results` directory.
 
 For a checkout running on different ports, set `EXPO_PUBLIC_API_URL` when starting Expo and pass matching `TEST_WEB_URL` and `TEST_API_URL` to the browser tests. Set the API's `PORT` and `ALLOWED_ORIGINS` to match. For example, Expo on 8181 with the API on 8180 uses:
 

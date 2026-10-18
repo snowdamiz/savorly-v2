@@ -15,7 +15,7 @@ concurrency:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 30
     services:
       postgres:
         image: postgres:17-alpine
@@ -31,8 +31,6 @@ jobs:
       DATABASE_URL: postgres://savorly:test_only_password@localhost:5432/savorly?sslmode=disable
       TEST_DATABASE_URL: postgres://savorly:test_only_password@localhost:5432/savorly?sslmode=disable
       SEED_DATA: 'true'
-      # Expo's dev server (8081) and the exported bundle (8082) both call the API on 8080.
-      ALLOWED_ORIGINS: http://localhost:8081,http://localhost:8082
       CI: '1'
       TEST_OBJECT_STORAGE: 'true'
       TEST_S3_ENDPOINT: http://localhost:8333
@@ -72,63 +70,30 @@ jobs:
       - run: go vet ./... && go test -race ./...
         working-directory: services/api
       - name: Export the web app
-        # The production bundle, also served on 8082 for the browser tests below.
         run: npm run build
         env:
           EXPO_PUBLIC_API_URL: http://localhost:8080
       - name: Worker and container dry run
         # Builds the API image with Docker and bundles the Worker with the export; uploads nothing.
         run: npm --prefix infra/cloudflare run build
-      - name: Read the Playwright version
-        id: playwright
-        run: echo "version=$(node -p "require('./apps/mobile/node_modules/@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        id: playwright-cache
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
-      - name: Install Chromium
-        if: steps.playwright-cache.outputs.cache-hit != 'true'
-        run: npx playwright install --with-deps chromium
-        working-directory: apps/mobile
-      - name: Install Chromium's system packages
-        if: steps.playwright-cache.outputs.cache-hit == 'true'
-        run: npx playwright install-deps chromium
-        working-directory: apps/mobile
-      - name: Start the API, Expo and the exported bundle
+      # The browser tests (apps/mobile/tests) took most of this job, so they run before a push
+      # instead (.githooks/pre-push), on the pusher's machine.
+      - name: Start the API
         run: |
           (cd services/api && go run ./cmd/server > /tmp/savorly-api.log 2>&1) &
-          (cd apps/mobile && npx expo start --web --port 8081 > /tmp/savorly-web.log 2>&1) &
-          node scripts/serve-dist.mjs > /tmp/savorly-dist.log 2>&1 &
           for _ in $(seq 1 60); do
-            if curl -fsS http://localhost:8080/health > /dev/null &&
-              curl -fsS http://localhost:8081 > /dev/null &&
-              curl -fsS http://localhost:8082 > /dev/null; then
-              exit 0
-            fi
+            curl -fsS http://localhost:8080/health > /dev/null && exit 0
             sleep 2
           done
-          echo "::error::The API (8080), Expo (8081) or the bundle server (8082) didn't answer within 120 seconds."
-          tail -n 80 /tmp/savorly-*.log
+          echo "::error::The API (8080) didn't answer within 120 seconds."
+          tail -n 80 /tmp/savorly-api.log
           exit 1
       - run: npm run test:integration
-      - name: Browser tests (Expo dev server)
-        run: npm --prefix apps/mobile run test:e2e
-      - name: Browser tests (production bundle)
-        run: npm --prefix apps/mobile run test:e2e -- tests/smoke.spec.ts tests/splash.spec.ts
-        env:
-          TEST_WEB_URL: http://localhost:8082
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: failure()
-        with:
-          name: browser-failures
-          path: apps/mobile/test-results
-          if-no-files-found: ignore
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: failure()
         with:
           name: server-logs
-          path: /tmp/savorly-*.log
+          path: /tmp/savorly-api.log
           if-no-files-found: ignore
   analyze:
     name: Static analysis and audits
