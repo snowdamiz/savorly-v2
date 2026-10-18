@@ -249,7 +249,7 @@ export const stepLabels: Record<string, string> = {
   kitchen: 'Updating your kitchen…',
   saving: 'Saving…',
   recipe: 'Working on your recipe…',
-  media: 'Ordering a photo and video…',
+  media: 'Ordering AI media…',
   reading: 'Reading the page…',
 };
 

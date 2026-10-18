@@ -2,7 +2,7 @@ import { useI18n } from '../lib/i18n';
 import React, { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Bookmark, Clock3, Play, Sparkles, Star } from './icons';
+import { Bookmark, Clock3, Sparkles, Star } from './icons';
 import { Recipe } from '../lib/types';
 import { foodIcon } from '../lib/icons';
 import { haptic } from '../lib/haptics';
@@ -167,25 +167,6 @@ export const RecipeTile = memo(function RecipeTile({
           locations={[0, 0.26, 0.44, 0.7, 1]}
           style={StyleSheet.absoluteFill}
         />
-        {!!recipe.video && (
-          <View
-            style={{
-              position: 'absolute',
-              top: '38%',
-              alignSelf: 'center',
-              width: 46,
-              height: 46,
-              borderRadius: 23,
-              backgroundColor: 'rgba(0,0,0,0.42)',
-              borderWidth: 1,
-              borderColor: color.glassBorder,
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <Play size={18} color="white" fill="white" />
-          </View>
-        )}
         <View style={{ position: 'absolute', left: 16, right: 16, bottom: 16, gap: 7 }}>
           <Text
             role="heading"

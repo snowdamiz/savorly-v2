@@ -37,6 +37,7 @@ const kindNames: Record<AIKind, string> = {
   assistant: 'Question',
   image: 'Photo',
   video: 'Video',
+  clip: 'Step clip',
 };
 export const statusTone = (status: string): Tone =>
   status === 'failed'

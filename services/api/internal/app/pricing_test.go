@@ -12,8 +12,8 @@ var unitCost = map[string]float64{
 	"assistant": 0.025,                          // planning allowance; actual turns settle to provider usage
 	"voice":     0.05,                           // GPT-Live, per connected minute
 	"image":     ai.GenerationEstimate("image"), // reserved and never settled, so count the reservation
-	"video":     ai.GenerationEstimate("video"),
-	"narration": 0.012, // a ~300-character step at $0.04 per 1K characters
+	"clip":      ai.GenerationEstimate("clip"),  // a step clip, reserved and never settled like a photo
+	"narration": 0.012,                          // a ~300-character step at $0.04 per 1K characters
 }
 
 // A hands-free cooking question: about 1,500 tokens in (instructions, the recipe, the step and the
@@ -27,7 +27,7 @@ const cookQuestionCost = 0.0005
 func TestPlansStayCashPositive(t *testing.T) {
 	for _, p := range plans {
 		allowances := float64(p.Assistant)*unitCost["assistant"] + float64(p.VoiceMinutes)*unitCost["voice"] +
-			float64(p.Images)*unitCost["image"] + float64(p.Videos)*unitCost["video"] + float64(p.Narration)*unitCost["narration"] +
+			float64(p.Images)*unitCost["image"] + float64(p.Videos)*unitCost["clip"] + float64(p.Narration)*unitCost["narration"] +
 			float64(p.CookQuestions)*cookQuestionCost
 		if allowances > p.SpendCap {
 			t.Errorf("%s: allowances cost $%.2f, over the $%.2f ceiling, so members would hit the ceiling first", p.ID, allowances, p.SpendCap)
@@ -47,8 +47,9 @@ func TestPlansStayCashPositive(t *testing.T) {
 		}
 	}
 	// Reservations that never settle must cover the provider's list price.
-	if ai.GenerationEstimate("image") < 0.02 || ai.GenerationEstimate("video") < 1.005 {
-		t.Error("an image or video reservation is below what the provider charges")
+	// A step clip is four seconds of Seedance 2.0 Mini Eco at $0.036 a second.
+	if ai.GenerationEstimate("image") < 0.02 || ai.GenerationEstimate("clip") < 4*0.036 || ai.GenerationEstimate("video") < 4*0.036 {
+		t.Error("an image or clip reservation is below what the provider charges")
 	}
 }
 

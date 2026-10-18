@@ -25,8 +25,9 @@ func (a *App) job(c fiber.Ctx) error {
 	return a.queryOne(c, `SELECT `+jobJSON+` FROM ai_jobs WHERE id=$1 AND user_id=$2`, c.Params("id"), userID(c))
 }
 
-// createJob makes a photo or a clip from a description (the editor's Create a cover photo and
-// Create a short clip). Questions, twists, swaps, nutrition, meal plans and new recipes are the
+// createJob makes a photo from a description (the editor's Create a cover photo), or, for
+// released apps' Create a short clip, a clip. Step clips are ordered for a recipe
+// (step_clips_ai.go). Questions, twists, swaps, nutrition, meal plans and new recipes are the
 // sous-chef's conversation; a recipe job is made only by importing a page.
 func (a *App) createJob(c fiber.Ctx) error {
 	var in struct{ Kind, Prompt string }
@@ -156,6 +157,7 @@ func RunWorker(ctx context.Context, db *pgxpool.Pool, config Config) {
 	slots := make(chan struct{}, 2)
 	pace(ctx, w.jobs, jobPace, func() bool {
 		found := a.pollVideos(ctx)
+		a.syncStepClips(ctx)
 		for {
 			select {
 			case slots <- struct{}{}:
@@ -212,9 +214,10 @@ func (a *App) processJob(parent context.Context, id, owner, kind, prompt, source
 			url, err = a.Media.Put(ctx, owner, b)
 			result = jsonBytes(fiber.Map{"url": url, "aiGenerated": true})
 		}
-	case "video":
+	case "video", "clip":
+		// A step clip's source is the step's photo, its opening frame.
 		var task ai.VideoTask
-		task, err = a.AI.Video(ctx, prompt)
+		task, err = a.AI.Video(ctx, prompt, source)
 		if err == nil {
 			// A job cancelled or timed out meanwhile stays that way.
 			_, err = a.DB.Exec(ctx, `UPDATE ai_jobs SET status='processing',provider_id=$2,updated_at=now() WHERE id=$1 AND status IN ('queued','running')`, id, task.ID)

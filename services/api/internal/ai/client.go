@@ -41,7 +41,7 @@ func New() *Client {
 		AgentModel:     env("OPENROUTER_AGENT_MODEL", env("OPENROUTER_VOICE_MODEL", DefaultAgentModel)),
 		ImageModel:     env("OPENROUTER_IMAGE_MODEL", DefaultImageModel),
 		ImageEditModel: env("OPENROUTER_IMAGE_EDIT_MODEL", DefaultImageEditModel),
-		VideoModel:     env("REAPI_VIDEO_MODEL", "doubao-seedance-2.5-eco"),
+		VideoModel:     env("REAPI_VIDEO_MODEL", DefaultVideoModel),
 		// Its own setting, so translations can move to a cheaper model than the agent's.
 		TranslationModel: env("OPENROUTER_TRANSLATION_MODEL", DefaultTranslationModel),
 	}
@@ -156,9 +156,16 @@ type VideoTask struct {
 	Error json.RawMessage `json:"error"`
 }
 
-func (c *Client) Video(ctx context.Context, prompt string) (VideoTask, error) {
+// Video asks for one short clip of a recipe step: four silent seconds at 720p, landscape like
+// the step's place on the recipe page and in cooking mode. firstFrame, a public photo of the
+// step, is the clip's opening frame, so the clip shows the cook's own dish moving.
+func (c *Client) Video(ctx context.Context, prompt, firstFrame string) (VideoTask, error) {
 	var out VideoTask
-	e := c.request(ctx, "POST", c.VideoURL+"/videos/generations", c.VideoKey, map[string]any{"model": c.VideoModel, "prompt": "A realistic cinematic food close-up for a recipe. Show only the described dish. " + prompt, "duration": 5, "size": "9:16", "resolution": "720p", "content_filter": true, "generate_audio": true, "watermark": true}, &out)
+	body := map[string]any{"model": c.VideoModel, "prompt": "A realistic close-up cooking clip in a home kitchen. Show only what is described. " + prompt, "duration": 4, "size": "16:9", "resolution": "720p", "content_filter": true, "generate_audio": false, "watermark": true}
+	if firstFrame != "" {
+		body["image_with_roles"] = []map[string]string{{"url": firstFrame, "role": "first_frame"}}
+	}
+	e := c.request(ctx, "POST", c.VideoURL+"/videos/generations", c.VideoKey, body, &out)
 	if out.ID == "" {
 		out.ID = out.TaskID
 	}

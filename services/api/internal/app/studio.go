@@ -840,7 +840,7 @@ func (a *App) agentInput(ctx context.Context, state studioState) (any, error) {
 		plan, e := planOf(ctx, a.DB, state.Owner)
 		used, e2 := usageOf(ctx, a.DB, state.Owner)
 		if e == nil && e2 == nil {
-			input["allowances"] = fiber.Map{"plan": plan.ID, "sousChefTurnsLeft": max(0, plan.Assistant-used.Assistant), "photosLeft": max(0, plan.Images-used.Images), "videosLeft": max(0, plan.Videos-used.Videos), "photosPerMonth": plan.Images, "videosPerMonth": plan.Videos, "voiceMinutesLeft": max(0, plan.VoiceMinutes*60-used.VoiceSeconds) / 60}
+			input["allowances"] = fiber.Map{"plan": plan.ID, "sousChefTurnsLeft": max(0, plan.Assistant-used.Assistant), "photosLeft": max(0, plan.Images-used.Images), "stepClipsLeft": max(0, plan.Videos-used.Videos), "photosPerMonth": plan.Images, "stepClipsPerMonth": plan.Videos, "voiceMinutesLeft": max(0, plan.VoiceMinutes*60-used.VoiceSeconds) / 60}
 		}
 	}
 	var kitchen, shown []byte
@@ -1005,7 +1005,7 @@ func (a *App) applyDraftAction(ctx context.Context, state studioState, action st
 				return "", e
 			}
 			if pending && id != "" {
-				return "", fiber.NewError(409, "The current draft's photo and video are still being made. Start the new recipe in a minute, or open a new chat.")
+				return "", fiber.NewError(409, "The current draft's cover photo is still being made. Start the new recipe in a minute, or open a new chat.")
 			}
 			id = uuid.NewString()
 		}
@@ -1099,7 +1099,7 @@ func (a *App) applyDraftAction(ctx context.Context, state studioState, action st
 const draftNext = " The user can make changes, ask for a read-back, or publish."
 
 // draftMediaNote says which of a draft's media is on its way, from the jobs that actually
-// started for that revision: a plan without video, or a used-up allowance, gets no promise.
+// started for that revision: a plan without photos, or a used-up allowance, gets no promise.
 func (a *App) draftMediaNote(ctx context.Context, project string, revision int) (string, error) {
 	rows, e := a.DB.Query(ctx, `SELECT v.kind,j.status,j.error FROM voice_assets v JOIN ai_jobs j ON j.id=v.job_id WHERE v.project_id=$1 AND v.revision=$2 ORDER BY v.kind`, project, revision)
 	if e != nil {
@@ -1133,7 +1133,7 @@ func (a *App) draftMediaNote(ctx context.Context, project string, revision int) 
 		note += " " + strings.TrimSuffix(r, ".") + "."
 	}
 	if note == "" {
-		note = " No AI photo or video is being made for it."
+		note = " No AI photo is being made for it."
 	}
 	return note, nil
 }

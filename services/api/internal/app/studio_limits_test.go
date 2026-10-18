@@ -131,12 +131,12 @@ func TestRecipeMediaChecksThePlanBeforeAdoptingTheRecipe(t *testing.T) {
 	mine := exampleVoiceRecipe()
 	mine.Published = true
 	_ = persistRecipe(ctx, a.DB, "cook", "mine", mine, false)
-	// This month's one AI photo is used, and Free has no videos.
+	// This month's one AI photo is used, and Free has no step clips.
 	if _, e := a.DB.Exec(ctx, `INSERT INTO ai_jobs(id,user_id,kind,prompt,request_key,estimated_cost,status) VALUES('used','cook','image','A cover','used-key',0.05,'completed')`); e != nil {
 		t.Fatal(e)
 	}
 	run := agentTurn(t, a, p)
-	for kind, refusal := range map[string]string{"image": "You've used your plan's AI photos for the last 30 days", "video": "Your plan doesn't include AI video generation"} {
+	for kind, refusal := range map[string]string{"image": "You've used your plan's AI photos for the last 30 days", "step_clips": "Your plan doesn't include AI step clips"} {
 		if out := a.agentTool(ctx, run, "generate_recipe_media", jsonBytes(map[string]any{"recipe_id": "mine", "kinds": []string{kind}})); !strings.Contains(out, refusal) {
 			t.Fatalf("%s: %s", kind, out)
 		}

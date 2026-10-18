@@ -12,14 +12,19 @@ const (
 	// A translation is a short, structured rewrite: the agent's fast, inexpensive model, with low
 	// reasoning, is enough.
 	DefaultTranslationModel = DefaultAgentModel
+	// Step clips are short, silent and one to a step: Seedance 2.0 Mini's Eco tier at 720p is
+	// $0.036 a second (reapi.ai/models/seedance-2-0-mini, October 18, 2026).
+	DefaultVideoModel = "doubao-seedance-2.0-eco-mini"
 )
 
 // GenerationEstimate is a reservation, not a provider invoice. Keep both manual
 // jobs and assistant-created media on the same estimates when models change.
 func GenerationEstimate(kind string) float64 {
 	switch {
-	case kind == "video":
-		return 1.50
+	case kind == "clip" || kind == "video":
+		// One four-second 720p clip on Seedance 2.0 Mini Eco is $0.144. Released apps' "video"
+		// jobs make the same clip.
+		return .18
 	case kind == "recipe":
 		// A recipe read from a page: GPT-6.1 Sol's reasoning and the whole recipe.
 		return .25

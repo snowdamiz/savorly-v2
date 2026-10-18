@@ -152,37 +152,6 @@ test('a photo goes straight to storage, showing its progress, and its address is
   expect(saved[0]).toMatchObject({ image: 'https://media.test/uploads/cook/1.jpg' });
 });
 
-test('a video uploads the same way, and an upload can be cancelled', async ({ page }) => {
-  await reportProgress(page);
-  const { calls } = await mockKitchen(page);
-  const storage = await mockStorage(page);
-  await page.goto('/?page=create');
-  await choose(page, 'Upload a recipe video', clip);
-  const progress = page.getByRole('progressbar', { name: 'Upload progress' });
-  await expect(progress).toContainText('40%');
-  expect(calls.find((call) => call.path === '/media/uploads')?.body).toEqual({
-    kind: 'video',
-    contentType: 'video/mp4',
-    size: 2319,
-  });
-  await page.getByRole('button', { name: 'Cancel upload', exact: true }).click();
-  await expect(progress).toHaveCount(0);
-  storage.release();
-  // Nothing is confirmed or used, and cancelling isn't an error.
-  await expect(page.getByRole('alert')).toHaveCount(0);
-  expect(calls.some((call) => call.path === '/media/uploads/complete')).toBe(false);
-  await expect(page.getByRole('textbox', { name: 'Or use a direct video URL' })).toHaveValue('');
-  // The next one goes all the way.
-  await choose(page, 'Upload a recipe video', clip);
-  await expect(page.getByRole('textbox', { name: 'Or use a direct video URL' })).toHaveValue(
-    'https://media.test/uploads/cook/2.mp4',
-  );
-  expect(storage.puts.map((put) => put.headers['content-type'])).toEqual([
-    'video/mp4',
-    'video/mp4',
-  ]);
-});
-
 test('a step clip shows its upload’s progress, can be cancelled, and says why it failed', async ({
   page,
 }) => {

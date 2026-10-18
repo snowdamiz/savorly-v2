@@ -276,8 +276,17 @@ export type Kitchen = {
 };
 /** A recipe the pantry goes far toward (GET /kitchen/pantry-recipes), with ingredient names. */
 export type PantryMatch = { recipe: Recipe; have: string[]; missing: string[]; expiring: string[] };
+/** `video` is a clip from an older app's Create a short clip; `clip`, a clip of a recipe's step. */
 export type AIKind =
-  'recipe' | 'adapt' | 'substitute' | 'nutrition' | 'plan' | 'assistant' | 'image' | 'video';
+  | 'recipe'
+  | 'adapt'
+  | 'substitute'
+  | 'nutrition'
+  | 'plan'
+  | 'assistant'
+  | 'image'
+  | 'video'
+  | 'clip';
 export type AIJob = {
   id: string;
   kind: AIKind;
@@ -289,10 +298,21 @@ export type AIJob = {
   error: string;
   createdAt: string;
 };
+/**
+ * An AI clip of one of a recipe's steps (GET and POST /recipes/:id/step-clips): its job's status,
+ * and the clip once it's made. `text` is the step's text when the clip was ordered, which is how
+ * the clip finds its step.
+ */
+export type StepClipJob = {
+  text: string;
+  status: AIJob['status'];
+  error: string;
+  url?: string;
+};
 // One request to the sous-chef sheet. `prompt` runs immediately; `suggestions` run on one tap.
-/** A photo or clip to make from a description (the editor's Create a cover photo or clip). */
+/** A photo to make from a description (the editor's Create a cover photo). */
 export type AIRequest = {
-  kind: 'image' | 'video';
+  kind: 'image';
   title: string;
   context?: string;
   prompt?: string;
@@ -313,9 +333,11 @@ export type Capabilities = {
   recipePhotos: boolean;
   textAI: boolean;
   imageAI: boolean;
+  /** AI clips of a recipe's steps can be made (POST /recipes/:id/step-clips). */
   videoAI: boolean;
   videoProvider: string;
   videoModel: string;
+  /** What one step clip costs. */
   videoEstimateUSD: number;
   /** Recipes can be translated into the reader's language (GET /recipes/:id/translation). */
   recipeTranslation?: boolean;

@@ -16,7 +16,7 @@ function allowances(p: PricePlan) {
     { label: 'Sous-chef messages', limit: p.assistant, key: 'assistant' },
     { label: 'Live voice minutes', limit: p.voiceMinutes, key: 'voice' },
     { label: 'AI photos', limit: p.images, key: 'images' },
-    { label: 'AI videos', limit: p.videos, key: 'videos' },
+    { label: 'AI step clips', limit: p.videos, key: 'videos' },
     { label: 'Natural-voice read-alouds', limit: p.narration, key: 'narration' },
     { label: 'Cooking questions', limit: p.cookQuestions ?? 0, key: 'cookQuestions' },
   ] as const;
