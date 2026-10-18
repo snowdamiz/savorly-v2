@@ -49,7 +49,7 @@ My kitchen → **Download my data** offers **Download as files** beside the JSON
 - `cookbooks.md` (each cookbook with the recipes saved in it), and CSV files in UTF-8 for cookbooks, saved recipes, the meal plan, the grocery list, the pantry, reviews, review replies, comments, "I cooked this" notes, cooking sessions, cooks followed, and creator earnings and payouts; a list with nothing in it has no file.
 - `cooked-photos/` and `profile-photo.jpg`, and `README.txt`, saying what each file is and listing every file not included, with its address: one kept somewhere other than the member's storage, or one storage couldn't give.
 
-Only the member's own files are copied (`MediaStore.Own`). A member downloads one archive at a time (`429` meanwhile, leaving a link unspent), a process writes four at once (`503` past that), each for at most two hours; each write moves the connection's deadline on, so a large download continues while data flows. A new key in the JSON export is in `savorly-export.json` at once; a line in `exportTables` gives it a CSV file, and one in `exportFolders` a folder of the files it names (family recordings, when they're merged).
+Only the member's own files are copied (`MediaStore.Own`). A member downloads one archive at a time (`429` meanwhile, leaving a link unspent), a process writes four at once (`503` past that), each for at most two hours; each write moves the connection's deadline on, so a large download continues while data flows. A new key in the JSON export is in `savorly-export.json` at once; a line in `exportTables` gives it a CSV file, and one in `exportFolders` a folder of the files it names, as family recordings have (`family-recordings/`).
 
 ## Tests
 

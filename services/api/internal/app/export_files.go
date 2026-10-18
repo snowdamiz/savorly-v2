@@ -76,6 +76,7 @@ type exportFolder struct {
 
 var exportFolders = []exportFolder{
 	{"cooked", "cooked-photos", "the photos you added when you said you cooked a recipe", []string{"photo"}, "recipeTitle"},
+	{"recordings", "family-recordings", "your family recordings, named after who is speaking (their transcripts are in savorly-export.json)", []string{"url"}, "speaker"},
 }
 
 // A download streams storage to its member for as long as it takes, so each member has one at a

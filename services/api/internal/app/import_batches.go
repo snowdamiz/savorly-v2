@@ -16,6 +16,7 @@ import (
 	"github.com/gofiber/fiber/v3"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"savorly/api/internal/ai"
 )
 
 // Bulk imports (POST /imports): a member pastes many recipe links at once (on the page for
@@ -352,7 +353,7 @@ func (a *App) readImport(parent context.Context, it importItem) {
 		a.failItem(parent, it, message)
 		return
 	}
-	b, _, e := a.enqueueJobFor(parent, it.owner, batchJobKey+it.batch+"-"+strconv.Itoa(it.position), "recipe", read.prompt(), "")
+	b, _, e := a.enqueueJobFor(parent, it.owner, batchJobKey+it.batch+"-"+strconv.Itoa(it.position), "recipe", read.prompt(), "", ai.GenerationEstimate("recipe"))
 	if e != nil {
 		a.failItem(parent, it, importFailure(it, e))
 		return

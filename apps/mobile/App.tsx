@@ -496,7 +496,9 @@ function Shell({ onReady }: { onReady: (ready: boolean) => void }) {
           onHeader={setHeaderHeight}
         />
       )}
-      {screen === 'saved' && <Cookbooks onOpen={open} navigate={navigate} />}
+      {screen === 'saved' && (
+        <Cookbooks onOpen={open} navigate={navigate} onOpenCookbook={openCookbook} />
+      )}
       {screen === 'planner' && <Planner onOpen={open} onAsk={askSousChef} />}
       {screen === 'pantry' && <Pantry onOpen={open} onAsk={askSousChef} />}
       {screen === 'create' && (
@@ -989,6 +991,7 @@ function Shell({ onReady }: { onReady: (ready: boolean) => void }) {
         onImported={edit}
         onOpenRecipe={(id) => void openById(id, 'import')}
         onPage={go}
+        onOpen={(id) => void openById(id, 'family')}
       />
       {!webPage && recipePage}
       {studio && app.user && (
@@ -1027,11 +1030,17 @@ function Shell({ onReady }: { onReady: (ready: boolean) => void }) {
       )}
       {ask && <SousChef key={askKey} request={ask} onClose={() => setAsk(null)} onRecipe={edit} />}
       {/* A link to a page for switching to Savorly opens it, not the first-launch welcome. */}
-      {welcoming && !app.loading && !app.error && !app.user && !selected && !authorizing && !switchingPage && (
-        <Suspense fallback={<Cover />}>
-          <Welcome onDone={finishWelcome} />
-        </Suspense>
-      )}
+      {welcoming &&
+        !app.loading &&
+        !app.error &&
+        !app.user &&
+        !selected &&
+        !authorizing &&
+        !switchingPage && (
+          <Suspense fallback={<Cover />}>
+            <Welcome onDone={finishWelcome} />
+          </Suspense>
+        )}
       {app.user?.onboarded === false && !authorizing && (
         <Suspense fallback={<Cover />}>
           <KitchenSetup />

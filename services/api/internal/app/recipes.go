@@ -20,8 +20,8 @@ import (
 // it's public, so a variation never shows the title of a draft, its own author's included.
 // cookedMinutes, the real cook time (cook_sessions.go), is kept up to date in recipe_cook_times
 // and shows once 3 verified cooks agree; null until then. author.founding marks a founding
-// creator (founding.go). jsonb_build_object takes at most 100 arguments, two a field: this one
-// has 33 fields.
+// creator (founding.go), and recordings are the family recordings its steps play (family.go).
+// jsonb_build_object takes at most 100 arguments, two a field: this one has 35 fields.
 const recipeJSON = `jsonb_build_object(
  'id',r.id,'title',r.title,'description',r.description,'cuisine',r.cuisine,
  'minutes',r.minutes,'servings',r.servings,'difficulty',r.difficulty,'image',r.image,'photos',r.photos,'video',r.video,
@@ -40,6 +40,7 @@ const recipeJSON = `jsonb_build_object(
  'verifiedCooks',COALESCE((SELECT t.cooks FROM recipe_cook_times t WHERE t.recipe_id=r.id),0),
  'cookedMinutes',(SELECT t.minutes FROM recipe_cook_times t WHERE t.recipe_id=r.id AND t.cooks>=3),
  'improvedBy',(SELECT count(DISTINCT s.user_id) FROM recipe_suggestions s WHERE s.recipe_id=r.id AND s.status='accepted'),
+ 'recordings',` + recipeRecordingsJSON + `,
  'author',jsonb_build_object('id',u.id,'name',u.name,'handle',u.handle,'avatar',u.avatar,'bio',u.bio,'founding',u.founding_creator_at IS NOT NULL))`
 
 // Suspended members' recipes leave every public and sous-chef view; admin views join directly.
@@ -114,7 +115,9 @@ func (a *App) listRecipes(c fiber.Ctx) error {
 	return a.queryMany(c, sql, args...)
 }
 func (a *App) getRecipe(c fiber.Ctx) error {
-	return a.queryOne(c, `SELECT `+recipeJSON+recipeFrom+`WHERE r.id=$1 AND (r.published OR r.author_id=(SELECT user_id FROM sessions WHERE token_hash=$2 AND expires_at>now()))`, c.Params("id"), hashToken(token(c)))
+	// A private recipe opens for its author, and for their household when it's in a cookbook they
+	// share with it (family.go).
+	return a.queryOne(c, `SELECT `+recipeJSON+recipeFrom+`WHERE r.id=$1 AND `+visibleRecipeSQL("r", "COALESCE((SELECT user_id FROM sessions WHERE token_hash=$2 AND expires_at>now()),'')"), c.Params("id"), hashToken(token(c)))
 }
 func (a *App) createRecipe(c fiber.Ctx) error { return a.writeRecipe(c, false) }
 func (a *App) updateRecipe(c fiber.Ctx) error { return a.writeRecipe(c, true) }
@@ -159,12 +162,16 @@ func (a *App) writeRecipe(c fiber.Ctx, update bool) error {
 
 // saveOwnRecipe saves a change to one of owner's recipes in tx, as the editor does: the
 // conversations working on it are locked first (matching the media worker) and hear of it after,
-// and a recipe an admin holds stays private.
+// a recipe an admin holds stays private, and one with family recordings is published only with
+// the recorded person's agreement (family.go).
 func saveOwnRecipe(ctx context.Context, tx pgx.Tx, owner, id string, r RecipeInput) error {
 	if _, e := tx.Exec(ctx, `SELECT id FROM voice_projects WHERE recipe_id=$1 FOR UPDATE`, id); e != nil {
 		return e
 	}
 	if e := moderationHold(ctx, tx, id, owner, r.Published); e != nil {
+		return e
+	}
+	if e := recordingConsentHold(ctx, tx, id, owner, r.Published); e != nil {
 		return e
 	}
 	if e := persistRecipe(ctx, tx, owner, id, r, true); e != nil {
@@ -195,6 +202,11 @@ func persistRecipe(ctx context.Context, db recipeWriter, owner, id string, r Rec
 			return e
 		}
 		keepStepMedia(r.Steps, saved)
+		keepStepVoices(r.Steps, saved)
+	}
+	// A step plays only the recipe's own recordings (family.go).
+	if e := fitStepVoices(ctx, db, id, r.Steps); e != nil {
+		return e
 	}
 	// Older clients send neither a source nor an original (nil): a saved recipe keeps its own.
 	var source, derived any

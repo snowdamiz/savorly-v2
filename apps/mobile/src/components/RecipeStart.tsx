@@ -3,6 +3,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Text, View } from 'react-native';
 import {
   ArrowRight,
+  AudioLines,
   Camera,
   ChevronLeft,
   ChevronRight,
@@ -19,6 +20,7 @@ import { track } from '../lib/telemetry';
 import { color, font, radius, s } from '../lib/theme';
 import { ImportProgress } from './ImportProgress';
 import { Button, Dialog, Field, IconButton, Press } from './ui';
+import { FamilyMode, FamilyRecipe } from './FamilyRecipe';
 const options = [
   {
     mode: 'voice',
@@ -40,6 +42,13 @@ const options = [
     text: 'Type it out. We’ll ask about anything missing.',
     label: 'Chat to create a recipe',
     icon: MessageCircle,
+  },
+  {
+    mode: 'family',
+    title: 'Record a family recipe',
+    text: 'Someone you love tells it. Cooking mode plays their voice.',
+    label: 'Record a family recipe',
+    icon: AudioLines,
   },
   {
     mode: 'link',
@@ -64,6 +73,7 @@ export function RecipeStart({
   onImported,
   onOpenRecipe,
   onPage,
+  onOpen,
 }: {
   visible: boolean;
   onClose: () => void;
@@ -74,10 +84,13 @@ export function RecipeStart({
   onOpenRecipe: (id: string) => void;
   /** The pages that bring many recipes over: from Mealime, or from the cook's own site. */
   onPage: (screen: Screen) => void;
+  /** Opens a family recipe once it's written down (FamilyRecipe), saved and private. */
+  onOpen?: (recipeId: string) => void;
 }) {
   const { t: tr } = useI18n();
   const app = useApp();
   const [importing, setImporting] = useState(false);
+  const [family, setFamily] = useState<FamilyMode | null>(null);
   const [link, setLink] = useState('');
   const [invalid, setInvalid] = useState(false);
   const [stage, setStage] = useState<'idle' | 'opening' | 'reading'>('idle');
@@ -95,6 +108,7 @@ export function RecipeStart({
     setOpened(visible);
     if (visible) {
       setImporting(false);
+      setFamily(null);
       setLink('');
       setInvalid(false);
       setStage('idle');
@@ -112,6 +126,9 @@ export function RecipeStart({
     [],
   );
   const back = () => {
+    // A card's way back is the recording it was chosen instead of.
+    if (family === 'card') return setFamily('voice');
+    setFamily(null);
     attempt.current++;
     setStage('idle');
     setError('');
@@ -173,18 +190,34 @@ export function RecipeStart({
     }
   };
   const busy = stage !== 'idle';
+  const written = (id: string) => {
+    onClose();
+    onOpen?.(id);
+    void app.refreshLibrary().catch(() => {});
+    app.notify('Written down. It’s private until you share it.');
+  };
   return (
     <Dialog
       visible={visible}
       onClose={onClose}
-      title={importing ? tr('Import from a link') : tr('Add a recipe')}
+      title={
+        family === 'card'
+          ? tr('A family recipe card')
+          : family
+            ? tr('Record a family recipe')
+            : importing
+              ? tr('Import from a link')
+              : tr('Add a recipe')
+      }
       leading={
-        importing ? (
+        importing || family ? (
           <IconButton icon={ChevronLeft} label={tr('Back')} onPress={back} size={38} glass />
         ) : undefined
       }
     >
-      {importing && batch ? (
+      {family ? (
+        <FamilyRecipe mode={family} onMode={setFamily} onDone={written} />
+      ) : importing && batch ? (
         <>
           <ImportProgress
             batch={batch}
@@ -303,13 +336,21 @@ export function RecipeStart({
           </Text>
           <View style={{ gap: 10 }}>
             {options.map(({ mode, title, text, label, icon: Icon }) => {
+              // Older servers, and ones without AI or storage, can't write family recipes down.
+              if (mode === 'family' && !app.capabilities?.familyRecipes) return null;
               const manual = mode === 'write' || mode === 'link';
               return (
                 <Press
                   key={mode}
                   accessibilityRole="button"
                   accessibilityLabel={tr(label)}
-                  onPress={() => (mode === 'link' ? setImporting(true) : onStart(mode))}
+                  onPress={() =>
+                    mode === 'link'
+                      ? setImporting(true)
+                      : mode === 'family'
+                        ? app.requireUser(() => setFamily('voice'))
+                        : onStart(mode)
+                  }
                   scale={0.98}
                   style={[s.card, s.row, { gap: 14, padding: 14 }]}
                 >

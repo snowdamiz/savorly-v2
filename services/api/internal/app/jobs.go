@@ -95,12 +95,18 @@ func (a *App) queueJob(c fiber.Ctx, kind, prompt, source string) error {
 // enqueueJob is queueJob with its key given: the job, and whether this request queued it
 // (rather than finding it from an earlier one).
 func (a *App) enqueueJob(c fiber.Ctx, key, kind, prompt, source string) ([]byte, bool, error) {
-	return a.enqueueJobFor(c.Context(), userID(c), key, kind, prompt, source)
+	return a.enqueueJobFor(c.Context(), userID(c), key, kind, prompt, source, ai.GenerationEstimate(kind))
 }
 
-// enqueueJobFor is enqueueJob for owner, outside a request: a bulk import's worker queues its
-// recipe jobs this way.
-func (a *App) enqueueJobFor(ctx context.Context, owner, key, kind, prompt, source string) ([]byte, bool, error) {
+// enqueueEstimated is enqueueJob reserving estimate rather than the kind's usual reservation: a
+// family recording's depends on its length (family.go).
+func (a *App) enqueueEstimated(c fiber.Ctx, key, kind, prompt, source string, estimate float64) ([]byte, bool, error) {
+	return a.enqueueJobFor(c.Context(), userID(c), key, kind, prompt, source, estimate)
+}
+
+// enqueueJobFor is enqueueJob for owner, reserving estimate, outside a request too: a bulk
+// import's worker queues its recipe jobs this way.
+func (a *App) enqueueJobFor(ctx context.Context, owner, key, kind, prompt, source string, estimate float64) ([]byte, bool, error) {
 	if len(key) < 8 || len(key) > 100 {
 		return nil, false, fiber.NewError(400, "A valid Idempotency-Key is required.")
 	}
@@ -127,7 +133,6 @@ func (a *App) enqueueJobFor(ctx context.Context, owner, key, kind, prompt, sourc
 		return nil, false, e
 	}
 
-	estimate := ai.GenerationEstimate(kind)
 	if e = allowance(ctx, tx, owner, kind); e != nil {
 		return nil, false, e
 	}
@@ -232,6 +237,11 @@ func (a *App) processJob(parent context.Context, id, owner, kind, prompt, source
 			}
 		}
 	case "recipe":
+		// A family recording or recipe card is written down as a recipe of the member's own.
+		if family, ok := familyJobOf(prompt); ok {
+			a.processFamilyJob(parent, id, owner, family)
+			return
+		}
 		if !a.AI.TextEnabled() {
 			called, err = false, errors.New("text AI is not configured")
 			break

@@ -1080,6 +1080,12 @@ func (a *App) applyDraftAction(ctx context.Context, state studioState, action st
 			} else if e != nil {
 				return "", e
 			}
+			// A family recording plays in it only once its author confirms the person agreed (family.go).
+			if e = recordingConsentHold(ctx, tx, state.RecipeID, state.Owner, true); errors.As(e, &held) && held.Code == 409 {
+				return "This recipe can't be published yet: its steps play a family recording, and the user hasn't confirmed that the person recorded agreed to share their voice. Tell the user to publish it from the recipe's page, which asks them. Edits to the private draft still work.", nil
+			} else if e != nil {
+				return "", e
+			}
 			_, e = tx.Exec(ctx, `UPDATE recipes SET published=true,updated_at=now() WHERE id=$1 AND author_id=$2`, state.RecipeID, state.Owner)
 			if e == nil {
 				_, e = tx.Exec(ctx, `UPDATE voice_projects SET status='published',confirmed_revision=-1 WHERE id=$1`, state.ID)

@@ -41,6 +41,8 @@ import { cooksNeed, RecipeInsights, stepInsight } from '../lib/cookInsights';
 import { FixDraft } from '../lib/recipeFixes';
 import { dropEdit, editDraft, keepEdit, RecipeEdit } from '../lib/yourVersion';
 import { useApp } from '../lib/store';
+import { useVoiceClip, VoiceButton } from './VoiceClip';
+import { stepVoice } from '../lib/family';
 const RING = 92;
 const CIRCUMFERENCE = 2 * Math.PI * RING;
 export function CookMode({
@@ -97,6 +99,10 @@ export function CookMode({
     read,
     stop,
   } = useCookingNarration(recipe, step, translatedTo);
+  // A family recipe's step can also play the relative who told it (lib/family.ts). Their clip and
+  // narration never play over each other. A translated step still has its clip.
+  const voice = useVoiceClip();
+  const stopVoice = voice.stop;
   const [done, setDone] = useState(false);
   const { timerEvent, verified, overrun } = useCookSession(recipe, step, done);
   // The end time is the timer, and the countdown is redrawn from it. JavaScript timers stand still
@@ -115,6 +121,7 @@ export function CookMode({
       setEndAt(null);
       timerEvent('timer_end');
       stop();
+      stopVoice();
       // Back after an end the system already announced, the finished ring says enough.
       const away =
         Date.now() - endAt > 3000 && !!systemAlert.current && announced(systemAlert.current);
@@ -132,7 +139,7 @@ export function CookMode({
       clearTimeout(end);
       sub.remove();
     };
-  }, [endAt, tr, locale, stop, timerEvent]);
+  }, [endAt, tr, locale, stop, timerEvent, stopVoice]);
   const { title } = recipe;
   const finishedText = tr('Your cooking timer is finished.');
   const channel = tr('Cooking timers');
@@ -152,10 +159,15 @@ export function CookMode({
     };
   }, [endAt, title, finishedText, channel]);
   const current = recipe.steps[step];
+  const clip = stepVoice(recipe, current);
   const last = step === recipe.steps.length - 1;
   // What other cooks found at this step (docs/COOK-TESTED.md).
   const found = stepInsight(insights ?? null, step + 1);
   const need = cooksNeed(found);
+  const readAloud = () => {
+    stopVoice();
+    read();
+  };
   const change = (n: number) => {
     stop();
     setEndAt(null);
@@ -165,6 +177,8 @@ export function CookMode({
     setLength(recipe.steps[n].seconds);
   };
   useEffect(() => onStep(step + 1), [step, onStep]);
+  // However the step changes (a tap, a spoken command, the sous-chef), its clip stops.
+  useEffect(() => stopVoice, [step, stopVoice]);
   // Each sous-chef command applies once, to the step on screen when it arrives.
   const [handled, setHandled] = useState(command?.n);
   if (command && command.n !== handled) {
@@ -186,11 +200,13 @@ export function CookMode({
   }, [startedBy, timerEvent]);
   const close = () => {
     stop();
+    stopVoice();
     page.leave();
   };
   const next = () => {
     if (last) {
       stop();
+      stopVoice();
       setEndAt(null);
       setDone(true);
     } else change(step + 1);
@@ -270,6 +286,7 @@ export function CookMode({
               label={tr('Ask the sous-chef')}
               onPress={() => {
                 stop();
+                stopVoice();
                 onAsk();
               }}
             />
@@ -280,12 +297,15 @@ export function CookMode({
             cook={{
               step,
               done,
-              reading: speaking,
+              reading: speaking || !!voice.playing,
               timer: { seconds: current.seconds, remaining, running: !!endAt },
               next,
               previous: () => step > 0 && change(step - 1),
-              read,
-              stopReading: stop,
+              read: readAloud,
+              stopReading: () => {
+                stop();
+                stopVoice();
+              },
               setTimer: (run) => {
                 timerEvent(run ? 'timer_start' : 'timer_pause');
                 setEndAt(run ? Date.now() + remaining * 1000 : null);
@@ -524,6 +544,11 @@ export function CookMode({
               {narrationState === 'blocked' && (
                 <Text style={[s.small, { color: color.onInk }]}>{tr('Tap again to play')}</Text>
               )}
+              {!!clip && voice.playing === String(step) && (
+                <Text accessibilityLiveRegion="polite" style={[s.small, { color: color.onInk }]}>
+                  {tr('{{v0}}’s voice', { v0: clip.speaker })}
+                </Text>
+              )}
               <View style={[s.row, { gap: 10 }]}>
                 <IconButton
                   icon={ArrowLeft}
@@ -538,8 +563,19 @@ export function CookMode({
                   dark
                   size={58}
                   label={speaking ? tr('Stop reading') : tr('Read this step aloud')}
-                  onPress={speaking ? stop : read}
+                  onPress={speaking ? stop : readAloud}
                 />
+                {clip && (
+                  <VoiceButton
+                    clip={clip}
+                    playing={voice.playing === String(step)}
+                    onPress={() => {
+                      if (voice.playing === String(step)) return stopVoice();
+                      stop();
+                      voice.play(String(step), clip);
+                    }}
+                  />
+                )}
                 <Button
                   title={last ? tr('Finish cooking') : tr('Next step')}
                   icon={last ? Check : undefined}

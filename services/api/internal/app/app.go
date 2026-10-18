@@ -167,6 +167,8 @@ func NewWithContext(ctx context.Context, db *pgxpool.Pool, config Config) *fiber
 			"auth": fiber.Map{"googleWebClientId": os.Getenv("GOOGLE_WEB_CLIENT_ID"), "googleIosClientId": os.Getenv("GOOGLE_IOS_CLIENT_ID"), "appleServicesId": os.Getenv("APPLE_SERVICES_ID"), "appleRedirectUri": os.Getenv("APPLE_REDIRECT_URI")},
 			// Hands-free cooking's "Chef, …" questions (POST /recipes/:id/ask); its commands need nothing.
 			"cookingQuestions": a.AI.TextEnabled(),
+			// Family recipes from a recording or a recipe card (family.go).
+			"familyRecipes": a.AI.TextEnabled() && a.Media.S3 != nil,
 		})
 	})
 	// Each sign-in route has its own budget, so a few mistyped passwords don't also block a reset.
@@ -249,5 +251,6 @@ func NewWithContext(ctx context.Context, db *pgxpool.Pool, config Config) *fiber
 	a.growthRoutes(v)
 	a.assistantRoutes(v)
 	a.importRoutes(v)
+	a.familyRoutes(v)
 	return f
 }

@@ -14,7 +14,8 @@ import (
 // Uploaded photos and videos leave storage once nothing uses them. Triggers
 // (021_engagement.sql, with step clips since 023_step_clips.sql) queue a file's URL when a recipe
 // (cover, video, gallery, step photo or step clip), a profile photo, an AI job in the member's
-// history or a cooked-it photo stops using it, and a deleted account queues its upload folders.
+// history or a cooked-it photo stops using it, or a family recording is deleted (family.go), and a
+// deleted account queues its upload folders.
 // A day later the janitor checks again that nothing uses the file, and only then deletes it. It
 // deletes nothing outside the media bucket's public URL (S3_PUBLIC_URL), and nothing there that
 // isn't named the way Savorly names uploads.
@@ -51,7 +52,7 @@ func (a *App) queueUpload(ctx context.Context, url string) {
 }
 
 // Media.Put stores <owner>/<uuid>.<ext>; direct uploads are uploads/<owner>/<uuid>.<ext>.
-var mediaName = regexp.MustCompile(`^(uploads/)?[A-Za-z0-9_-]{1,64}/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(jpg|png|webp|mp4|webm)$`)
+var mediaName = regexp.MustCompile(`^(uploads/)?[A-Za-z0-9_-]{1,64}/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(jpg|png|webp|mp4|webm|m4a|weba|mp3)$`)
 
 // mediaKey is the storage key of a public media URL Savorly stored, or false for anything
 // else: another host, another name, or a URL with a query.
@@ -64,7 +65,7 @@ func (s *MediaStore) mediaKey(url string) (string, bool) {
 }
 
 // mediaInUse returns which of urls something still shows. Cooked-it photos count where that
-// table exists (018_social.sql).
+// table exists (018_social.sql). Family recordings (037_family_recipes.sql) stay while kept.
 func mediaInUse(ctx context.Context, q engagementDB, urls []string) (map[string]bool, error) {
 	used := map[string]bool{}
 	if len(urls) == 0 {
@@ -77,7 +78,8 @@ func mediaInUse(ctx context.Context, q engagementDB, urls []string) (map[string]
 	sql := `SELECT DISTINCT u FROM (
  SELECT m AS u FROM recipes r CROSS JOIN LATERAL unnest(recipe_media(r.image,r.video,r.photos,r.steps)) m WHERE m=ANY($1)
  UNION ALL SELECT avatar FROM users WHERE avatar=ANY($1)
- UNION ALL SELECT v FROM ai_jobs j CROSS JOIN LATERAL unnest(ARRAY[j.result->>'url',j.source,j.result->'recipe'->>'image']) v WHERE v=ANY($1)`
+ UNION ALL SELECT v FROM ai_jobs j CROSS JOIN LATERAL unnest(ARRAY[j.result->>'url',j.source,j.result->'recipe'->>'image']) v WHERE v=ANY($1)
+ UNION ALL SELECT url FROM recordings WHERE url=ANY($1)`
 	if cooks {
 		sql += ` UNION ALL SELECT photo FROM cooks WHERE photo=ANY($1)`
 	}

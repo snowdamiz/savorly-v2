@@ -7,6 +7,18 @@ export type RecipeStep = {
   image?: string;
   /** A short clip of this step (a media URL); missing or '' for none. */
   video?: string;
+  /** Where one of the recipe's family recordings says this step (lib/family.ts); missing for none. */
+  voice?: StepVoice | null;
+};
+/** A stretch of a family recording: which one (`Recipe.recordings`), from and to, in milliseconds. */
+export type StepVoice = { recording: string; startMs: number; endMs: number };
+/** A family recording a recipe's steps play: who is speaking, and whether they agreed to sharing it. */
+export type RecipeRecording = {
+  id: string;
+  speaker: string;
+  url: string;
+  durationMs: number;
+  consented: boolean;
 };
 export type Creator = {
   id: string;
@@ -96,6 +108,8 @@ export type Recipe = Omit<RecipeInput, 'derivedFrom'> & {
    * pan', 'oven') the app names in the reader's language (equipmentName). Missing on older servers.
    */
   equipmentDetected?: string[];
+  /** The family recordings its steps play, in a relative's own voice. Missing on older servers. */
+  recordings?: RecipeRecording[];
 };
 /**
  * What the server's ingredient lexicon reads in one ingredient line: what it is (`key`, which the
@@ -349,6 +363,8 @@ export type Capabilities = {
   billing?: boolean;
   /** The creator fund pays creators for verified cooks of their recipes (CREATOR_FUND). */
   creatorFund?: boolean;
+  /** Family recordings and recipe cards can be written down as recipes (lib/family.ts). */
+  familyRecipes?: boolean;
   /** Password-reset email is configured, and with it email confirmation and email changes. */
   passwordRecovery?: boolean;
   /** Cloudflare Turnstile's public site key; '' (or missing) when sign-up has no check. */
@@ -504,6 +520,8 @@ export type Collection = {
   /** Anyone with the link can see the cookbook and the published recipes in it. */
   public?: boolean;
   description?: string;
+  /** The household can open it, and the owner's private recipes in it (lib/family.ts). */
+  household?: boolean;
 };
 /** A cookbook page, GET /cookbooks/:id: public ones for everyone, private ones for their owner. */
 export type PublicCookbook = {

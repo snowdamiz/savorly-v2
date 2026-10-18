@@ -12,6 +12,9 @@ const (
 	// A translation is a short, structured rewrite: the agent's fast, inexpensive model, with low
 	// reasoning, is enough.
 	DefaultTranslationModel = DefaultAgentModel
+	// Family recordings are transcribed by Whisper large v3, which answers with timed segments.
+	// Checked on 2026-10-17: $0.0075 to $0.031 per 1,000 seconds of audio, by provider.
+	DefaultTranscriptionModel = "openai/whisper-large-v3"
 )
 
 // GenerationEstimate is a reservation, not a provider invoice. Keep both manual

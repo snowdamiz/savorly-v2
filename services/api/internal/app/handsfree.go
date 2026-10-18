@@ -83,11 +83,11 @@ func (a *App) askCook(c fiber.Ctx) error {
 }
 
 // cookRecipe is the recipe a question is about, as the member may see it: published by a cook
-// who isn't suspended, or their own.
+// who isn't suspended, their own, or their household's (family.go).
 func (a *App) cookRecipe(ctx context.Context, id, owner string) (*sceneRecipe, error) {
 	r := &sceneRecipe{id: id}
 	var ingredients, steps []byte
-	e := a.DB.QueryRow(ctx, `SELECT r.title,u.name,r.author_id=$2,r.servings,r.minutes,r.ingredients,r.steps,r.equipment,r.equipment_detected`+recipeFrom+`WHERE r.id=$1 AND (r.published OR r.author_id=$2)`, id, owner).
+	e := a.DB.QueryRow(ctx, `SELECT r.title,u.name,r.author_id=$2,r.servings,r.minutes,r.ingredients,r.steps,r.equipment,r.equipment_detected`+recipeFrom+`WHERE r.id=$1 AND `+visibleRecipeSQL("r", "$2"), id, owner).
 		Scan(&r.title, &r.author, &r.mine, &r.servings, &r.minutes, &ingredients, &steps, &r.equipment, &r.detected)
 	if errors.Is(e, pgx.ErrNoRows) {
 		return nil, fiber.NewError(404, "Recipe not found.")

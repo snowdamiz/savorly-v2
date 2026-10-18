@@ -40,7 +40,15 @@ import {
   Trash2,
   Users,
 } from './icons';
-import { CookCommand, Creator, GroceryMerge, Ingredient, Recipe, Review } from '../lib/types';
+import {
+  CookCommand,
+  Creator,
+  GroceryMerge,
+  Ingredient,
+  Recipe,
+  RecipeStep,
+  Review,
+} from '../lib/types';
 import { api } from '../lib/api';
 import { recipeUrl } from '../lib/routes';
 import { track } from '../lib/telemetry';
@@ -70,6 +78,8 @@ import {
 import { CookMode } from './CookMode';
 import { AppToast } from './AppToast';
 import { StepVideo, VideoPlayer } from './VideoPlayer';
+import { useVoiceClip, VoiceLink } from './VoiceClip';
+import { stepVoice } from '../lib/family';
 import { localDate } from '../lib/utils';
 import { foodIcon } from '../lib/icons';
 import { CuisineIcon } from './CuisineIcon';
@@ -202,6 +212,20 @@ export function RecipeDetail({
     mode?: 'suggest' | 'mine';
   } | null>(null);
   const [improved, setImproved] = useState(false);
+  // A family recipe's steps play the relative who told them (lib/family.ts), from a quiet link on
+  // the step's last line.
+  const voice = useVoiceClip();
+  const voiceLink = (step: RecipeStep, i: number) => {
+    const clip = stepVoice(reading, step);
+    const key = String(i);
+    return clip ? (
+      <VoiceLink
+        clip={clip}
+        playing={voice.playing === key}
+        onPress={() => (voice.playing === key ? voice.stop() : voice.play(key, clip))}
+      />
+    ) : null;
+  };
   const equipment = useShownEquipment(reading);
   const saved = app.library.savedIds.includes(recipe.id);
   const following = app.library.followingIds.includes(recipe.author.id);
@@ -610,7 +634,12 @@ export function RecipeDetail({
                   style={{ maxWidth: 480, aspectRatio: 16 / 9, marginTop: 4 }}
                 />
               )}
-              <StepTimerHint seconds={st.seconds} insight={stepInsight(insights, i + 1)} />
+              {(st.seconds > 0 || !!stepVoice(reading, st)) && (
+                <View style={[s.row, { gap: 16, marginTop: 2, flexWrap: 'wrap' }]}>
+                  <StepTimerHint seconds={st.seconds} insight={stepInsight(insights, i + 1)} />
+                  {voiceLink(st, i)}
+                </View>
+              )}
               <StepUsual insight={stepInsight(insights, i + 1)} />
               <StepQuestions insight={stepInsight(insights, i + 1)} />
             </View>
@@ -678,7 +707,8 @@ export function RecipeDetail({
           />
         </View>
       ))}
-      {!mine && (
+      {/* Only published recipes take reviews: a household's private family recipe doesn't. */}
+      {!mine && recipe.published && (
         <View style={[s.card, { gap: 14 }, webPage && { padding: 24 }]}>
           <Text style={s.h3}>{tr('How did it turn out?')}</Text>
           <View style={[s.row, { gap: 6 }]}>

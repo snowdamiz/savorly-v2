@@ -16,10 +16,11 @@ import (
 // sessions and creator earnings, payouts and payout account (never its Stripe id) came after, as
 // new keys, then each session's step events, the questions asked while cooking, the assistants
 // linked to the account (never their tokens), their own versions of recipes and kitchen notes,
-// the fixes suggested to recipes, and bulk imports with any permission a creator gave to import
-// their own site. json, not jsonb, keeps keys in the order written. The password hash, provider
-// tokens and billing IDs stay out; studio conversations keep only their text. export_files.go
-// writes it as files too.
+// the fixes suggested to recipes, bulk imports with any permission a creator gave to import their
+// own site, and family recordings with their transcripts (each with the address of its audio).
+// json, not jsonb, keeps keys in the order written. The password hash, provider tokens and
+// billing IDs stay out; studio conversations keep only their text. export_files.go writes it as
+// files too.
 const exportSQL = `SELECT json_build_object(
  'format','savorly-export','version',2,'exportedAt',now(),
  'profile',json_build_object('id',u.id,'name',u.name,'email',u.email,'emailVerified',u.email_verified,'handle',u.handle,'bio',u.bio,'avatar',u.avatar,
@@ -40,7 +41,7 @@ const exportSQL = `SELECT json_build_object(
    FROM comments m JOIN recipes r ON r.id=m.recipe_id WHERE m.user_id=u.id),'[]'),
  'cooked',COALESCE((SELECT json_agg(json_build_object('recipeId',k.recipe_id,'recipeTitle',r.title,'photo',k.photo,'note',k.note,'createdAt',k.created_at) ORDER BY k.created_at)
    FROM cooks k JOIN recipes r ON r.id=k.recipe_id WHERE k.user_id=u.id),'[]'),
- 'cookbooks',COALESCE((SELECT json_agg(json_build_object('id',id,'name',name,'description',description,'public',public,'createdAt',created_at) ORDER BY created_at) FROM collections WHERE user_id=u.id),'[]'),
+ 'cookbooks',COALESCE((SELECT json_agg(json_build_object('id',id,'name',name,'description',description,'public',public,'household',household,'createdAt',created_at) ORDER BY created_at) FROM collections WHERE user_id=u.id),'[]'),
  'saves',COALESCE((SELECT json_agg(json_build_object('recipeId',s.recipe_id,'recipeTitle',r.title,'cookbookId',s.collection_id,'savedAt',s.created_at) ORDER BY s.created_at)
    FROM saves s JOIN recipes r ON r.id=s.recipe_id WHERE s.user_id=u.id),'[]'),
  'following',COALESCE((SELECT json_agg(json_build_object('id',c.id,'name',c.name,'handle',c.handle) ORDER BY c.name) FROM follows f JOIN users c ON c.id=f.creator_id WHERE f.user_id=u.id),'[]'),
@@ -79,7 +80,10 @@ const exportSQL = `SELECT json_build_object(
    'permission',CASE WHEN b.permission_at IS NOT NULL THEN json_build_object('statement',b.permission_statement,'agreedAt',b.permission_at) END,
    'links',COALESCE((SELECT json_agg(json_build_object('url',i.url,'status',i.status,'recipeId',i.recipe_id) ORDER BY i.position) FROM import_items i WHERE i.batch_id=b.id AND i.url<>''),'[]'),
    'texts',COALESCE((SELECT json_agg(json_build_object('text',i.pasted,'status',i.status,'recipeId',i.recipe_id) ORDER BY i.position) FROM import_items i WHERE i.batch_id=b.id AND i.pasted<>''),'[]')) ORDER BY b.created_at)
-   FROM import_batches b WHERE b.user_id=u.id),'[]')
+   FROM import_batches b WHERE b.user_id=u.id),'[]'),
+ 'recordings',COALESCE((SELECT json_agg(json_build_object('id',x.id,'speaker',x.speaker,'url',x.url,'type',x.mime,'bytes',x.bytes,'durationMs',x.duration_ms,
+   'language',x.language,'transcript',x.transcript,'recipeId',x.recipe_id,'recipeTitle',r.title,'consentedAt',x.consent_at,'createdAt',x.created_at) ORDER BY x.created_at,x.id)
+   FROM recordings x LEFT JOIN recipes r ON r.id=x.recipe_id WHERE x.user_id=u.id),'[]')
 ) FROM users u WHERE u.id=$1`
 
 // sendExport answers with the member's export as a download.
