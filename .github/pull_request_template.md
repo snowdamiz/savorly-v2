@@ -4,7 +4,7 @@
 
 ## Checks
 
-<!-- CI runs these too (.github/workflows/ci.yml); tick what you ran locally. -->
+<!-- CI runs these too (.github/workflows/ci.yml), except the browser tests, which the pre-push hook runs; tick what you ran locally. -->
 
 - [ ] `make check`: typecheck, lint (no warnings), Worker tests, `go vet`, every Go test
 - [ ] `npm run test:integration` and `npm --prefix apps/mobile run test:e2e` with the API and Expo running

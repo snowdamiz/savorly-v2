@@ -15,6 +15,9 @@ if (!bundled && !process.env.PLAYWRIGHT_CHANNEL && !process.env.TEST_WORKER_INDE
 
 export default defineConfig({
   testDir: './tests',
+  // The pre-push hook (scripts/browser-tests.mjs) runs without the API, so it leaves out the one
+  // spec that needs it.
+  testIgnore: process.env.TEST_WITHOUT_API ? ['smoke.spec.ts'] : [],
   timeout: 60000,
   fullyParallel: false,
   workers: 1,

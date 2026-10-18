@@ -1,0 +1,24 @@
+#!/bin/sh
+# The browser tests run here, before a push, rather than in CI: only when the commits the remote
+# doesn't have yet change the app, against Expo started from this checkout
+# (scripts/browser-tests.mjs). `git push --no-verify` or SKIP_BROWSER_TESTS=1 skips them.
+# `make hooks` (part of `make setup`) turns this hook on.
+remote="$1"
+if [ -n "$SKIP_BROWSER_TESTS" ]; then
+  echo "pre-push: SKIP_BROWSER_TESTS is set, so the browser tests don't run."
+  exit 0
+fi
+app=""
+while read -r local_ref local_oid remote_ref remote_oid; do
+  case "$local_oid" in
+    *[!0]*) ;;
+    *) continue ;; # deleting a branch
+  esac
+  if git log --format= --name-only "$local_oid" --not --remotes="$remote" -- apps/mobile |
+    grep -qv -e '^$' -e '\.md$'; then
+    app=1
+  fi
+done
+[ -n "$app" ] || exit 0
+echo "pre-push: this push changes the app, so the browser tests run first (git push --no-verify skips them)."
+exec node scripts/browser-tests.mjs --reporter=line

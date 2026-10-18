@@ -123,10 +123,14 @@ Run typecheck, lint and the tests that cover your change before calling a task d
   side only. TypeScript 6 doesn't load `@types/jest` by itself, so each test file starts with
   `/// <reference types="jest" />`.
 - `tests/*.spec.ts` are Playwright tests of the web app. Most mock the API with `page.route`;
-  `smoke.spec.ts` uses the real API and the local S3 storage. CI also runs the smoke and splash
-  specs against the exported bundle (`node scripts/serve-dist.mjs`, port 8082).
-- CI runs Playwright in its own pinned Chromium, and local runs use it too once it's installed
-  (`npx playwright install chromium`); until then they fall back to the installed Google Chrome,
+  `smoke.spec.ts` uses the real API and the local S3 storage.
+- CI doesn't run them. `git push` does, through the pre-push hook, when the push changes the app:
+  `node scripts/browser-tests.mjs` starts Expo from this checkout on a free port and runs every
+  spec but `smoke.spec.ts`. It takes a while, so run `git push` in the background, and don't skip
+  the hook with `--no-verify` unless asked. Run one spec the same way:
+  `node scripts/browser-tests.mjs tests/<name>.spec.ts`.
+- Playwright uses its own pinned Chromium once it's installed
+  (`npx playwright install chromium`); until then it falls back to the installed Google Chrome,
   with a warning. `PLAYWRIGHT_CHANNEL` picks a browser explicitly.
 - Wait on what the page does, not on fixed sleeps: `tests/waits.ts` (`afterPageTimers`,
   `stopsMoving`) and `rendersSettle` in `tests/renderCounts.ts`. `tests/mockApi.ts` is a shared

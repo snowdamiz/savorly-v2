@@ -10,7 +10,7 @@ You need Node 22.13 or newer (Node 22 LTS), npm, Go 1.26, Docker, and Python 3 f
 integration checks.
 
 ```sh
-make setup      # npm ci for the app and the Worker, go mod download, .env from .env.example
+make setup      # npm ci for the app and the Worker, go mod download, .env, the pre-push hook
 make services   # Postgres on 54329 and SeaweedFS (S3) on 8333, in Docker
 make api        # the API on 8080 (its own terminal)
 make web        # Expo for the web on 8081 (its own terminal)
@@ -22,8 +22,8 @@ storefront module). Use a development build: `npx expo run:ios`/`run:android`, o
 
 ## Checks
 
-CI ([ci.yml](.github/workflows/ci.yml)) runs all of these on every pull request; run them before
-you open one:
+CI ([ci.yml](.github/workflows/ci.yml)) runs all of these but the browser tests on every pull
+request; run them before you open one:
 
 ```sh
 make check                               # typecheck (app and Worker), lint, Worker tests, go vet, every Go test
@@ -37,10 +37,12 @@ npm --prefix infra/cloudflare run build  # Worker and API image dry run; needs D
 - `make check` runs the Go database and object-storage suites against `make services`, and stops
   with instructions if those aren't running. Plain `npm test` runs only the Go tests that need
   neither (README).
+- The browser tests run before a push instead of in CI: the pre-push hook (`make hooks`) runs
+  `node scripts/browser-tests.mjs` when the push changes `apps/mobile`, against Expo started from
+  the checkout. `git push --no-verify` or `SKIP_BROWSER_TESTS=1` skips it.
 - CI also runs `govulncheck` and `staticcheck` (versions pinned in ci.yml; run them in
   `services/api` with `go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...` and
-  `go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 ./...`), an informational `npm audit`, and the
-  smoke and splash browser tests against the exported bundle served by `scripts/serve-dist.mjs`.
+  `go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 ./...`) and an informational `npm audit`.
 - Running on other ports: README, "Verify".
 
 ## Conventions

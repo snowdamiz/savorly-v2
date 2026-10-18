@@ -273,23 +273,22 @@ test('Download my data offers everything as files', async ({ page }) => {
     }),
   );
   await page.goto('/?page=profile');
-  const open = async () => {
-    if (await page.getByRole('dialog').count()) return;
-    await page.getByRole('button', { name: 'Download my data', exact: true }).click();
-    await stopsMoving(page.getByRole('dialog'));
-  };
-  await open();
   const sheet = page.getByRole('dialog');
-  await shot(page, 'download-my-data', open);
-  // Going back to a desktop-sized window can close the sheet a moment later, as the page lays
-  // itself out again, and on a slow machine shot's open() can find it on its way out. Open it
-  // until it stays.
   const download = sheet.getByRole('button', { name: 'Download as files', exact: true });
-  await expect(async () => {
-    await open();
-    await afterPageTimers(page, 1000);
-    await expect(download).toBeVisible({ timeout: 1000 });
-  }).toPass({ timeout: 20_000 });
+  // Crossing between phone and desktop widths lays the profile out again, which closes the sheet
+  // a moment later. On a slow machine the sheet can still be on its way out when this looks, so
+  // it opens the sheet until it is still there a second later, before shot waits on it.
+  const open = () =>
+    expect(async () => {
+      if (!(await sheet.count()))
+        await page
+          .getByRole('button', { name: 'Download my data', exact: true })
+          .click({ timeout: 5000 });
+      await afterPageTimers(page, 1000);
+      await expect(download).toBeVisible({ timeout: 1000 });
+    }).toPass({ timeout: 15_000 });
+  await open();
+  await shot(page, 'download-my-data', open);
   // The browser fetches the archive itself, from a single-use link, rather than the page.
   const fetched = page.waitForRequest(
     (r) => r.url().endsWith('/v1/export/single-use') && r.isNavigationRequest(),
