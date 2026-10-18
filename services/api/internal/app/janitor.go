@@ -23,12 +23,17 @@ var janitorTasks = []struct{ name, sql string }{
 	{"ai_jobs", `DELETE FROM ai_jobs WHERE id IN (SELECT j.id FROM ai_jobs j WHERE j.status IN ('completed','failed') AND j.created_at<now()-interval '35 days'
  AND NOT EXISTS(SELECT 1 FROM voice_assets v WHERE v.job_id=j.id) LIMIT 500)`},
 	{"narration_usage", `DELETE FROM narration_usage WHERE id IN (SELECT id FROM narration_usage WHERE created_at<now()-interval '35 days' LIMIT 500)`},
+	{"ai_usage", `DELETE FROM ai_usage WHERE id IN (SELECT id FROM ai_usage WHERE created_at<now()-interval '35 days' LIMIT 500)`},
+	// Cooking sessions that didn't become verified cooks count for nothing once their day is over.
+	{"cook_sessions", `DELETE FROM cook_sessions WHERE id IN (SELECT id FROM cook_sessions WHERE NOT verified AND started_at<now()-interval '2 days' LIMIT 500)`},
 	// Deleting a session cascades to its events and actions, the conversation the member still
 	// sees, so only sessions that left neither go.
 	{"voice_sessions", `DELETE FROM voice_sessions WHERE id IN (SELECT s.id FROM voice_sessions s WHERE s.finalized AND s.status NOT IN ('connecting','active') AND s.created_at<now()-interval '35 days'
  AND NOT EXISTS(SELECT 1 FROM voice_events e WHERE e.session_id=s.id) AND NOT EXISTS(SELECT 1 FROM voice_actions x WHERE x.session_id=s.id) LIMIT 500)`},
 	// A trigger queues each stored recording for removal from the private bucket.
 	{"recipe_narrations", `DELETE FROM recipe_narrations WHERE cache_key IN (SELECT cache_key FROM recipe_narrations WHERE last_used_at<now()-interval '60 days' LIMIT 500)`},
+	// Translations nobody read for 90 days (translations.go); the next reader has one made again.
+	{"recipe_translations", `DELETE FROM recipe_translations WHERE (recipe_id,language) IN (SELECT recipe_id,language FROM recipe_translations WHERE last_used_at<now()-interval '90 days' LIMIT 500)`},
 	// Product analytics are kept 90 days (events.go).
 	{"events", `DELETE FROM events WHERE id IN (SELECT id FROM events WHERE created_at<now()-interval '90 days' LIMIT 500)`},
 	// Push messages carry names and review text: a week, for support. Sent outbox rows keep no

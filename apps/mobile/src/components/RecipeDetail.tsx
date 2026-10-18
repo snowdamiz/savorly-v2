@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
+  AlertTriangle,
   ArrowLeft,
   Bookmark,
   BookmarkPlus,
@@ -24,6 +25,7 @@ import {
   Flag,
   Flame,
   Gauge,
+  Leaf,
   Minus,
   Pencil,
   Play,
@@ -38,7 +40,7 @@ import {
   Trash2,
   Users,
 } from './icons';
-import { CookCommand, Creator, Ingredient, Recipe, Review } from '../lib/types';
+import { CookCommand, Creator, GroceryMerge, Ingredient, Recipe, Review } from '../lib/types';
 import { api } from '../lib/api';
 import { recipeUrl } from '../lib/routes';
 import { track } from '../lib/telemetry';
@@ -79,8 +81,15 @@ import { amountText, UnitsSwitch, useUnits } from './Units';
 import { Comments } from './Comments';
 import { CookPhotos, CookSheets, useCooked } from './CookedIt';
 import { Lineage } from './Variations';
+import { TranslationBar } from './TranslationBar';
+import { useRecipeTranslation } from '../lib/useRecipeTranslation';
+import { CookTime } from './CookTime';
 import { DangerButton } from '../screens/Kitchen';
 import { RevealFocus, useKeyboardLift, useKeyboardScroll } from '../lib/keyboard';
+import { foodConflicts, joinNames, pantryLines, useFood } from '../lib/food';
+import { AvoidPill, FoodWarning } from './FoodWarning';
+import { RecipeOrder } from './GroceryCheckout';
+import { RecipeEquipment, useShownEquipment } from './Equipment';
 // Each twist asks in the cook's language: the request is their own message, and the model's cue.
 const twists = (tr: (key: string) => string) => [
   ['Vegetarian', tr('Make this recipe vegetarian.')],
@@ -116,8 +125,15 @@ export function RecipeDetail({
   onCooking: (step: number | null) => void;
   cookCommand?: CookCommand | null;
 }) {
-  const { t: tr, number, locale } = useI18n();
+  const { t: tr, number, locale, language } = useI18n();
   const app = useApp();
+  // What the reader avoids that this recipe has, and which lines their pantry covers.
+  const food = useFood();
+  const conflicts = useMemo(
+    () => foodConflicts(recipe, food.avoid, food.household),
+    [recipe, food.avoid, food.household],
+  );
+  const pantry = useMemo(() => pantryLines(recipe, food.pantryCover), [recipe, food.pantryCover]);
   const page = useSlideOver(onClose);
   const { width, height, insets, gutter, webPage } = useChrome();
   const wide = width > 900;
@@ -152,6 +168,11 @@ export function RecipeDetail({
   const [collections, setCollections] = useState(false);
   const [busy, setBusy] = useState<Partial<Record<Action, boolean>>>({});
   const [titleBottom, setTitleBottom] = useState(0);
+  // Written in another language, the recipe can show translated: `reading` is what the page shows
+  // (the recipe, or its translation), while amounts, units and everything else stay the recipe's.
+  const translation = useRecipeTranslation(recipe);
+  const reading = translation.shown;
+  const equipment = useShownEquipment(reading);
   const saved = app.library.savedIds.includes(recipe.id);
   const following = app.library.followingIds.includes(recipe.author.id);
   const mine = app.user?.id === recipe.author.id;
@@ -258,7 +279,7 @@ export function RecipeDetail({
         app.notify('Link copied to your clipboard.');
       } else
         await Share.share({
-          message: tr('shareMessage', { title: recipe.title, count: recipe.minutes, link }),
+          message: tr('shareMessage', { title: reading.title, count: recipe.minutes, link }),
         });
     });
   // An ingredient's amount for the servings on screen, in the units the cook picked.
@@ -269,18 +290,22 @@ export function RecipeDetail({
     const site = siteName(recipe.sourceUrl);
     printRecipe({
       lang: locale,
-      title: recipe.title,
+      title: reading.title,
       byline: tr('by {{v0}}', { v0: recipe.author.name }),
       facts: [
         tr('minuteCount', { count: recipe.minutes }),
         tr('servingCount', { count: servings }),
       ],
-      description: recipe.description,
+      description: reading.description,
       image: recipe.image,
       ingredientsTitle: tr('Ingredients'),
-      ingredients: recipe.ingredients.map((i) => ({ name: i.name, amount: amountOf(i) })),
+      ingredients: reading.ingredients.map((i) => ({ name: i.name, amount: amountOf(i) })),
+      equipmentTitle: equipment.detected
+        ? `${tr('You’ll need')} · ${tr('From the method')}`
+        : tr('You’ll need'),
+      equipment: equipment.names,
       methodTitle: tr('Method'),
-      steps: recipe.steps.map((st) => ({ title: st.title, text: st.text })),
+      steps: reading.steps.map((st) => ({ title: st.title, text: st.text })),
       credits: [
         recipe.derivedFrom
           ? tr('Adapted from {{title}} by {{name}}', {
@@ -319,6 +344,8 @@ export function RecipeDetail({
         },
     { icon: Gauge, value: recipe.difficulty, label: tr('Level') },
   ];
+  // The checklist goes by the recipe's own names, so a check stays when the language changes.
+  const own = (n: number) => recipe.ingredients[n]?.name ?? '';
   const twistChips = twists(tr).map(([title, prompt]) => (
     <Chip key={title} title={tr(title)} icon={foodIcon(title)} onPress={() => onAsk(prompt)} />
   ));
@@ -354,6 +381,7 @@ export function RecipeDetail({
           />
         </View>
       </View>
+      <FoodWarning recipe={reading} conflicts={conflicts} />
       {/* Only amounts with a size to convert need the choice; eggs and cloves don't. */}
       {recipe.ingredients.some((i) => knownUnit(i.unit)) && (
         <UnitsSwitch value={units} onChange={setUnits} />
@@ -362,7 +390,7 @@ export function RecipeDetail({
       <View
         style={webPage ? { marginRight: -8 } : [s.card, { paddingVertical: 4, paddingRight: 8 }]}
       >
-        {recipe.ingredients.map((i, n) => (
+        {reading.ingredients.map((i, n) => (
           <View
             key={n}
             style={[
@@ -372,17 +400,34 @@ export function RecipeDetail({
           >
             <View style={{ flex: 1 }}>
               <CheckRow
-                checked={checked.includes(i.name)}
+                checked={checked.includes(own(n))}
                 onPress={() =>
                   setChecked(
-                    checked.includes(i.name)
-                      ? checked.filter((v) => v !== i.name)
-                      : [...checked, i.name],
+                    checked.includes(own(n))
+                      ? checked.filter((v) => v !== own(n))
+                      : [...checked, own(n)],
                   )
                 }
               >
                 <View style={[s.between, { gap: 10 }]}>
-                  <Text style={[s.body, { flex: 1 }]}>{i.name}</Text>
+                  <View style={{ flex: 1, gap: 2 }}>
+                    <View style={[s.row, { gap: 6 }]}>
+                      {conflicts.some((c) => c.ingredients.includes(n)) && (
+                        <View accessible accessibilityLabel={tr('Contains something you avoid')}>
+                          <AlertTriangle size={15} color={color.warning} strokeWidth={2} />
+                        </View>
+                      )}
+                      <Text style={[s.body, { flex: 1 }]}>{i.name}</Text>
+                    </View>
+                    {pantry[n] && (
+                      <View style={[s.row, { gap: 4 }]}>
+                        <Leaf size={12} color={color.success} strokeWidth={2} />
+                        <Text style={[s.small, { color: color.success }]}>
+                          {tr('In your pantry')}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
                   <Text
                     style={[
                       s.muted,
@@ -415,13 +460,27 @@ export function RecipeDetail({
           void perform(
             'groceries',
             async () => {
-              await api(`/recipes/${recipe.id}/groceries`, { method: 'POST', body: { servings } });
+              // What the pantry has, and salt, pepper, oil and water, stay off the list.
+              const merge = await api<GroceryMerge>(`/recipes/${recipe.id}/groceries`, {
+                method: 'POST',
+                body: { servings, skipPantry: true },
+              });
               await app.refreshKitchen();
+              app.notify(
+                merge.skipped?.length
+                  ? tr('Added to your grocery list, without what you have: {{v0}}.', {
+                      v0: joinNames(merge.skipped, language),
+                    })
+                  : tr('Ingredients added to your grocery list.'),
+              );
             },
-            'Ingredients added to your grocery list.',
+            '',
           )
         }
       />
+      <RecipeOrder recipeId={recipe.id} servings={servings} />
+      {/* What else to get out, after what to buy: the cook's list, or what the method mentions. */}
+      <RecipeEquipment recipe={reading} onCard={webPage} />
       {/* Twists change the ingredients, so they sit with them rather than above the tabs. */}
       <View style={{ gap: 12, marginTop: 10 }}>
         <View style={[s.row, { gap: 8 }]}>
@@ -458,7 +517,7 @@ export function RecipeDetail({
         {tr('Let’s make it')}
       </Text>
       <View style={webPage ? [s.card, { paddingVertical: 6, paddingHorizontal: 28 }] : { gap: 12 }}>
-        {recipe.steps.map((st, i) => (
+        {reading.steps.map((st, i) => (
           <View
             key={i}
             style={
@@ -641,7 +700,8 @@ export function RecipeDetail({
       <CookSheets cooked={cooks} />
       {cooking && (
         <CookMode
-          recipe={recipe}
+          recipe={reading}
+          translatedTo={translation.translatedTo}
           command={cookCommand}
           onStep={onCooking}
           onAsk={onAsk}
@@ -687,7 +747,7 @@ export function RecipeDetail({
           <FoodImage uri={recipe.image} style={{ width: 52, height: 52, borderRadius: 16 }} />
           <View style={{ flex: 1 }}>
             <Text numberOfLines={1} style={s.h3}>
-              {recipe.title}
+              {reading.title}
             </Text>
             <Text style={s.small}>{tr('servingCount', { count: servings })}</Text>
           </View>
@@ -867,6 +927,8 @@ export function RecipeDetail({
         fill
       />
       <Pill title={tr(recipe.cuisine)} leading={<CuisineIcon name={recipe.cuisine} size={22} />} />
+      {/* What the reader avoids shows by the title too; the ingredients say where. */}
+      <AvoidPill conflicts={conflicts} />
       {/* One line of badges on phones; the tags are all in the recipe anyway. */}
       {recipe.tags.slice(0, webPage ? 3 : wide ? 2 : 1).map((t) => (
         <Pill key={t} title={tr(t)} icon={foodIcon(t)} />
@@ -927,6 +989,9 @@ export function RecipeDetail({
     </View>
   );
   const lineage = <Lineage recipe={recipe} onOpen={onOpen} onCreator={onCreator} />;
+  const translationBar = (
+    <TranslationBar language={recipe.language ?? ''} translation={translation} />
+  );
   const facts = (
     <View
       style={[
@@ -1064,7 +1129,7 @@ export function RecipeDetail({
               <View style={split ? { flex: 1.1, gap: 12 } : { gap: 12 }}>
                 <FoodImage
                   uri={photos[photo] || ''}
-                  label={recipe.title}
+                  label={reading.title}
                   priority="high"
                   style={{
                     width: '100%',
@@ -1105,16 +1170,18 @@ export function RecipeDetail({
                   aria-level={1}
                   style={[s.display, { fontSize: 44, lineHeight: 50, letterSpacing: -1.6 }]}
                 >
-                  {recipe.title}
+                  {reading.title}
                 </Text>
-                {!!recipe.description && (
+                {!!reading.description && (
                   <Text style={[s.muted, { fontSize: 17, lineHeight: 27 }]}>
-                    {recipe.description}
+                    {reading.description}
                   </Text>
                 )}
+                {translationBar}
                 {byline}
                 {lineage}
                 {facts}
+                <CookTime recipe={recipe} />
                 <View style={{ gap: 20 }}>
                   <Button
                     title={tr('Start cooking')}
@@ -1202,19 +1269,21 @@ export function RecipeDetail({
                   }
                   style={[s.display, !wide && { fontSize: 29, lineHeight: 35 }]}
                 >
-                  {recipe.title}
+                  {reading.title}
                 </Text>
                 {byline}
-                {!!recipe.description && (
+                {!!reading.description && (
                   <Text style={[s.muted, { fontSize: 15, lineHeight: 23 }]}>
-                    {recipe.description}
+                    {reading.description}
                   </Text>
                 )}
+                {translationBar}
                 {lineage}
               </FadeIn>
               {/* The facts in one card and the things to do in one row, so the page goes
                   straight from the story to the cooking. */}
               <FadeIn delay={130}>{facts}</FadeIn>
+              <CookTime recipe={recipe} />
               <FadeIn delay={200}>{actionRow}</FadeIn>
               {wide ? (
                 <View style={{ flexDirection: 'row', gap: 32, alignItems: 'flex-start' }}>
@@ -1297,7 +1366,7 @@ export function RecipeDetail({
               },
             ]}
           >
-            {recipe.title}
+            {reading.title}
           </Animated.Text>
           <View style={[s.row, { gap: 10 }]}>
             {canPrint && (

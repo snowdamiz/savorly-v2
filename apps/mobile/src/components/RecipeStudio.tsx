@@ -58,6 +58,7 @@ import { requestKey } from '../lib/utils';
 import { openVoice } from '../lib/voice/transport';
 import { studioPollDelay } from '../lib/studioPace';
 import { VoiceConnection, VoiceEvent } from '../lib/voice/connection';
+import { reportLiveCall } from '../lib/handsFree/speech';
 
 // Consecutive events from one side are one bubble; its receipts remember which event they came
 // from, which Undo names.
@@ -221,8 +222,11 @@ export function RecipeStudio({
   const watching = attending || !!project?.busy;
   useEffect(() => {
     onLive(runningVoice);
+    // Hands-free cooking stops listening while a call has the microphone.
+    reportLiveCall(runningVoice);
   }, [onLive, runningVoice]);
   useEffect(() => () => onLive(false), [onLive]);
+  useEffect(() => () => reportLiveCall(false), []);
   useEffect(() => {
     if (!runningVoice) return;
     const tag = 'savorly-voice-' + requestKey();

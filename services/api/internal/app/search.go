@@ -15,7 +15,9 @@ import (
 type recipeQuery struct {
 	Text, Cuisine, Author, Tag, Sort string
 	// Follower limits the list to cooks this member follows.
-	Follower                  string
+	Follower string
+	// AvoidGroups and AvoidTerms leave out recipes with any of them (a member's avoid list).
+	AvoidGroups, AvoidTerms   []string
 	MaxMinutes, Limit, Offset int
 }
 
@@ -87,6 +89,12 @@ func (q recipeQuery) build() (sql string, args []any, ok bool) {
 	}
 	if q.Follower != "" {
 		where = append(where, "r.author_id IN (SELECT creator_id FROM follows WHERE user_id="+arg(q.Follower)+")")
+	}
+	if len(q.AvoidGroups) > 0 {
+		where = append(where, "NOT r.allergens && "+arg(q.AvoidGroups)+"::text[]")
+	}
+	if len(q.AvoidTerms) > 0 {
+		where = append(where, "NOT r.food_terms && "+arg(q.AvoidTerms)+"::text[]")
 	}
 	from := recipeFrom
 	order := "r.created_at DESC,r.id"

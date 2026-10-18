@@ -18,6 +18,7 @@ function allowances(p: PricePlan) {
     { label: 'AI photos', limit: p.images, key: 'images' },
     { label: 'AI videos', limit: p.videos, key: 'videos' },
     { label: 'Natural-voice read-alouds', limit: p.narration, key: 'narration' },
+    { label: 'Cooking questions', limit: p.cookQuestions ?? 0, key: 'cookQuestions' },
   ] as const;
 }
 
@@ -60,6 +61,7 @@ export function PlanSettings() {
     images: billing.usage.images,
     videos: billing.usage.videos,
     narration: billing.usage.narration,
+    cookQuestions: billing.usage.cookQuestions ?? 0,
   };
   const money = (n: number) =>
     new Intl.NumberFormat(locale, { style: 'currency', currency: 'USD' }).format(n);
@@ -79,7 +81,7 @@ export function PlanSettings() {
           <Text style={s.small}>{tr('Your plan')}</Text>
           <Text style={s.h2}>{tr(planNames[billing.plan])}</Text>
         </View>
-        {billing.plan !== 'free' && (
+        {billing.plan !== 'free' && !billing.sharedBy && (
           <Pill
             title={
               billing.status === 'past_due'
@@ -117,7 +119,16 @@ export function PlanSettings() {
               </View>
             </View>
           ))}
-        <Text style={s.small}>{tr('Allowances cover the last 30 days.')}</Text>
+        <Text style={s.small}>
+          {billing.sharedBy
+            ? tr(
+                '{{v0}} shares this plan with your household. Allowances are for everyone on it and cover the last 30 days.',
+                { v0: billing.sharedBy.name },
+              )
+            : billing.sharedWith
+              ? tr('sharedPlanCount', { count: billing.sharedWith })
+              : tr('Allowances cover the last 30 days.')}
+        </Text>
       </View>
       {sell && billing.checkout && billing.plan === 'free' && (
         <View style={{ gap: 12 }}>

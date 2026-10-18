@@ -8,17 +8,19 @@ import (
 	"math"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 )
 
-// POST /recipes/import reads a recipe from a web page into a private draft for the editor;
-// nothing is saved. Pages with schema.org Recipe data are mapped here; others go to the recipe
-// model as an ordinary AI job.
+// POST /recipes/import reads a recipe from a web page, or from a video or photo post's caption
+// (import_social.go), into a private draft for the editor; nothing is saved. Pages with
+// schema.org Recipe data are mapped here; others go to the recipe model as an ordinary AI job.
 
 const noRecipeOnPage = "We couldn’t find a recipe on that page."
 
@@ -42,12 +44,12 @@ func (a *App) importRecipe(c fiber.Ctx) error {
 	}
 	ctx, cancel := context.WithTimeout(c.Context(), 20*time.Second)
 	defer cancel()
-	recipe, doc, source, e := a.readRecipePage(ctx, in.URL)
+	read, e := a.readRecipePage(ctx, in.URL)
 	if e != nil {
 		return e
 	}
-	if recipe != nil {
-		return c.JSON(fiber.Map{"method": "structured", "recipe": recipe})
+	if read.recipe != nil {
+		return c.JSON(fiber.Map{"method": "structured", "recipe": read.recipe})
 	}
 	if !a.AI.TextEnabled() {
 		return fiber.NewError(503, "We couldn’t read a recipe from that page.")
@@ -58,43 +60,73 @@ func (a *App) importRecipe(c fiber.Ctx) error {
 	if key == "" {
 		key = "import-" + uuid.NewString()
 	}
-	job, _, e := a.enqueueJob(c, key, "recipe", importPrompt(source, doc), "")
+	job, _, e := a.enqueueJob(c, key, "recipe", read.prompt(), "")
 	if e != nil {
 		return e
 	}
 	return c.Status(202).JSON(fiber.Map{"method": "ai", "job": json.RawMessage(job)})
 }
 
-// readRecipePage fetches the recipe page at raw and reads it: its recipe when the page has one
-// in schema.org data, otherwise the page (doc) for a model to read. source is how a recipe
-// from it credits the page.
-func (a *App) readRecipePage(ctx context.Context, raw string) (recipe *RecipeInput, doc pageData, source string, e error) {
+// importRead is what an import found at an address.
+type importRead struct {
+	recipe *RecipeInput // the recipe, when schema.org data held one
+	doc    pageData     // otherwise the page, for the recipe model to read
+	source string       // the link a recipe from it credits
+	// post is the video or photo post the recipe came through, if any. caption says the model
+	// reads its caption; otherwise doc is a page the post links to, and via credits the post's
+	// creator as well.
+	post    *socialPost
+	caption bool
+	via     string
+}
+
+// prompt is the recipe job that reads what the import found.
+func (r importRead) prompt() string {
+	if r.caption {
+		return captionPrompt(*r.post)
+	}
+	return importPrompt(r.source, r.doc, r.via)
+}
+
+// readRecipePage reads the recipe at raw: a web page, or a post on TikTok, Instagram, YouTube,
+// Facebook or Pinterest (readPost).
+func (a *App) readRecipePage(ctx context.Context, raw string) (importRead, error) {
 	target, ok := importURL(raw)
 	if !ok {
-		return nil, doc, "", fiber.NewError(400, "Paste the full address of a recipe page.")
+		return importRead{}, fiber.NewError(400, "Paste the full address of a recipe page.")
 	}
+	if link, ok := postAt(target); ok {
+		return a.readPost(ctx, link)
+	}
+	return a.readWebPage(ctx, target)
+}
+
+// readWebPage fetches the page at target and reads it: its recipe when the page has one in
+// schema.org data, otherwise the page for a model to read.
+func (a *App) readWebPage(ctx context.Context, target string) (importRead, error) {
 	page, e := fetchPage(ctx, target)
 	if errors.Is(e, errNotPage) {
-		return nil, doc, "", fiber.NewError(422, noRecipeOnPage)
+		return importRead{}, fiber.NewError(422, noRecipeOnPage)
 	}
 	if e != nil {
 		slog.Info("recipe import: page unavailable", "host", hostOf(target), "error", e)
-		return nil, doc, "", fiber.NewError(502, "We couldn’t open that page.")
+		return importRead{}, fiber.NewError(502, "We couldn’t open that page.")
 	}
 	at, e := url.Parse(page.URL)
 	if e != nil {
-		return nil, doc, "", fiber.NewError(502, "We couldn’t open that page.")
+		return importRead{}, fiber.NewError(502, "We couldn’t open that page.")
 	}
-	doc, source = readPage(page.HTML), sourceLink(at)
-	if ld, ok := findRecipe(doc.LD); ok {
-		if r, ok := a.structuredRecipe(ld, doc, at, source); ok {
-			return &r, doc, source, nil
+	read := importRead{doc: readPage(page.HTML), source: sourceLink(at)}
+	if ld, ok := findRecipe(read.doc.LD); ok {
+		if r, ok := a.structuredRecipe(ld, read.doc, at, read.source); ok {
+			read.recipe = &r
+			return read, nil
 		}
 	}
-	if utf8.RuneCountInString(doc.Text) < minPageText {
-		return nil, doc, source, fiber.NewError(422, noRecipeOnPage)
+	if utf8.RuneCountInString(read.doc.Text) < minPageText {
+		return read, fiber.NewError(422, noRecipeOnPage)
 	}
-	return nil, doc, source, nil
+	return read, nil
 }
 
 // importURL reads the address a member pasted: http(s) with a host and no credentials, the
@@ -205,6 +237,7 @@ func (a *App) structuredRecipe(ld ldRecipe, doc pageData, page *url.URL, source 
 		r.Calories = int(math.Round(min(firstNumber(nutrition["calories"]), 10000)))
 	}
 	r.Difficulty = difficultyOf(r.Minutes, len(r.Steps))
+	r.Equipment = ldEquipment(x["tool"])
 	r.Image = a.importedMedia(page, firstOf(ld.image(x["image"]), doc.Image))
 	if language, ok := recipeLanguage(firstOf(ldText(x["inLanguage"]), doc.Lang)); ok {
 		r.Language = language
@@ -265,6 +298,20 @@ func ldIngredients(v any) []Ingredient {
 		}
 	}
 	return out
+}
+
+// ldEquipment reads a Recipe's tool (schema.org has Recipe inherit it from HowTo): HowToTool
+// items or names, or one text listing them, which is split at its commas and lines.
+func ldEquipment(v any) []string {
+	s, ok := v.(string)
+	if !ok {
+		return fitEquipment(ldTexts(v, false))
+	}
+	var names []string
+	for _, line := range textLines(s) {
+		names = append(names, strings.Split(line, ",")...)
+	}
+	return fitEquipment(names)
 }
 
 // draftStep is an instruction as a page gives it.
@@ -414,11 +461,17 @@ func splitText(text string, n int) []string {
 	return append(out, text)
 }
 
-// importPrompt asks the recipe model for a page's own recipe. Its first line names the page;
-// the instructions and the text follow "Context:", which the sous-chef history leaves out.
-func importPrompt(source string, doc pageData) string {
+// importPrompt asks the recipe model for a page's own recipe. Its first line names the page,
+// and a second one (creditLine) the creator of a post that linked to it, if one did; the
+// instructions and the text follow "Context:", which the sous-chef history leaves out.
+func importPrompt(source string, doc pageData, via string) string {
 	var b strings.Builder
-	b.WriteString(importPrefix + source + "\n\nContext: Below is the text of that web page. Take its recipe as the page gives it, in the page's own language: the title, a description, every ingredient with its amount and unit, and every step, with a step's timer in seconds where the page gives a time. Add nothing the page doesn't say, apart from estimating the calories, the difficulty and the cuisine. If the page has no recipe, answer {\"recipe\": null}.\n\n")
+	b.WriteString(importPrefix + source + "\n" + creditLine(via))
+	b.WriteString("\nContext: Below is the text of that web page. Take its recipe as the page gives it, in the page's own language: the title, a description, every ingredient with its amount and unit, and every step, with a step's timer in seconds where the page gives a time. Add nothing the page doesn't say, apart from estimating the calories, the difficulty and the cuisine. If the page has no recipe, answer {\"recipe\": null}.")
+	if via != "" {
+		b.WriteString(" The member found the page through a post by " + strconv.Quote(via) + ": end the description by saying they shared it, in the recipe's language.")
+	}
+	b.WriteString("\n\n")
 	if doc.Title != "" {
 		b.WriteString("Page title: " + doc.Title + "\n\n")
 	}
@@ -447,13 +500,43 @@ func pageExcerpt(text string, n int) string {
 	return string(r[from : from+n])
 }
 
-// importedFrom is the page an import job's prompt names (importPrompt), or nil for any other
-// prompt.
+// failImport ends an import job that brought the member no recipe. A failed import never counts
+// against them: the job's reservation is released, so plan allowances (usageOf) and the
+// member's SpendCap leave it out. When the model was asked (called), what that may have cost
+// moves to the shared ledger, so the day's budgets still see the spend, as free use.
+func (a *App) failImport(ctx context.Context, id, message string, called bool) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
+	tx, e := a.DB.Begin(ctx)
+	if e == nil {
+		defer tx.Rollback(ctx)
+		var reserved float64
+		// An admin's cancellation, or the stalled-job sweep, stands.
+		e = tx.QueryRow(ctx, `WITH job AS (SELECT id,estimated_cost FROM ai_jobs WHERE id=$1 AND status IN ('queued','running','processing') FOR UPDATE)
+ UPDATE ai_jobs j SET status='failed',result='{}',error=$2,estimated_cost=0,updated_at=now() FROM job WHERE j.id=job.id RETURNING job.estimated_cost::float8`, id, message).Scan(&reserved)
+		if errors.Is(e, pgx.ErrNoRows) {
+			return
+		}
+		if e == nil && called && reserved > 0 {
+			_, e = recordUsage(ctx, tx, "", "unread_import", reserved)
+		}
+		if e == nil {
+			e = tx.Commit(ctx)
+		}
+	}
+	if e != nil {
+		slog.Error("save failed import", "job", id, "error", e)
+	}
+}
+
+// importedFrom is the page or post an import job's prompt names (importPrompt, captionPrompt),
+// or nil for any other prompt.
 func importedFrom(prompt string) *string {
 	line, _, _ := strings.Cut(prompt, "\n")
-	source, ok := strings.CutPrefix(line, importPrefix)
-	if !ok || source == "" || !validSourceURL(source) {
-		return nil
+	for _, prefix := range []string{importPrefix, captionPrefix} {
+		if source, ok := strings.CutPrefix(line, prefix); ok && source != "" && validSourceURL(source) {
+			return &source
+		}
 	}
-	return &source
+	return nil
 }

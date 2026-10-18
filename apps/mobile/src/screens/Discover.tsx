@@ -12,6 +12,7 @@ import {
   Clock3,
   Leaf,
   Search,
+  ShieldCheck,
   SlidersHorizontal,
   Soup,
   Sparkles,
@@ -19,6 +20,8 @@ import {
   Zap,
 } from '../components/icons';
 import { useApp } from '../lib/store';
+import { foodConflicts, useFood } from '../lib/food';
+import { AvoidPill } from '../components/FoodWarning';
 import { Creator, Recipe, Screen } from '../lib/types';
 import { color, font, maxFontScale, radius, s } from '../lib/theme';
 import { haptic } from '../lib/haptics';
@@ -118,17 +121,22 @@ export function Discover({
   const [filters, setFilters] = useState(false);
   const [sort, setSort] = useState('For you');
   const [quick, setQuick] = useState(false);
+  // Hiding what the member avoids needs something to avoid.
+  const avoids =
+    !!user?.avoid && Object.keys({ ...user.avoid.groups, ...user.avoid.terms }).length > 0;
+  const [fitsChoice, setFits] = useState(false);
+  const fits = avoids && fitsChoice;
   const listing = !!query || !!explore;
   // Filtering belongs to Explore. Home only searches, so returning to it never leaves the feed
   // stuck as a filtered list, while Explore keeps its filters for the next visit.
   const search = useRecipeSearch(
     explore
-      ? { query, category, cuisine, quick, sort }
+      ? { query, category, cuisine, quick, sort, fits }
       : { query, category: 'All recipes', cuisine: allCuisines, quick: false, sort: 'For you' },
     listing,
   );
   const filtered = search.recipes;
-  const refined = !!explore && (cuisine !== allCuisines || quick || sort !== 'For you');
+  const refined = !!explore && (cuisine !== allCuisines || quick || sort !== 'For you' || fits);
   // What people search for, and what finds nothing: each search once, when the typing has paused
   // and its first results have arrived (Show more isn't another search).
   const searched = query.trim();
@@ -166,6 +174,7 @@ export function Discover({
     setCuisine(allCuisines);
     setSort('For you');
     setQuick(false);
+    setFits(false);
   };
   const tileWidth = Math.min(250, Math.round(width * 0.6));
   // On phones the feed is a light sheet that rises over the black header on rounded top corners.
@@ -638,6 +647,20 @@ export function Discover({
             />
           </View>
         </View>
+        {avoids && (
+          <View style={{ gap: 12 }}>
+            <Text style={s.label}>{tr('Diets and allergies')}</Text>
+            <View style={[s.wrap, { gap: 8 }]}>
+              <Chip title={tr('Show everything')} active={!fits} onPress={() => setFits(false)} />
+              <Chip
+                title={tr('Hide what I avoid')}
+                icon={ShieldCheck}
+                active={fits}
+                onPress={() => setFits(true)}
+              />
+            </View>
+          </View>
+        )}
         <View style={{ gap: 12 }}>
           <Text style={s.label}>{tr('Sort by')}</Text>
           <Segmented
@@ -669,6 +692,11 @@ export function Discover({
 function Hero({ recipe, onOpen }: { recipe: Recipe; onOpen: (r: Recipe) => void }) {
   const { t: tr } = useI18n();
   const { compact, width } = useChrome();
+  const { avoid, household } = useFood();
+  const conflicts = useMemo(
+    () => foodConflicts(recipe, avoid, household),
+    [recipe, avoid, household],
+  );
   const press = usePress(0.985);
   const hover = useState(() => new Animated.Value(0))[0];
   return (
@@ -744,8 +772,14 @@ function Hero({ recipe, onOpen }: { recipe: Recipe; onOpen: (r: Recipe) => void 
           end={{ x: compact ? 0 : 1, y: compact ? 1 : 0.5 }}
           style={StyleSheet.absoluteFill}
         />
-        <View style={{ position: 'absolute', top: 18, left: 18, pointerEvents: 'none' }}>
+        <View
+          style={[
+            s.row,
+            { position: 'absolute', top: 18, left: 18, gap: 8, pointerEvents: 'none' },
+          ]}
+        >
           <Pill title={tr('The daily dish')} tone="glass" />
+          <AvoidPill conflicts={conflicts} />
         </View>
         <View
           style={{

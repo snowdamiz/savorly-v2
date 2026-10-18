@@ -70,6 +70,7 @@ export function printPage(recipe: PrintableRecipe) {
 ${image ? `<img class="cover" src="${escape(image)}" alt="">` : ''}
 ${paragraph(recipe.description, 'description')}
 ${recipe.ingredients.length ? `<section><h2>${escape(recipe.ingredientsTitle)}</h2><ul>${ingredients}</ul></section>` : ''}
+${recipe.equipment?.length ? `<section><h2>${escape(recipe.equipmentTitle ?? '')}</h2><p class="equipment">${recipe.equipment.map(escape).join(' · ')}</p></section>` : ''}
 ${recipe.steps.length ? `<section><h2>${escape(recipe.methodTitle)}</h2><ol>${steps}</ol></section>` : ''}
 <footer>${[...recipe.credits, recipe.link]
     .filter(Boolean)

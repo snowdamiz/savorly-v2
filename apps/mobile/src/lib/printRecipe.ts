@@ -15,6 +15,9 @@ export type PrintableRecipe = {
   ingredientsTitle: string;
   /** Each ingredient with its amount in the units and servings on screen ('' for none). */
   ingredients: { name: string; amount: string }[];
+  equipmentTitle?: string;
+  /** What else to get out: the cook's list, or what the method mentions. Left out for none. */
+  equipment?: string[];
   methodTitle: string;
   steps: { title: string; text: string }[];
   /** Attribution lines at the end, such as where the recipe was adapted or imported from. */

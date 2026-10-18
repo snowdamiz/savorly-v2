@@ -46,6 +46,12 @@ export type RecipeInput = {
    * saved); recipes from the server carry the original itself, or null.
    */
   derivedFrom?: string | RecipeOrigin | null;
+  /**
+   * What it needs besides ingredients (pots, pans, appliances, tools), as its cook names them, in
+   * order: up to 20 names of up to 60 characters. Left out, the server keeps what's saved; []
+   * clears it.
+   */
+  equipment?: string[];
 };
 /** The recipe an adaptation came from, as recipes from the server name it. */
 export type RecipeOrigin = {
@@ -68,7 +74,36 @@ export type Recipe = Omit<RecipeInput, 'derivedFrom'> & {
   commentCount?: number;
   /** Cooks who marked it as cooked. Missing on older servers. */
   cookedCount?: number;
+  /** Its allergen and diet groups, read from the ingredient names. Missing on older servers. */
+  allergens?: string[];
+  /** What each ingredient is, in the same order as `ingredients`. Missing on older servers. */
+  ingredientFood?: IngredientFood[];
+  /**
+   * Another household member's private recipe on the shared plan: its name and photo only, with
+   * no ingredients or steps, and it doesn't open.
+   */
+  teaser?: boolean;
+  /** Finished cooking-mode sessions that count as real cooks. Missing on older servers. */
+  verifiedCooks?: number;
+  /** How long verified cooks usually take, in minutes; null until 3 agree. Missing on older servers. */
+  cookedMinutes?: number | null;
+  /**
+   * The equipment its method mentions, read by the server's lexicon, as English keys ('frying
+   * pan', 'oven') the app names in the reader's language (equipmentName). Missing on older servers.
+   */
+  equipmentDetected?: string[];
 };
+/**
+ * What the server's ingredient lexicon reads in one ingredient line: what it is (`key`, which the
+ * pantry's `pantryCover` names too), its allergen and diet groups (`milk`, `peanut`, `pork`…), and
+ * the words an avoid list's terms are matched against.
+ */
+export type IngredientFood = { key: string; allergens: string[]; terms: string[] };
+/**
+ * What a member avoids, read from their diets and allergies: groups (`peanut`) and their own words
+ * (`kiwi`, or an ingredient's key like `cilantro`), each with what they wrote that leads to it.
+ */
+export type Avoid = { groups: Record<string, string[]>; terms: Record<string, string[]> };
 /** How recipe amounts show: as their cooks wrote them (''), or converted. */
 export type Units = '' | 'metric' | 'imperial';
 /** The same choice, as the recipe page names it. */
@@ -88,6 +123,10 @@ export type Preferences = {
   /** The app's language, which notifications are written in ('' until one is chosen). */
   language?: string;
   notifications?: Partial<NotificationPreferences>;
+  /** The household sees this member's diets and allergies, and recipes warn about them for all. */
+  shareDiet?: boolean;
+  /** Recipes in other languages open translated into the app's. Older servers leave it out. */
+  translateRecipes?: boolean;
 };
 export type User = Creator & {
   email: string;
@@ -106,6 +145,10 @@ export type User = Creator & {
   adminOwner?: boolean;
   /** An owner's address (ADMIN_EMAILS) that must be verified before the console opens. */
   adminPending?: boolean;
+  /** What recipe pages warn this member about. Missing on older servers. */
+  avoid?: Avoid;
+  /** Housemates who share their diets and allergies, and what they avoid. Missing on older servers. */
+  householdAvoid?: { id: string; name: string; avoid: Avoid }[];
 };
 export type PlanID = 'free' | 'plus' | 'pro';
 /** A subscription plan; `Plan` is a meal-plan entry. */
@@ -118,6 +161,8 @@ export type PricePlan = {
   images: number;
   videos: number;
   narration: number;
+  /** Hands-free cooking questions ("Chef, …"). Missing on older servers. */
+  cookQuestions?: number;
 };
 export type Billing = {
   plan: PlanID;
@@ -131,12 +176,18 @@ export type Billing = {
     images: number;
     videos: number;
     narration: number;
+    /** Missing on older servers. */
+    cookQuestions?: number;
   };
   plans: PricePlan[];
   /** Stripe checkout is configured on the server. */
   checkout: boolean;
   /** There's a Stripe customer whose subscription can be managed. */
   manage: boolean;
+  /** The household member whose plan this is, when it isn't the member's own; older servers leave it out. */
+  sharedBy?: { id: string; name: string } | null;
+  /** How many others in the household use this member's plan (0 or missing for none). */
+  sharedWith?: number;
 };
 export type Review = {
   id: string;
@@ -196,6 +247,8 @@ export type Plan = {
   meal: string;
   servings: number;
   recipe: Recipe;
+  /** Who planned it on a household's plan; null on a member's own. Missing on older servers. */
+  plannedBy?: { id: string; name: string } | null;
 };
 export type Grocery = {
   id: string;
@@ -206,8 +259,23 @@ export type Grocery = {
   /** Who put it on a household's shared list; null for older items (and missing on older servers). */
   addedBy?: { id: string; name: string } | null;
 };
-export type PantryItem = { id: string; name: string; quantity: string; expiresOn: string | null };
-export type Kitchen = { plans: Plan[]; groceries: Grocery[]; pantry: PantryItem[] };
+export type PantryItem = {
+  id: string;
+  name: string;
+  quantity: string;
+  expiresOn: string | null;
+  /** Who added it to a household's pantry; null on a member's own. Missing on older servers. */
+  addedBy?: { id: string; name: string } | null;
+};
+export type Kitchen = {
+  plans: Plan[];
+  groceries: Grocery[];
+  pantry: PantryItem[];
+  /** The ingredient keys the pantry has (cheddar also covers cheese). Missing on older servers. */
+  pantryCover?: string[];
+};
+/** A recipe the pantry goes far toward (GET /kitchen/pantry-recipes), with ingredient names. */
+export type PantryMatch = { recipe: Recipe; have: string[]; missing: string[]; expiring: string[] };
 export type AIKind =
   'recipe' | 'adapt' | 'substitute' | 'nutrition' | 'plan' | 'assistant' | 'image' | 'video';
 export type AIJob = {
@@ -249,15 +317,24 @@ export type Capabilities = {
   videoProvider: string;
   videoModel: string;
   videoEstimateUSD: number;
+  /** Recipes can be translated into the reader's language (GET /recipes/:id/translation). */
+  recipeTranslation?: boolean;
+  translationModel?: string;
+  /** Who orders the grocery list or a recipe's ingredients: "instacart", or none ('' or missing). */
+  groceryCheckout?: string;
   /** Plans and allowances are live (PAID_PLANS); until then everyone has unlimited use. */
   plans?: boolean;
   billing?: boolean;
+  /** The creator fund pays creators for verified cooks of their recipes (CREATOR_FUND). */
+  creatorFund?: boolean;
   /** Password-reset email is configured, and with it email confirmation and email changes. */
   passwordRecovery?: boolean;
   /** Cloudflare Turnstile's public site key; '' (or missing) when sign-up has no check. */
   turnstileSiteKey?: string;
   appleSignIn?: boolean;
   googleSignIn?: boolean;
+  /** Hands-free cooking can ask the sous-chef questions (POST /recipes/:id/ask). */
+  cookingQuestions?: boolean;
   auth?: {
     googleWebClientId: string;
     googleIosClientId: string;
@@ -422,7 +499,12 @@ export type CookbookSummary = {
 /** One page of the library: GET /library/recipes. */
 export type LibraryPage = { recipes: Recipe[]; hasMore: boolean };
 /** What putting recipes on the grocery list did: new lines, and lines folded into matching ones. */
-export type GroceryMerge = { added: number; merged: number };
+export type GroceryMerge = {
+  added: number;
+  merged: number;
+  /** With skipPantry: the ingredients left off because the pantry (or any kitchen) has them. */
+  skipped?: string[];
+};
 export type HouseholdRole = 'owner' | 'member';
 export type HouseholdMember = {
   id: string;
@@ -453,4 +535,21 @@ export type DeviceSession = {
   /** iPhone, iPad, iOS, Android, macOS, Windows, ChromeOS, Linux, or ''. */
   system: string;
   current: boolean;
+};
+/**
+ * A recipe's text in another language, GET /recipes/:id/translation: ingredients and steps in the
+ * recipe's order, amounts, units, tags and cuisine left out (they stay as written).
+ */
+export type RecipeTranslation = {
+  language: string;
+  /** The recipe's own language, '' when it doesn't say. */
+  sourceLanguage: string;
+  title: string;
+  description: string;
+  ingredients: { name: string }[];
+  steps: { title: string; text: string }[];
+  /** The cook's equipment names, one for one; missing when the recipe lists none. */
+  equipment?: string[];
+  /** When it was translated; null when the recipe is written in `language` already. */
+  translatedAt: string | null;
 };

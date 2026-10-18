@@ -49,6 +49,11 @@ type RequestOptions = {
   timeout?: number;
   /** Stops the request, and any retry still to come; `api()` then rejects with an AbortError. */
   signal?: AbortSignal;
+  /**
+   * False: a read isn't sent again after a gateway error, for one that can start paid work (a
+   * recipe's translation), which the cook asks for again instead.
+   */
+  retry?: boolean;
 };
 // Server starts and deploys make the API briefly unavailable. Requests wait them out instead of
 // failing: reads retry gateway errors, and writes retry only what the server never handled, so
@@ -63,7 +68,8 @@ export async function api<T = void>(path: string, options: RequestOptions = {}):
     } catch (error) {
       const retry =
         error instanceof ApiError &&
-        (error.unsent || (read && error.status >= 502 && error.status <= 504));
+        (error.unsent ||
+          (read && options.retry !== false && error.status >= 502 && error.status <= 504));
       if (!retry || Date.now() - started > RETRY_FOR_MS) throw error;
       await pause(Math.min(1000 * attempt, 5000), options.signal);
     }

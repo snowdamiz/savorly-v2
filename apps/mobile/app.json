@@ -76,6 +76,14 @@
         }
       ],
       [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Let Savorly listen while you describe your recipe or cook hands-free.",
+          "speechRecognitionPermission": "Let Savorly recognize what you say while you cook hands-free, such as “next step”.",
+          "androidSpeechServicePackages": ["com.google.android.googlequicksearchbox", "com.google.android.as"]
+        }
+      ],
+      [
         "expo-camera",
         {
           "cameraPermission": "Let Savorly use the camera to photograph recipes for your cooking assistant and to take your profile photo.",

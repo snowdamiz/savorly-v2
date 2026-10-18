@@ -12,6 +12,7 @@ import { api, ApiError, initSession, persistSession, unreachable } from './api';
 import { Capabilities, Creator, Grocery, Kitchen, Library, Recipe, User } from './types';
 import { NotificationsProvider, useNotify } from './notifications';
 import { LibraryContext, LibraryState } from './library';
+import { FoodContext, FoodState, foodKey, noFood } from './food';
 import { unregisterPush } from './push';
 import { Feed, parseFeed } from './feed';
 import { forgetKitchen, loadSnapshot, saveSnapshot, worthShowing } from './offline';
@@ -47,6 +48,15 @@ const checkedOff = (k: Kitchen, { id, checked }: Check): Kitchen =>
 const useSameIds = (ids: string[]) => {
   const key = ids.join('\n');
   return useMemo(() => (key ? key.split('\n') : []), [key]);
+};
+// The same avoid list, diets and pantry keep the same value, so cards don't re-render for a
+// kitchen refresh that changed none of them.
+const useSameFood = (food: FoodState) => {
+  const key = foodKey(food);
+  return useMemo<FoodState>(() => {
+    const [groups, terms, diets, pantryCover, household] = JSON.parse(key);
+    return { avoid: { groups, terms }, household, diets, pantryCover };
+  }, [key]);
 };
 // A cancelled share sheet or picker isn't a failure to report.
 const cancelled = (e: unknown) => (e as Error | undefined)?.name === 'AbortError';
@@ -394,6 +404,16 @@ function useAppState() {
     () => ({ savedIds, followingIds, userId, toggleSave, toggleFollow }),
     [savedIds, followingIds, userId, toggleSave, toggleFollow],
   );
+  const food = useSameFood(
+    user
+      ? {
+          avoid: user.avoid ?? null,
+          household: (user.householdAvoid ?? []).map((h) => ({ name: h.name, avoid: h.avoid })),
+          diets: user.preferences.diets ?? [],
+          pantryCover: kitchen.pantryCover ?? [],
+        }
+      : noFood,
+  );
   return {
     recipes,
     setRecipes,
@@ -432,6 +452,8 @@ function useAppState() {
     load,
     /** The bookmark-and-follow slice, also provided on its own (see library.tsx). */
     shelf,
+    /** What to warn about and what the pantry has, also provided on its own (see food.ts). */
+    food,
   };
 }
 const Context = createContext<ReturnType<typeof useAppState> | null>(null);
@@ -446,7 +468,9 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
   const value = useAppState();
   return (
     <Context.Provider value={value}>
-      <LibraryContext.Provider value={value.shelf}>{children}</LibraryContext.Provider>
+      <LibraryContext.Provider value={value.shelf}>
+        <FoodContext.Provider value={value.food}>{children}</FoodContext.Provider>
+      </LibraryContext.Provider>
     </Context.Provider>
   );
 }

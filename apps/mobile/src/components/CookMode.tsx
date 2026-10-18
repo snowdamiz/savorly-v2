@@ -25,12 +25,15 @@ import {
 } from './icons';
 import * as Speech from 'expo-speech';
 import { useCookingNarration } from '../lib/narration/useCookingNarration';
+import { useCookSession } from '../lib/cookSessions';
 import { useScreenAwake } from '../lib/screenAwake';
 import { announced, cancelTimerAlert, scheduleTimerAlert } from '../lib/timerAlerts';
 import { CookCommand, Recipe } from '../lib/types';
 import { color, font, radius, s } from '../lib/theme';
 import { Button, FoodImage, IconButton, useChrome, useSlideOver, webPosition } from './ui';
 import { StepClip } from './VideoPlayer';
+import { HandsFree } from './HandsFree';
+import { CookEquipment } from './Equipment';
 const RING = 92;
 const CIRCUMFERENCE = 2 * Math.PI * RING;
 export function CookMode({
@@ -40,7 +43,9 @@ export function CookMode({
   onStep,
   command,
   onCooked,
+  translatedTo,
 }: {
+  /** The recipe as the cook reads it: translated, when they read it translated. */
   recipe: Recipe;
   onClose: () => void;
   onAsk: () => void;
@@ -49,6 +54,8 @@ export function CookMode({
   command?: CookCommand | null;
   /** After the last step: "I cooked this" on the recipe page, with a photo or a note. */
   onCooked?: () => void;
+  /** The language `recipe` is translated into, so its steps are read aloud in it; null as written. */
+  translatedTo?: string | null;
 }) {
   const { t: tr, locale } = useI18n();
   const page = useSlideOver(onClose);
@@ -60,8 +67,14 @@ export function CookMode({
   );
   const [remaining, setRemaining] = useState(recipe.steps[step].seconds);
   const [endAt, setEndAt] = useState<number | null>(null);
-  const { state: narrationState, speaking, read, stop } = useCookingNarration(recipe, step);
+  const {
+    state: narrationState,
+    speaking,
+    read,
+    stop,
+  } = useCookingNarration(recipe, step, translatedTo);
   const [done, setDone] = useState(false);
+  useCookSession(recipe, step, done);
   // The end time is the timer, and the countdown is redrawn from it. JavaScript timers stand still
   // while the app is in the background and slow down in a hidden browser tab, so the countdown is
   // redrawn on return too, and a system alert covers an end that comes while the cook is away.
@@ -198,18 +211,24 @@ export function CookMode({
         <View style={{ flex: 1, width: '100%', maxWidth: 720, alignSelf: 'center', gap: 20 }}>
           <View style={[s.between, { gap: 12 }]}>
             <IconButton icon={X} dark label={tr('Close cooking mode')} onPress={close} />
-            <Text
-              numberOfLines={1}
-              style={{
-                flex: 1,
-                textAlign: 'center',
-                color: color.onInk,
-                fontFamily: font.semibold,
-                fontSize: 14,
-              }}
-            >
-              {recipe.title}
-            </Text>
+            <View style={{ flex: 1 }}>
+              <Text
+                numberOfLines={1}
+                style={{
+                  textAlign: 'center',
+                  color: color.onInk,
+                  fontFamily: font.semibold,
+                  fontSize: 14,
+                }}
+              >
+                {recipe.title}
+              </Text>
+              {!!translatedTo && (
+                <Text style={[s.small, { color: color.onInk, textAlign: 'center' }]}>
+                  {tr('Translated by AI')}
+                </Text>
+              )}
+            </View>
             <IconButton
               icon={Sparkles}
               dark
@@ -220,6 +239,21 @@ export function CookMode({
               }}
             />
           </View>
+          {/* Free on-device listening, the first choice over a live call's voice minutes. */}
+          <HandsFree
+            recipe={recipe}
+            cook={{
+              step,
+              done,
+              reading: speaking,
+              timer: { seconds: current.seconds, remaining, running: !!endAt },
+              next,
+              previous: () => step > 0 && change(step - 1),
+              read,
+              stopReading: stop,
+              setTimer: (run) => setEndAt(run ? Date.now() + remaining * 1000 : null),
+            }}
+          />
           {done ? (
             <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 16 }}>
               <View
@@ -287,6 +321,8 @@ export function CookMode({
                 contentContainerStyle={{ gap: 14, paddingVertical: 12 }}
                 showsVerticalScrollIndicator={false}
               >
+                {/* Everything to get out before step 1, so nothing is missing midway. */}
+                {step === 0 && <CookEquipment recipe={recipe} />}
                 <Text style={[s.label, { color: color.onInk }]}>
                   {tr('STEP {{v0}} OF {{v1}}', { v0: step + 1, v1: recipe.steps.length })}
                 </Text>

@@ -45,8 +45,25 @@ describe('keys', () => {
       '/recipes/soup/steps/2/narration/abc?token=secret',
       'https://elsewhere.example/recipes/soup/steps/2/narration/abc',
       '/me/export',
+      '/recipes/soup/steps/2/narration/abc?language=french',
+      '/recipes/soup/steps/2/narration/abc?language=fr&token=secret',
     ])
       expect(narrationKey(path)).toBeNull();
+    // A step of a recipe read translated names the translation's language.
+    expect(narrationKey('/recipes/soup/steps/2/narration/9f86d081?language=fr')).toBe('9f86d081');
+  });
+
+  test('a step read in another language is another reading: its copies stay', () => {
+    const copies = [
+      copy('fr-0', { language: 'fr', text: 'Émincez les oignons.' }),
+      copy('pie-0', { recipe: 'pie' }),
+    ];
+    // Read translated into English: the French recording stays for reading it as written.
+    expect(current(copies, step(), 'en-0')).toEqual(copies);
+    // Its own earlier text in the same language still goes.
+    expect(current(copies, step({ language: 'fr', text: 'Émincez finement.' }), 'fr-1')).toEqual([
+      copies[1],
+    ]);
   });
 
   test('a new key for the same text means a new voice: every older copy is out of date', () => {

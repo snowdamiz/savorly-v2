@@ -15,6 +15,8 @@ export type Recipe = {
   photos: string[];
   ingredients: { name: string; amount: number; unit: string }[];
   steps: { title: string; text: string }[];
+  /** The pots, pans and tools its cook lists ([] for none, or an older API). */
+  equipment: string[];
   tags: string[];
   calories: number;
   createdAt: string;
@@ -236,6 +238,7 @@ export function parseRecipe(value: unknown): Recipe | undefined {
       .filter(isObject)
       .map((s) => ({ title: text(s.title), text: text(s.text) }))
       .filter((s) => s.text),
+    equipment: list(value.equipment).map(text).filter(Boolean),
     tags: list(value.tags).map(text).filter(Boolean),
     calories: count(value.calories),
     createdAt: text(value.createdAt),
@@ -278,6 +281,11 @@ export function recipeJsonLd(recipe: Recipe, url: string): Fields {
       name: step.title || undefined,
       text: step.text,
     })),
+    // Recipe has HowTo's tool. What the method merely mentions isn't the cook's list, and is in
+    // English, so only the cook's own names go here.
+    tool: recipe.equipment.length
+      ? recipe.equipment.map((name) => ({ '@type': 'HowToTool', name }))
+      : undefined,
     aggregateRating:
       recipe.reviewCount > 0 && recipe.rating > 0
         ? {

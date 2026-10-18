@@ -36,6 +36,8 @@ type sceneRecipe struct {
 	servings, minutes int
 	ingredients       []Ingredient
 	steps             []Step
+	// equipment is the cook's list, detected what the method mentions (equipment.go).
+	equipment, detected []string
 }
 
 // sceneKeySQL is a scene's key, for voice_projects p.
@@ -61,7 +63,7 @@ func (a *App) voiceScene(ctx context.Context, project, owner string) (voiceScene
 	}
 	r := &sceneRecipe{id: s.view.RecipeID}
 	var ingredients, steps []byte
-	e = a.DB.QueryRow(ctx, `SELECT r.title,u.name,r.author_id=$2,r.servings,r.minutes,r.ingredients,r.steps`+recipeFrom+`WHERE r.id=$1 AND (r.published OR r.author_id=$2)`, s.view.RecipeID, owner).Scan(&r.title, &r.author, &r.mine, &r.servings, &r.minutes, &ingredients, &steps)
+	e = a.DB.QueryRow(ctx, `SELECT r.title,u.name,r.author_id=$2,r.servings,r.minutes,r.ingredients,r.steps,r.equipment,r.equipment_detected`+recipeFrom+`WHERE r.id=$1 AND (r.published OR r.author_id=$2)`, s.view.RecipeID, owner).Scan(&r.title, &r.author, &r.mine, &r.servings, &r.minutes, &ingredients, &steps, &r.equipment, &r.detected)
 	if errors.Is(e, pgx.ErrNoRows) {
 		return s, nil // Gone, or not the member's to see: the scene leaves it out.
 	}
@@ -121,7 +123,7 @@ func (s voiceScene) screen() string {
 }
 
 // text is a recipe as the voice model needs it to answer questions: who wrote it, how much it
-// makes, its ingredients and its steps, within a budget a long recipe can't break.
+// makes, its ingredients, equipment and steps, within a budget a long recipe can't break.
 func (r *sceneRecipe) text() string {
 	head := "“" + clip(r.title, 200) + "” by " + clip(r.author, 80)
 	if r.mine {
@@ -146,6 +148,12 @@ func (r *sceneRecipe) text() string {
 	}
 	lines := []string{head + ".", "Ingredients: " + clip(strings.Join(items, "; "), 1500) + "."}
 	budget := 2500
+	// What to get out ("what pans do I need?"): the cook's list, else what the method mentions. It
+	// comes out of the steps' budget, so a recipe's brief stays as long as before.
+	if equipment := r.equipmentLine(); equipment != "" {
+		lines = append(lines, equipment)
+		budget -= utf8.RuneCountInString(equipment)
+	}
 	for n, step := range r.steps {
 		line := strconv.Itoa(n+1) + ". " + stepText(step, 400)
 		if budget -= utf8.RuneCountInString(line); budget < 0 {
@@ -155,6 +163,17 @@ func (r *sceneRecipe) text() string {
 		lines = append(lines, line)
 	}
 	return strings.Join(lines, "\n")
+}
+
+// equipmentLine is what the recipe needs besides its ingredients, for the model; "" for nothing.
+func (r *sceneRecipe) equipmentLine() string {
+	if len(r.equipment) > 0 {
+		return "Equipment the cook lists: " + clip(strings.Join(r.equipment, "; "), 300) + "."
+	}
+	if len(r.detected) > 0 {
+		return "Equipment the method mentions: " + strings.Join(r.detected, "; ") + "."
+	}
+	return ""
 }
 
 func stepText(s Step, limit int) string {

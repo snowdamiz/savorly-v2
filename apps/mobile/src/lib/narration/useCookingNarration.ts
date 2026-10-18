@@ -22,7 +22,12 @@ export function speechLanguage(appLocale: string, recipeLanguage?: string | null
   return languages.find((language) => language.code === code)?.locale ?? tag;
 }
 
-export function useCookingNarration(recipe: Recipe, step: number) {
+/**
+ * Cooking mode's read-aloud of `recipe`'s steps. A recipe read translated comes as it reads, in
+ * its translation's language, with `translatedTo` that language: the API then reads the step of
+ * its saved translation, and device speech reads in that language.
+ */
+export function useCookingNarration(recipe: Recipe, step: number, translatedTo?: string | null) {
   const app = useApp();
   const { locale } = useI18n();
   const [state, setState] = useState<NarrationState>('idle');
@@ -54,7 +59,7 @@ export function useCookingNarration(recipe: Recipe, step: number) {
         if (offline.current) throw new NetworkError('Offline: narration plays from this device.');
         const response = await api<{ path: string }>(
           `/recipes/${encodeURIComponent(recipe.id)}/steps/${index}/narration`,
-          { method: 'POST', body: { text } },
+          { method: 'POST', body: translatedTo ? { text, language: translatedTo } : { text } },
         );
         narrationNamed(narrated(index, text), response.path);
         return response.path;
@@ -80,10 +85,10 @@ export function useCookingNarration(recipe: Recipe, step: number) {
       narration.dispose();
       controller.current = null;
     };
-  }, [recipe.id, recipe.language, texts, enabled, owner, locale]);
+  }, [recipe.id, recipe.language, texts, enabled, owner, locale, translatedTo]);
   useEffect(() => {
     controller.current?.select(step);
-  }, [step, recipe.id, recipe.language, texts, enabled, owner, locale]);
+  }, [step, recipe.id, recipe.language, texts, enabled, owner, locale, translatedTo]);
   const stop = useCallback(() => controller.current?.stop(), []);
   const read = useCallback(() => controller.current?.read(), []);
   return { state, speaking: state === 'playing' || state === 'loading', read, stop };

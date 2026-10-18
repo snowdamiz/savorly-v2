@@ -57,7 +57,9 @@ export function LanguageSettings() {
           </Press>
         ))}
         <Text style={s.small}>
-          {t('Recipes and community posts stay in their original language.')}
+          {t(
+            'Recipes can be read in your language, translated by AI. Comments and reviews stay in their original language.',
+          )}
         </Text>
         {storageError && (
           <Text accessibilityRole="alert" style={{ color: color.error }}>

@@ -18,6 +18,7 @@ import {
   useLoad,
   useNav,
 } from './parts';
+import { CreatorFund } from './Fund';
 
 const metrics = [
   { value: 'signups', label: 'Sign-ups', unit: 'sign-ups' },
@@ -295,6 +296,7 @@ export function Overview() {
         />
       </Panel>
       <Insights />
+      <CreatorFund />
       <Grid min={320}>
         <Panel title="Members">
           <Facts

@@ -9,6 +9,9 @@ const (
 	// Touch-ups edit a real photo, where GPT Image 2.5 Sunburst leads Flare most (Arena single-image
 	// editing) at the same per-token price; Flare stays the faster choice for new covers.
 	DefaultImageEditModel = "openai/gpt-image-2.5-sunburst"
+	// A translation is a short, structured rewrite: the agent's fast, inexpensive model, with low
+	// reasoning, is enough.
+	DefaultTranslationModel = DefaultAgentModel
 )
 
 // GenerationEstimate is a reservation, not a provider invoice. Keep both manual

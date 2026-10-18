@@ -13,12 +13,14 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// Households share one grocery list. A member is in at most one; while they are, /kitchen and
-// every grocery route work on the household's list, whose lines say who added them. Starting
-// or joining a household moves the member's own list into it. A member who leaves (or is
-// removed) starts a new list of their own, except the last one out, who takes the list back.
-// The ownership hand-off and the dissolution are a trigger (021_engagement.sql), so deleting
-// an account follows the same rules.
+// Households share one kitchen: the grocery list, the meal plan and the pantry. A member is in
+// at most one; while they are, /kitchen and every grocery, planner and pantry route work on the
+// household's, whose rows say who added them. Starting or joining a household moves the
+// member's own kitchen into it (where the household already has a plan for a day's meal, or an
+// item of the same name, the household's stays). A member who leaves (or is removed) starts a
+// new kitchen of their own, except the last one out, who takes the kitchen back. The ownership
+// hand-off and the dissolution are a trigger (021_engagement.sql), so deleting an account
+// follows the same rules.
 
 const (
 	householdSize  = 20
@@ -39,13 +41,17 @@ const (
 	ownerRemoves       = "Only the household's owner can remove other members."
 )
 
-// groceryScope is the condition for the grocery lines (alias g) that member $n sees: their
-// household's while they are in one, and their own otherwise.
-func groceryScope(n int) string {
+// kitchenScope is the condition for the rows of a shared kitchen table (grocery lines, plans,
+// pantry items; alias a) that member $n sees: their household's while they are in one, and
+// their own otherwise.
+func kitchenScope(a string, n int) string {
 	p := "$" + strconv.Itoa(n)
-	return `(g.household_id=(SELECT household_id FROM household_members WHERE user_id=` + p + `) OR (g.household_id IS NULL AND g.user_id=` + p +
+	return `(` + a + `.household_id=(SELECT household_id FROM household_members WHERE user_id=` + p + `) OR (` + a + `.household_id IS NULL AND ` + a + `.user_id=` + p +
 		` AND NOT EXISTS(SELECT 1 FROM household_members WHERE user_id=` + p + `)))`
 }
+
+// groceryScope is kitchenScope for grocery lines (alias g).
+func groceryScope(n int) string { return kitchenScope("g", n) }
 
 // lockList serializes changes to one grocery list until tx ends: a member's own (key: their
 // id) or a household's (householdKey). Take a member's lock before their household's.
@@ -94,10 +100,36 @@ func (a *App) household(c fiber.Ctx) error {
 	return sendHousehold(c, b)
 }
 
-// moveGroceriesIn puts the member's own list on their household's.
-func moveGroceriesIn(ctx context.Context, tx pgx.Tx, user, household string) error {
-	_, e := tx.Exec(ctx, `UPDATE groceries SET household_id=$2 WHERE user_id=$1 AND household_id IS NULL`, user, household)
-	return e
+// moveKitchenIn puts the member's own kitchen in their household's: every grocery line, and the
+// plans and pantry items the household doesn't already have a plan or an item of that name for
+// (those of the member's go).
+func moveKitchenIn(ctx context.Context, tx pgx.Tx, user, household string) error {
+	return execAll(ctx, tx, []string{
+		`UPDATE groceries SET household_id=$2 WHERE user_id=$1 AND household_id IS NULL`,
+		`DELETE FROM meal_plans m WHERE m.user_id=$1 AND m.household_id IS NULL AND EXISTS (SELECT 1 FROM meal_plans h WHERE h.household_id=$2 AND h.day=m.day AND h.meal=m.meal)`,
+		`UPDATE meal_plans SET household_id=$2 WHERE user_id=$1 AND household_id IS NULL`,
+		`DELETE FROM pantry p WHERE p.user_id=$1 AND p.household_id IS NULL AND EXISTS (SELECT 1 FROM pantry h WHERE h.household_id=$2 AND h.name=p.name)`,
+		`UPDATE pantry SET household_id=$2 WHERE user_id=$1 AND household_id IS NULL`,
+	}, user, household)
+}
+
+// takeKitchenBack gives a household's kitchen to its last member as their own.
+func takeKitchenBack(ctx context.Context, tx pgx.Tx, household, user string) error {
+	return execAll(ctx, tx, []string{
+		`UPDATE groceries SET household_id=NULL,user_id=$2 WHERE household_id=$1`,
+		`UPDATE meal_plans SET household_id=NULL,user_id=$2 WHERE household_id=$1`,
+		`UPDATE pantry SET household_id=NULL,user_id=$2 WHERE household_id=$1`,
+	}, household, user)
+}
+
+// execAll runs each statement with the same arguments, in order.
+func execAll(ctx context.Context, tx pgx.Tx, statements []string, args ...any) error {
+	for _, sql := range statements {
+		if _, e := tx.Exec(ctx, sql, args...); e != nil {
+			return e
+		}
+	}
+	return nil
 }
 
 func (a *App) createHousehold(c fiber.Ctx) error {
@@ -127,7 +159,7 @@ func (a *App) createHousehold(c fiber.Ctx) error {
 	if r.RowsAffected() == 0 {
 		return fiber.NewError(409, alreadyInHousehold)
 	}
-	if e = moveGroceriesIn(ctx, tx, me, id); e != nil {
+	if e = moveKitchenIn(ctx, tx, me, id); e != nil {
 		return e
 	}
 	b, e := householdJSON(ctx, tx, me)
@@ -257,7 +289,7 @@ func (a *App) joinHousehold(c fiber.Ctx) error {
 	if _, e = tx.Exec(ctx, `INSERT INTO household_members(user_id,household_id) VALUES($1,$2)`, me, household); e != nil {
 		return e
 	}
-	if e = moveGroceriesIn(ctx, tx, me, household); e != nil {
+	if e = moveKitchenIn(ctx, tx, me, household); e != nil {
 		return e
 	}
 	b, e := householdJSON(ctx, tx, me)
@@ -310,8 +342,8 @@ func (a *App) removeHouseholdMember(c fiber.Ctx) error {
 		return fiber.NewError(403, ownerRemoves)
 	}
 	if members == 1 {
-		// The last one out keeps the list as their own.
-		if _, e = tx.Exec(ctx, `UPDATE groceries SET household_id=NULL,user_id=$2 WHERE household_id=$1`, household, target); e != nil {
+		// The last one out keeps the kitchen as their own.
+		if e = takeKitchenBack(ctx, tx, household, target); e != nil {
 			return e
 		}
 	}
