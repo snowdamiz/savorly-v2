@@ -43,6 +43,7 @@ func (a *App) adminRoutes(v fiber.Router) {
 	g.Get("/reviews", a.adminReviews)
 	g.Delete("/reviews/:id", a.adminDeleteReview)
 	g.Delete("/comments/:id", a.adminDeleteComment)
+	g.Delete("/suggestions/:id", a.adminDeleteSuggestion)
 	g.Get("/ai", a.adminAI)
 	g.Get("/jobs", a.adminJobs)
 	g.Get("/jobs/:id", a.adminJob)

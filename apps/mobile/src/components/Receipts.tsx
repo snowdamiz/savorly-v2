@@ -14,6 +14,7 @@ import {
   Leaf,
   LucideIcon,
   PenLine,
+  Pencil,
   ShoppingBasket,
   Square,
   Star,
@@ -49,6 +50,7 @@ const icons: Record<StudioEffect['kind'], LucideIcon> = {
   report: Flag,
   media: ImagePlus,
   cooked: CookingPot,
+  suggested: Pencil,
 };
 
 type Translate = ReturnType<typeof useI18n>['t'];
@@ -96,6 +98,8 @@ function receiptText(tr: Translate, f: StudioEffect) {
       return tr('Making new media for {{title}}', { title });
     case 'cooked':
       return tr('Marked {{title}} as cooked', { title });
+    case 'suggested':
+      return tr('Suggested a change to {{title}}', { title });
   }
 }
 

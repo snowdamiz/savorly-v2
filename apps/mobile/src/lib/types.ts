@@ -87,6 +87,8 @@ export type Recipe = Omit<RecipeInput, 'derivedFrom'> & {
   verifiedCooks?: number;
   /** How long verified cooks usually take, in minutes; null until 3 agree. Missing on older servers. */
   cookedMinutes?: number | null;
+  /** Cooks whose suggested fixes its author accepted (docs/RECIPE-FIXES.md). Missing on older servers. */
+  improvedBy?: number;
   /**
    * The equipment its method mentions, read by the server's lexicon, as English keys ('frying
    * pan', 'oven') the app names in the reader's language (equipmentName). Missing on older servers.
@@ -421,7 +423,8 @@ export type StudioEffect = {
     | 'review'
     | 'report'
     | 'media'
-    | 'cooked';
+    | 'cooked'
+    | 'suggested';
   count?: number;
   title?: string;
   /** A recipe to open from the receipt. */

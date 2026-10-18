@@ -554,6 +554,11 @@ function Shell({ onReady }: { onReady: (ready: boolean) => void }) {
       onAsk={askSousChef}
       onCooking={setCookingStep}
       cookCommand={cookCommand}
+      onReload={() =>
+        void recipeAt(selected.id)
+          .then((r) => setSelected((s) => (s?.id === r.id ? r : s)))
+          .catch(() => {})
+      }
     />
   );
   return (

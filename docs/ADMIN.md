@@ -66,7 +66,7 @@ Every endpoint is under `/v1/admin`, requires a signed-in admin (`401` signed ou
 | Overview | `GET /overview`, `GET /insights?days=7\|30` (searches, searches with no results, the kitchen-setup funnel and event counts; see [analytics](API.md#analytics)) |
 | Members | `GET /users?q=&filter=&sort=`, `GET /users/:id`, `PATCH /users/:id`, `POST` or `DELETE /users/:id/suspend`, `POST /users/:id/sign-out`, `POST /users/:id/verify`, `POST /users/:id/setup`, `PUT /users/:id/admin`, `PUT /users/:id/plan`, `DELETE /users/:id` (body `{ "confirm": "<their email>" }`) |
 | Recipes | `GET /recipes?q=&filter=&sort=`, `GET /recipes/:id`, `PUT /recipes/:id/published`, `POST /recipes/:id/reports` (`resolved` or `dismissed`), `DELETE /recipes/:id` |
-| Moderation | `GET /reports?status=open`, `GET /reviews?q=&rating=`, `DELETE /reviews/:id`, `DELETE /comments/:id` (with its replies) |
+| Moderation | `GET /reports?status=open`, `GET /reviews?q=&rating=`, `DELETE /reviews/:id`, `DELETE /comments/:id` (with its replies), `DELETE /suggestions/:id` (a cook's [suggested fix](RECIPE-FIXES.md)) |
 | AI | `GET /ai`, `GET /jobs?status=&kind=&q=`, `GET /jobs/:id`, `POST /jobs/:id/cancel`, `POST /voice/:id/end`, `GET /turns?status=&channel=&q=`, `GET /turns/:id` |
 | Settings and audit | `GET` or `PUT /settings`, `GET /audit?q=&type=` |
 | Creator fund | `GET /fund`, `GET /users/:id/earnings`, `PUT /users/:id/payouts-hold` (body `{ "held": true, "reason" }` or `{ "held": false }`) |

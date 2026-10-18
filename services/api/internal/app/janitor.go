@@ -36,6 +36,10 @@ var janitorTasks = []struct{ name, sql string }{
 	{"cook_questions", `DELETE FROM cook_questions WHERE id IN (SELECT id FROM cook_questions WHERE created_at<now()-interval '90 days' LIMIT 500)`},
 	{"recipe_step_questions", `DELETE FROM recipe_step_questions WHERE id IN (SELECT q.id FROM recipe_step_questions q WHERE q.answered_by='ai' AND q.updated_at<now()-interval '90 days'
  AND NOT EXISTS(SELECT 1 FROM cook_questions c WHERE c.cluster_id=q.id) LIMIT 500)`},
+	// Suggestions their recipe's author never answered show as notes after 30 days (recipe_fixes.go),
+	// and those declined or withdrawn go after a year.
+	{"recipe_suggestions_stale", `UPDATE recipe_suggestions SET status='stale' WHERE id IN (SELECT id FROM recipe_suggestions WHERE status='open' AND created_at<now()-interval '30 days' LIMIT 500)`},
+	{"recipe_suggestions", `DELETE FROM recipe_suggestions WHERE id IN (SELECT id FROM recipe_suggestions WHERE status IN ('declined','withdrawn') AND decided_at<now()-interval '1 year' LIMIT 500)`},
 	// A pass a day: a year of them is plenty to look back on.
 	{"cook_insight_runs", `DELETE FROM cook_insight_runs WHERE day IN (SELECT day FROM cook_insight_runs WHERE day<now()-interval '1 year' LIMIT 500)`},
 	// Deleting a session cascades to its events and actions, the conversation the member still

@@ -48,6 +48,11 @@ var publicRoutes = map[string]bool{
 	// What cooks found cooking a recipe, from enough of them that nobody's own shows; a session
 	// only lets its author read a private one (cook_insights.go).
 	"GET /v1/recipes/:id/insights": true,
+
+	// Cooks' suggestions and a recipe's accepted fixes are public like comments; a session only
+	// says whether the viewer may suggest, agree or undo (recipe_fixes.go).
+	"GET /v1/recipes/:id/suggestions": true,
+	"GET /v1/recipes/:id/history":     true,
 }
 
 // Rejections the middleware makes before a handler runs.

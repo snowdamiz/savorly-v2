@@ -5,6 +5,7 @@ import {
   Animated,
   AppState,
   Platform,
+  Pressable,
   ScrollView,
   StatusBar,
   Text,
@@ -36,6 +37,7 @@ import { HandsFree } from './HandsFree';
 import { CookEquipment } from './Equipment';
 import { StepQuestions, StepUsual, TimerNote } from './CookInsights';
 import { cooksNeed, RecipeInsights, stepInsight } from '../lib/cookInsights';
+import { FixDraft } from '../lib/recipeFixes';
 const RING = 92;
 const CIRCUMFERENCE = 2 * Math.PI * RING;
 export function CookMode({
@@ -45,6 +47,7 @@ export function CookMode({
   onStep,
   command,
   onCooked,
+  onSuggest,
   translatedTo,
   insights,
 }: {
@@ -59,6 +62,11 @@ export function CookMode({
   command?: CookCommand | null;
   /** After the last step: "I cooked this" on the recipe page, with a photo or a note. */
   onCooked?: () => void;
+  /**
+   * Suggest a change to the recipe (docs/RECIPE-FIXES.md), offered when the cook is done, if this
+   * was a verified cook and a step took clearly longer than its timer.
+   */
+  onSuggest?: (draft: FixDraft) => void;
   /** The language `recipe` is translated into, so its steps are read aloud in it; null as written. */
   translatedTo?: string | null;
 }) {
@@ -81,7 +89,7 @@ export function CookMode({
     stop,
   } = useCookingNarration(recipe, step, translatedTo);
   const [done, setDone] = useState(false);
-  const timerEvent = useCookSession(recipe, step, done);
+  const { timerEvent, verified, overrun } = useCookSession(recipe, step, done);
   // The end time is the timer, and the countdown is redrawn from it. JavaScript timers stand still
   // while the app is in the background and slow down in a hidden browser tab, so the countdown is
   // redrawn on return too, and a system alert covers an end that comes while the cook is away.
@@ -301,6 +309,42 @@ export function CookMode({
               >
                 {tr('Take a moment to enjoy what you made.\nThen let the cook know how it went.')}
               </Text>
+              {overrun && verified && onSuggest && (
+                <View style={[s.row, { gap: 8, justifyContent: 'center', flexWrap: 'wrap' }]}>
+                  <Text style={[s.small, { color: color.onInk, fontSize: 14 }]}>
+                    {tr('tookYouLonger', {
+                      step: overrun.step,
+                      count: overrun.minutes,
+                      timer: overrun.timer,
+                    })}
+                  </Text>
+                  <Pressable
+                    accessibilityRole="button"
+                    hitSlop={8}
+                    onPress={() => {
+                      page.leave();
+                      onSuggest({
+                        kind: 'time',
+                        step: overrun.step,
+                        change: { seconds: overrun.minutes * 60 },
+                        reason: tr('It took me {{v0}} minutes, not {{v1}}.', {
+                          v0: overrun.minutes,
+                          v1: overrun.timer,
+                        }),
+                      });
+                    }}
+                  >
+                    <Text
+                      style={[
+                        s.small,
+                        { color: color.white, fontSize: 14, textDecorationLine: 'underline' },
+                      ]}
+                    >
+                      {tr('Suggest a change')}
+                    </Text>
+                  </Pressable>
+                </View>
+              )}
               {onCooked && (
                 <Button
                   title={tr('I cooked this')}

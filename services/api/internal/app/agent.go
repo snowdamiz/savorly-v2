@@ -82,6 +82,7 @@ var agentToolDefs = []agentToolDef{
 	{tool("import_recipe", "Read a recipe from a web page or a cooking video the user shared (a TikTok, Instagram, YouTube, Facebook or Pinterest post): its recipe when the page describes one, otherwise the page's text or the post's caption to transcribe. Nothing is saved; to keep it, save it with save_recipe_draft and its source_url.", object([]string{"url"}, props{"url": field("string", "The page's or post's address")})), "reading", (*toolTurn).importRecipe},
 	{tool("follow_cook", "Follow or unfollow a cook.", object([]string{"cook_id"}, props{"cook_id": field("string", ""), "unfollow": field("boolean", "")})), "saving", (*toolTurn).followCook},
 	{tool("review_recipe", "Post or replace the user's review of another cook's published recipe, with their own rating and words. Needs confirmation.", object([]string{"recipe_id", "rating", "text"}, props{"recipe_id": recipeID(), "rating": field("integer", "1–5"), "text": field("string", "3–2000 characters")})), "saving", (*toolTurn).reviewRecipe},
+	{tool("suggest_fix", "Suggest a change to another cook's published recipe that the user cooked through in cooking mode, for its author to accept: kind time, heat or note changes step `step` (give its whole new text in change.text, and change.seconds for its timer); missing_step adds a step after `step` (0 for the start) with change.title, change.text and change.seconds; amount or swap changes ingredient `ingredient` (1-based) with change.name, change.amount and change.unit. Only changes a cook can check, never taste. Needs confirmation.", object([]string{"recipe_id", "kind"}, props{"recipe_id": recipeID(), "kind": choice("", "time", "heat", "note", "missing_step", "amount", "swap"), "step": field("integer", "1-based step; for missing_step the step it goes after, 0 for the start"), "ingredient": field("integer", "1-based ingredient"), "change": object(nil, props{"title": field("string", ""), "text": field("string", "The step's whole new text"), "seconds": field("integer", "The step's timer"), "name": field("string", ""), "amount": field("number", ""), "unit": field("string", "")}), "reason": field("string", "What happened when the user cooked it, in their words; up to 500 characters")})), "saving", (*toolTurn).suggestFix},
 	{tool("report_recipe", "Report a published recipe for moderation, with the user's reason. Needs confirmation.", object([]string{"recipe_id", "reason"}, props{"recipe_id": recipeID(), "reason": field("string", "5–1000 characters")})), "saving", (*toolTurn).reportRecipe},
 	{tool("edit_recipe", "Change one of the user's own existing recipes, keeping its photos. Send only the fields that change; ingredients, steps, tags and equipment replace the whole list, so include every item. Publishing it, or changing a published recipe, needs confirmation.", object([]string{"recipe_id"}, props{"recipe_id": recipeID(), "changes": editableRecipe, "published": field("boolean", "true publishes, false makes it private")})), "", (*toolTurn).editRecipe},
 	{tool("delete_recipe", "Permanently delete one of the user's own recipes. Needs confirmation.", object([]string{"recipe_id"}, props{"recipe_id": recipeID()})), "recipe", (*toolTurn).deleteRecipe},
@@ -192,6 +193,7 @@ func (a *App) agentAPI() *fiber.App {
 		f.Get("/recipes/:id/reviews", a.reviews)
 		f.Put("/recipes/:id/review", a.review)
 		f.Post("/recipes/:id/report", a.report)
+		f.Post("/recipes/:id/suggestions", a.suggestFix)
 		f.Patch("/me", a.updateMe)
 		f.Get("/kitchen", a.kitchen)
 		f.Get("/kitchen/pantry-recipes", a.pantryRecipes)
@@ -303,7 +305,9 @@ type toolArgs struct {
 	NewRecipe                                                                                        bool            `json:"new_recipe"`
 	Published                                                                                        *bool           `json:"published"`
 	Changes                                                                                          json.RawMessage `json:"changes"`
-	Kinds                                                                                            []string        `json:"kinds"`
+	Change                                                                                           fixPart         `json:"change"`
+	Ingredient                                                                                       int
+	Kinds                                                                                            []string `json:"kinds"`
 	Items                                                                                            []struct{ Name, Quantity, Category string }
 	Recipe                                                                                           *RecipeInput
 }
@@ -765,6 +769,30 @@ func (t *toolTurn) reportRecipe() string {
 	status, b := t.call("POST", "/recipes/"+pathID(t.in.RecipeID)+"/report", fiber.Map{"reason": t.in.Reason})
 	if status < 300 {
 		t.run.note(effect{Kind: "report", Title: title})
+	}
+	return t.result(status, b)
+}
+
+func (t *toolTurn) suggestFix() string {
+	// A suggestion goes to another cook in the user's name, so it waits for their yes.
+	f, e := prepareFix(t.ctx, t.a.DB, t.in.RecipeID, t.owner, t.in.Kind, t.in.Step, t.in.Ingredient, t.in.Change)
+	if e != nil {
+		return toolError(publicError(e))
+	}
+	var title, author string
+	if t.a.DB.QueryRow(t.ctx, `SELECT r.title,u.name`+recipeFrom+`WHERE r.id=$1`, t.in.RecipeID).Scan(&title, &author) != nil {
+		return toolError("Recipe not found.")
+	}
+	if !t.run.approving {
+		what := fmt.Sprintf("Suggest a change to %s’s “%s”: %s", author, title, suggestionSummary(f.kind, f.place, f.before, f.after))
+		if reason := strings.TrimSpace(t.in.Reason); reason != "" {
+			what += fmt.Sprintf(", saying: “%s”", clip(reason, 300))
+		}
+		return t.a.propose(t.ctx, t.run, t.name, t.raw, what)
+	}
+	status, b := t.call("POST", "/recipes/"+pathID(t.in.RecipeID)+"/suggestions", fiber.Map{"kind": t.in.Kind, "step": t.in.Step, "ingredient": t.in.Ingredient, "change": t.in.Change, "reason": t.in.Reason})
+	if status < 300 {
+		t.run.note(effect{Kind: "suggested", Title: title, Recipe: t.in.RecipeID})
 	}
 	return t.result(status, b)
 }

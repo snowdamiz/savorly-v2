@@ -110,6 +110,7 @@ export { default as SquarePen } from 'lucide-react-native/icons/square-pen';
 export { default as Star } from 'lucide-react-native/icons/star';
 export { default as SwitchCamera } from 'lucide-react-native/icons/switch-camera';
 export { default as Tablet } from 'lucide-react-native/icons/tablet';
+export { default as ThumbsUp } from 'lucide-react-native/icons/thumbs-up';
 export { default as Timer } from 'lucide-react-native/icons/timer';
 export { default as Trash2 } from 'lucide-react-native/icons/trash';
 export { default as Undo2 } from 'lucide-react-native/icons/undo-2';

@@ -8,6 +8,8 @@ import { Recipe } from '../lib/types';
 import { color, font, radius, s } from '../lib/theme';
 import { Check, ChevronDown, Eye, EyeOff, Hourglass, Pencil, Timer } from './icons';
 import { SwitchRow } from './NotificationSettings';
+import { FixReview, fixTitle } from './RecipeFixes';
+import { Suggestion } from '../lib/recipeFixes';
 import { Button, Dialog, Field, IconButton } from './ui';
 
 /**
@@ -157,11 +159,20 @@ export function CooksGetStuck({
   visible,
   onClose,
   onEdit,
+  fixes,
+  onFixed,
+  onHistory,
 }: {
   recipe: Recipe;
   visible: boolean;
   onClose: () => void;
   onEdit: () => void;
+  /** What cooks suggest changing (docs/RECIPE-FIXES.md), each under the step it changes. */
+  fixes?: { suggestions: Suggestion[]; reload: () => void };
+  /** The recipe changed: a suggestion was accepted. */
+  onFixed?: () => void;
+  /** Opens how cooks improved it, once the author accepted a fix. */
+  onHistory?: () => void;
 }) {
   const { t: tr } = useI18n();
   const [view, setView] = useState<AuthorInsights | null>(null);
@@ -192,6 +203,15 @@ export function CooksGetStuck({
         },
     );
   const anything = !!view?.steps.some((st) => st.sessions > 0 || st.questions.length);
+  const suggestions = fixes?.suggestions ?? [];
+  const answered = (accepted: boolean) => {
+    fixes?.reload();
+    if (accepted) onFixed?.();
+  };
+  // A step's suggestions go under it; ingredients, new steps and what no longer fits go first.
+  const atStep = (n: number) =>
+    suggestions.filter((f) => f.part === 'step' && f.fits && f.place === n);
+  const elsewhere = suggestions.filter((f) => f.part !== 'step' || !f.fits);
   return (
     <Dialog visible={visible} onClose={onClose} title={tr('Where cooks get stuck')}>
       <Text style={s.muted}>
@@ -208,10 +228,18 @@ export function CooksGetStuck({
               {tr('finishedOfStarted', { count: view.sessions, finished: view.finished })}
             </Text>
           )}
-          {!anything && (
+          {!anything && !suggestions.length && (
             <Text style={s.muted}>
               {tr('Nobody has cooked enough of this recipe in cooking mode for numbers yet.')}
             </Text>
+          )}
+          {!!elsewhere.length && (
+            <View style={[s.card, { gap: 8 }]}>
+              <Text style={s.h3}>{tr('Suggested by cooks')}</Text>
+              {elsewhere.map((f) => (
+                <FixReview key={f.id} fix={f} title={fixTitle(tr, f)} onAnswered={answered} />
+              ))}
+            </View>
           )}
           {view.steps.map((st) => (
             <StuckStep
@@ -221,8 +249,21 @@ export function CooksGetStuck({
               recipeId={recipe.id}
               onChanged={replace}
               onEdit={onEdit}
-            />
+            >
+              {atStep(st.step).map((f) => (
+                <FixReview key={f.id} fix={f} onAnswered={answered} />
+              ))}
+            </StuckStep>
           ))}
+          {onHistory && (
+            <Button
+              title={tr('How cooks improved it')}
+              variant="ghost"
+              small
+              style={{ alignSelf: 'flex-start', marginLeft: -12 }}
+              onPress={onHistory}
+            />
+          )}
         </>
       )}
     </Dialog>
@@ -235,12 +276,15 @@ function StuckStep({
   recipeId,
   onChanged,
   onEdit,
+  children,
 }: {
   insight: StepInsight;
   title: string;
   recipeId: string;
   onChanged: (q: StepQuestion) => void;
   onEdit: () => void;
+  /** What cooks suggest changing in this step. */
+  children?: React.ReactNode;
 }) {
   const { t: tr } = useI18n();
   const minutes = Math.round((insight.medianSeconds ?? 0) / 60);
@@ -278,6 +322,7 @@ function StuckStep({
       {insight.questions.map((q) => (
         <StuckQuestion key={q.id} question={q} recipeId={recipeId} onChanged={onChanged} />
       ))}
+      {children}
     </View>
   );
 }

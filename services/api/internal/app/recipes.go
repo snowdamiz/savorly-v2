@@ -38,6 +38,7 @@ const recipeJSON = `jsonb_build_object(
  'cookedCount',(SELECT count(*) FROM cooks WHERE recipe_id=r.id),
  'verifiedCooks',COALESCE((SELECT t.cooks FROM recipe_cook_times t WHERE t.recipe_id=r.id),0),
  'cookedMinutes',(SELECT t.minutes FROM recipe_cook_times t WHERE t.recipe_id=r.id AND t.cooks>=3),
+ 'improvedBy',(SELECT count(DISTINCT s.user_id) FROM recipe_suggestions s WHERE s.recipe_id=r.id AND s.status='accepted'),
  'author',jsonb_build_object('id',u.id,'name',u.name,'handle',u.handle,'avatar',u.avatar,'bio',u.bio))`
 
 // Suspended members' recipes leave every public and sous-chef view; admin views join directly.
@@ -142,26 +143,34 @@ func (a *App) writeRecipe(c fiber.Ctx, update bool) error {
 		return e
 	}
 	if update {
-		// Lock linked conversations before modifying the recipe, matching the media worker.
-		if _, e = tx.Exec(c.Context(), `SELECT id FROM voice_projects WHERE recipe_id=$1 FOR UPDATE`, id); e != nil {
-			return e
-		}
+		e = saveOwnRecipe(c.Context(), tx, userID(c), id, r)
+	} else if e = moderationHold(c.Context(), tx, id, userID(c), r.Published); e == nil {
+		e = persistRecipe(c.Context(), tx, userID(c), id, r, false)
 	}
-	if e = moderationHold(c.Context(), tx, id, userID(c), r.Published); e != nil {
+	if e != nil {
 		return e
-	}
-	if e = persistRecipe(c.Context(), tx, userID(c), id, r, update); e != nil {
-		return e
-	}
-	if update {
-		if _, e = tx.Exec(c.Context(), `UPDATE voice_projects SET revision=revision+1,confirmed_revision=-1,auto_media=false,status=CASE WHEN $2 THEN 'published' ELSE 'draft' END,updated_at=now() WHERE recipe_id=$1`, id, r.Published); e != nil {
-			return e
-		}
 	}
 	if e = tx.Commit(c.Context()); e != nil {
 		return e
 	}
 	return a.queryOne(c, `SELECT `+recipeJSON+recipeFrom+`WHERE r.id=$1`, id)
+}
+
+// saveOwnRecipe saves a change to one of owner's recipes in tx, as the editor does: the
+// conversations working on it are locked first (matching the media worker) and hear of it after,
+// and a recipe an admin holds stays private.
+func saveOwnRecipe(ctx context.Context, tx pgx.Tx, owner, id string, r RecipeInput) error {
+	if _, e := tx.Exec(ctx, `SELECT id FROM voice_projects WHERE recipe_id=$1 FOR UPDATE`, id); e != nil {
+		return e
+	}
+	if e := moderationHold(ctx, tx, id, owner, r.Published); e != nil {
+		return e
+	}
+	if e := persistRecipe(ctx, tx, owner, id, r, true); e != nil {
+		return e
+	}
+	_, e := tx.Exec(ctx, `UPDATE voice_projects SET revision=revision+1,confirmed_revision=-1,auto_media=false,status=CASE WHEN $2 THEN 'published' ELSE 'draft' END,updated_at=now() WHERE recipe_id=$1`, id, r.Published)
+	return e
 }
 
 type recipeWriter interface {

@@ -86,6 +86,8 @@ import { useRecipeTranslation } from '../lib/useRecipeTranslation';
 import { CookTested } from './CookTested';
 import { CooksGetStuck, StepQuestions, StepTimerHint, StepUsual } from './CookInsights';
 import { stepInsight, useCookInsights } from '../lib/cookInsights';
+import { CooksSuggest, FixHistory, SuggestFix } from './RecipeFixes';
+import { FixDraft, useSuggestions } from '../lib/recipeFixes';
 import { DangerButton } from '../screens/Kitchen';
 import { RevealFocus, useKeyboardLift, useKeyboardScroll } from '../lib/keyboard';
 import { foodConflicts, joinNames, pantryLines, useFood } from '../lib/food';
@@ -111,6 +113,7 @@ export function RecipeDetail({
   onAsk,
   onCooking,
   cookCommand,
+  onReload,
 }: {
   recipe: Recipe;
   onClose: () => void;
@@ -126,6 +129,8 @@ export function RecipeDetail({
   /** Reports the cooking-mode step (1-based), or null when not cooking. */
   onCooking: (step: number | null) => void;
   cookCommand?: CookCommand | null;
+  /** Reads the recipe again, after something else changed it: an accepted or undone fix. */
+  onReload?: () => void;
 }) {
   const { t: tr, number, locale, language } = useI18n();
   const app = useApp();
@@ -177,6 +182,11 @@ export function RecipeDetail({
   // What cooks found cooking it: the finish rate, and notes and questions at its steps.
   const insights = useCookInsights(recipe.id);
   const [stuck, setStuck] = useState(false);
+  // What cooks who made it suggest changing (docs/RECIPE-FIXES.md), the suggestion being written
+  // (with what cooking mode filled in), and how cooks improved it.
+  const fixes = useSuggestions(recipe.id, recipe.published);
+  const [suggesting, setSuggesting] = useState<{ draft: FixDraft | null } | null>(null);
+  const [improved, setImproved] = useState(false);
   const equipment = useShownEquipment(reading);
   const saved = app.library.savedIds.includes(recipe.id);
   const following = app.library.followingIds.includes(recipe.author.id);
@@ -591,6 +601,13 @@ export function RecipeDetail({
           </View>
         ))}
       </View>
+      {!mine && (
+        <CooksSuggest
+          recipe={recipe}
+          fixes={fixes}
+          onSuggest={() => setSuggesting({ draft: null })}
+        />
+      )}
     </View>
   );
   const table = (
@@ -707,8 +724,27 @@ export function RecipeDetail({
             setStuck(false);
             onEdit(recipe);
           }}
+          fixes={fixes}
+          onFixed={() => onReload?.()}
+          onHistory={recipe.improvedBy ? () => setImproved(true) : undefined}
         />
       )}
+      <SuggestFix
+        recipe={recipe}
+        visible={!!suggesting}
+        draft={suggesting?.draft}
+        onClose={() => setSuggesting(null)}
+        onSent={fixes.reload}
+      />
+      <FixHistory
+        recipe={recipe}
+        visible={improved}
+        onClose={() => setImproved(false)}
+        onUndone={() => {
+          fixes.reload();
+          onReload?.();
+        }}
+      />
       {cooking && (
         <CookMode
           recipe={reading}
@@ -718,6 +754,7 @@ export function RecipeDetail({
           onStep={onCooking}
           onAsk={onAsk}
           onCooked={() => setCookedRequest((n) => n + 1)}
+          onSuggest={(draft) => setSuggesting({ draft })}
           onClose={() => {
             setCook(false);
             setClosedCommand(cookCommand?.n);
@@ -1004,7 +1041,11 @@ export function RecipeDetail({
   // The author's view of how cooks get on with their recipe, once it's out there.
   const stuckButton = mine && recipe.published && (
     <Button
-      title={tr('Where cooks get stuck')}
+      title={
+        fixes.suggestions.length
+          ? tr('stuckWithSuggestions', { count: fixes.suggestions.length })
+          : tr('Where cooks get stuck')
+      }
       icon={Hourglass}
       variant="secondary"
       small
@@ -1204,7 +1245,11 @@ export function RecipeDetail({
                 {byline}
                 {lineage}
                 {facts}
-                <CookTested recipe={recipe} insights={insights} />
+                <CookTested
+                  recipe={recipe}
+                  insights={insights}
+                  onImproved={() => setImproved(true)}
+                />
                 {stuckButton}
                 <View style={{ gap: 20 }}>
                   <Button
@@ -1307,7 +1352,11 @@ export function RecipeDetail({
               {/* The facts in one card and the things to do in one row, so the page goes
                   straight from the story to the cooking. */}
               <FadeIn delay={130}>{facts}</FadeIn>
-              <CookTested recipe={recipe} insights={insights} />
+              <CookTested
+                recipe={recipe}
+                insights={insights}
+                onImproved={() => setImproved(true)}
+              />
               {stuckButton}
               <FadeIn delay={200}>{actionRow}</FadeIn>
               {wide ? (
