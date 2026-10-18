@@ -57,6 +57,7 @@ import { foodIcon } from '../lib/icons';
 import { LocalMedia, pickPhoto, preparePhoto, uploadMedia } from '../lib/photos';
 import { CuisineIcon } from '../components/CuisineIcon';
 import { CuisinePicker } from '../components/CuisinePicker';
+import { EquipmentEditor } from '../components/EquipmentEditor';
 import { PhotoTouchUp } from '../components/PhotoTouchUp';
 import { postCreator, postPlatform } from '../lib/recipeImport';
 import { DangerButton, SignInKitchen } from './Kitchen';
@@ -248,6 +249,8 @@ const draftOf = (r: RecipeInput) =>
     ...(r.language ? { language: r.language } : {}),
     ...(r.sourceUrl ? { sourceUrl: r.sourceUrl } : {}),
     ...(typeof r.derivedFrom === 'string' && r.derivedFrom ? { derivedFrom: r.derivedFrom } : {}),
+    // Kept even when emptied, so a restored draft empties a saved list again.
+    ...(Array.isArray(r.equipment) ? { equipment: r.equipment } : {}),
   });
 function readDraft(value: string | null): Partial<RecipeInput> | null {
   try {
@@ -1256,6 +1259,15 @@ function EditorForm({ initial, onPublished, onAI }: EditorProps) {
                   variant="secondary"
                   disabled={r.steps.length >= 40}
                   onPress={() => update('steps', [...r.steps, { title: '', text: '', seconds: 0 }])}
+                />
+              </Section>
+              <Section
+                title={tr('Equipment')}
+                hint="The pots, pans and tools to get out first, in the order you’ll need them."
+              >
+                <EquipmentEditor
+                  recipe={r}
+                  onChange={(equipment) => update('equipment', equipment)}
                 />
               </Section>
             </View>

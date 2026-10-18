@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -101,5 +102,40 @@ func TestProviderFailureAndMalformedResponses(t *testing.T) {
 				t.Fatal("expected error")
 			}
 		})
+	}
+}
+
+// Recipe jobs (imports of pages and captions) ask for the equipment the editor holds, and what the
+// model lists comes back with the recipe.
+func TestRecipeSchemaAsksForEquipment(t *testing.T) {
+	clearModelEnv(t)
+	var system string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Messages []map[string]string `json:"messages"`
+		}
+		if e := json.NewDecoder(r.Body).Decode(&body); e != nil || len(body.Messages) != 2 {
+			t.Errorf("request: %v %v", body, e)
+		} else {
+			system = body.Messages[0]["content"]
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"choices":[{"message":{"content":"{\"recipe\":{\"title\":\"Soup\",\"equipment\":[\"Large pot\",\"Blender\"]}}"}}]}`))
+	}))
+	defer server.Close()
+	c := New()
+	c.OpenRouterURL, c.OpenRouterKey = server.URL, "test-key"
+	out, e := c.Recipe(context.Background(), "Import the recipe on this web page: https://cook.example/soup")
+	if e != nil {
+		t.Fatal(e)
+	}
+	if !strings.Contains(system, "equipment (array of up to 20 short names") || !strings.Contains(system, "pots, pans, appliances and tools") {
+		t.Errorf("the schema doesn't ask for equipment: %s", system)
+	}
+	var r struct {
+		Recipe struct{ Equipment []string } `json:"recipe"`
+	}
+	if e = json.Unmarshal(out, &r); e != nil || strings.Join(r.Recipe.Equipment, "|") != "Large pot|Blender" {
+		t.Fatalf("equipment: %s %v", out, e)
 	}
 }

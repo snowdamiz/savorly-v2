@@ -38,6 +38,7 @@ var draftRecipe = object([]string{"title", "description", "cuisine", "minutes", 
 	"tags": list(field("string", ""), 12), "calories": field("integer", "Estimated per serving"),
 	"ingredients": list(object([]string{"name", "amount", "unit", "category"}, props{"name": field("string", ""), "amount": field("number", ""), "unit": field("string", ""), "category": field("string", "e.g. Produce, Dairy, Pantry")}), 80),
 	"steps":       list(object([]string{"title", "text", "seconds"}, props{"title": field("string", ""), "text": field("string", ""), "seconds": field("integer", "Timer length, 0 if none")}), 40),
+	"equipment":   list(field("string", "A pot, pan, appliance or tool the recipe needs, as the cook would name it (\"Large pot\", \"Blender\"); up to 60 characters"), 20),
 })
 var none = object(nil, props{})
 var editableRecipe = object(nil, draftRecipe["properties"].(props))
@@ -62,7 +63,7 @@ type agentToolDef struct {
 var agentToolDefs = []agentToolDef{
 	{tool("search_recipes", "Search published Savorly recipes by words or ingredients, cuisine, tag, cook and time. Returns up to 8 summaries, each with its allergen and diet groups (allergens).", object(nil, props{"query": field("string", "Words or ingredients"), "cuisine": field("string", "Exact cuisine, e.g. Italian"), "tag": field("string", "Exact tag, e.g. vegetarian"), "author_id": field("string", "Only this cook's recipes"), "max_minutes": field("integer", ""), "sort": choice("", "Newest", "Quickest", "Top rated"), "include_avoided": field("boolean", "Also return recipes with what the user's diets and allergies leave out; only when they ask for one by name")})), "looking", (*toolTurn).searchRecipes},
 	{tool("pantry_recipes", "Recipes the user can make mostly from their pantry: fewest missing ingredients first, then those using what expires soon. Each says what they have, what's missing and what's expiring. Leaves out what they avoid.", object(nil, props{})), "looking", (*toolTurn).pantryRecipes},
-	{tool("get_recipe", "Full ingredients and steps of a published recipe or one of the user's own.", object([]string{"recipe_id"}, props{"recipe_id": recipeID()})), "looking", (*toolTurn).getRecipe},
+	{tool("get_recipe", "Full ingredients, steps and equipment of a published recipe or one of the user's own: equipment is what its cook lists, equipmentDetected the equipment its method mentions.", object([]string{"recipe_id"}, props{"recipe_id": recipeID()})), "looking", (*toolTurn).getRecipe},
 	{tool("show_recipes", "Show tappable recipe cards with your reply.", object([]string{"recipe_ids"}, props{"recipe_ids": list(field("string", ""), 6)})), "looking", (*toolTurn).showRecipes},
 	{tool("find_cooks", "Find Savorly cooks by name, handle or bio, with ids and recipe counts.", object(nil, props{"query": field("string", "")})), "looking", (*toolTurn).findCooks},
 	{tool("get_reviews", "Recent reviews of a published recipe.", object([]string{"recipe_id"}, props{"recipe_id": recipeID()})), "looking", (*toolTurn).getReviews},
@@ -82,7 +83,7 @@ var agentToolDefs = []agentToolDef{
 	{tool("follow_cook", "Follow or unfollow a cook.", object([]string{"cook_id"}, props{"cook_id": field("string", ""), "unfollow": field("boolean", "")})), "saving", (*toolTurn).followCook},
 	{tool("review_recipe", "Post or replace the user's review of another cook's published recipe, with their own rating and words. Needs confirmation.", object([]string{"recipe_id", "rating", "text"}, props{"recipe_id": recipeID(), "rating": field("integer", "1–5"), "text": field("string", "3–2000 characters")})), "saving", (*toolTurn).reviewRecipe},
 	{tool("report_recipe", "Report a published recipe for moderation, with the user's reason. Needs confirmation.", object([]string{"recipe_id", "reason"}, props{"recipe_id": recipeID(), "reason": field("string", "5–1000 characters")})), "saving", (*toolTurn).reportRecipe},
-	{tool("edit_recipe", "Change one of the user's own existing recipes, keeping its photos. Send only the fields that change; ingredients, steps and tags replace the whole list, so include every item. Publishing it, or changing a published recipe, needs confirmation.", object([]string{"recipe_id"}, props{"recipe_id": recipeID(), "changes": editableRecipe, "published": field("boolean", "true publishes, false makes it private")})), "", (*toolTurn).editRecipe},
+	{tool("edit_recipe", "Change one of the user's own existing recipes, keeping its photos. Send only the fields that change; ingredients, steps, tags and equipment replace the whole list, so include every item. Publishing it, or changing a published recipe, needs confirmation.", object([]string{"recipe_id"}, props{"recipe_id": recipeID(), "changes": editableRecipe, "published": field("boolean", "true publishes, false makes it private")})), "", (*toolTurn).editRecipe},
 	{tool("delete_recipe", "Permanently delete one of the user's own recipes. Needs confirmation.", object([]string{"recipe_id"}, props{"recipe_id": recipeID()})), "recipe", (*toolTurn).deleteRecipe},
 	{tool("generate_recipe_media", "Make a new AI cover photo and/or short video for one of the user's own recipes; it replaces the current one when ready. Each costs a generation.", object([]string{"recipe_id", "kinds"}, props{"recipe_id": recipeID(), "kinds": list(choice("", "image", "video"), 2)})), "media", (*toolTurn).generateRecipeMedia},
 	{tool("update_profile", "Change the user's display name, bio, diets or allergies. diets and allergies replace the whole list. Needs confirmation.", object(nil, props{"name": field("string", ""), "bio": field("string", ""), "diets": list(field("string", ""), 12), "allergies": list(field("string", ""), 20)})), "saving", (*toolTurn).updateProfile},
@@ -1196,6 +1197,7 @@ func recipeChanges(old, next RecipeInput) string {
 	add(old.Minutes != next.Minutes, fmt.Sprintf("time %d → %d min", old.Minutes, next.Minutes))
 	add(old.Calories != next.Calories, fmt.Sprintf("calories %d → %d", old.Calories, next.Calories))
 	add(strings.Join(old.Tags, "|") != strings.Join(next.Tags, "|"), "tags")
+	add(strings.Join(old.Equipment, "|") != strings.Join(next.Equipment, "|"), "equipment")
 	before := map[string]Ingredient{}
 	for _, i := range old.Ingredients {
 		before[strings.ToLower(strings.TrimSpace(i.Name))] = i
@@ -1259,4 +1261,6 @@ func slimRecipe(r map[string]any, summary bool) {
 	r["ingredients"] = names
 	delete(r, "steps")
 	delete(r, "description")
+	delete(r, "equipment")
+	delete(r, "equipmentDetected")
 }

@@ -31,6 +31,8 @@ export function fingerprint(recipe: Recipe) {
     recipe.description,
     recipe.ingredients.map((i) => i.name),
     recipe.steps.map((s) => [s.title, s.text]),
+    // Only for a recipe that lists equipment, so the translations kept before it still apply.
+    ...(recipe.equipment?.length ? [recipe.equipment] : []),
   ]);
   // cyrb53 (public domain): two 32-bit hashes in one number, plenty to tell versions apart.
   let a = 0xdeadbeef;
@@ -46,9 +48,10 @@ export function fingerprint(recipe: Recipe) {
 }
 
 /**
- * The recipe as the reader sees it translated: its title, description, ingredient names and steps
- * from `t`, in `t`'s language, with everything else as it is. Null when `t` isn't of this recipe
- * (another number of ingredients or steps: a translation of another version).
+ * The recipe as the reader sees it translated: its title, description, ingredient names, steps and
+ * equipment from `t`, in `t`'s language, with everything else as it is. Null when `t` isn't of this
+ * recipe (another number of ingredients or steps: a translation of another version). Equipment a
+ * translation doesn't name one for one stays as the cook wrote it.
  */
 export function translated(recipe: Recipe, t: RecipeTranslation): Recipe | null {
   if (
@@ -71,6 +74,10 @@ export function translated(recipe: Recipe, t: RecipeTranslation): Recipe | null 
       title: t.steps[n].title || s.title,
       text: t.steps[n].text || s.text,
     })),
+    equipment:
+      recipe.equipment && t.equipment?.length === recipe.equipment.length
+        ? recipe.equipment.map((name, n) => t.equipment?.[n] || name)
+        : recipe.equipment,
     language: t.language,
   };
 }

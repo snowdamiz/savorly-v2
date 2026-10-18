@@ -6,6 +6,7 @@
 export type { LucideIcon, LucideProps } from 'lucide-react-native';
 
 export { default as AlertTriangle } from 'lucide-react-native/icons/triangle-alert';
+export { default as ArrowDown } from 'lucide-react-native/icons/arrow-down';
 export { default as ArrowLeft } from 'lucide-react-native/icons/arrow-left';
 export { default as ArrowRight } from 'lucide-react-native/icons/arrow-right';
 export { default as ArrowUp } from 'lucide-react-native/icons/arrow-up';

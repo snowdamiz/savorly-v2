@@ -241,6 +241,8 @@ func (a *App) processJob(parent context.Context, id, owner, kind, prompt, source
 				if out.Recipe.SourceURL != nil {
 					creditImport(prompt, &out.Recipe)
 				}
+				// A page can list more equipment, or longer names, than a recipe holds.
+				out.Recipe.Equipment = fitEquipment(out.Recipe.Equipment)
 				err = out.Recipe.Validate()
 				result = jsonBytes(out)
 			}

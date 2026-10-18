@@ -19,13 +19,15 @@ import (
 // index lookups, like the reviews and saves ones. derivedFrom names the original only while
 // it's public, so a variation never shows the title of a draft, its own author's included.
 // cookedMinutes, the real cook time (cook_sessions.go), is kept up to date in recipe_cook_times
-// and shows once 3 verified cooks agree; null until then.
+// and shows once 3 verified cooks agree; null until then. jsonb_build_object takes at most 100
+// arguments, two a field: this one has 33 fields.
 const recipeJSON = `jsonb_build_object(
  'id',r.id,'title',r.title,'description',r.description,'cuisine',r.cuisine,
  'minutes',r.minutes,'servings',r.servings,'difficulty',r.difficulty,'image',r.image,'photos',r.photos,'video',r.video,
  'ingredients',r.ingredients,'steps',r.steps,'tags',r.tags,'calories',r.calories,'aiGenerated',r.ai_generated,
  'published',r.published,'createdAt',r.created_at,'language',r.language,'sourceUrl',r.source_url,
  'allergens',r.allergens,'ingredientFood',r.ingredient_food,
+ 'equipment',r.equipment,'equipmentDetected',r.equipment_detected,
  'derivedFrom',(SELECT jsonb_build_object('id',d.id,'title',d.title,'author',jsonb_build_object('id',du.id,'name',du.name,'handle',du.handle))
    FROM recipes d JOIN users du ON du.id=d.author_id AND du.suspended_at IS NULL WHERE d.id=r.derived_from AND d.published),
  'rating',COALESCE((SELECT round(avg(rating),1) FROM reviews WHERE recipe_id=r.id),0),
@@ -192,12 +194,17 @@ func persistRecipe(ctx context.Context, db recipeWriter, owner, id string, r Rec
 	if r.DerivedFrom.Set {
 		derived = r.DerivedFrom.ID
 	}
-	args := []any{id, owner, r.Title, r.Description, r.Cuisine, r.Minutes, r.Servings, r.Difficulty, r.Image, r.Video, jsonBytes(r.Ingredients), jsonBytes(r.Steps), r.Tags, r.Calories, r.AIGenerated, r.Published, photos, r.Language, source, derived}
-	query := `INSERT INTO recipes(id,author_id,title,description,cuisine,minutes,servings,difficulty,image,video,ingredients,steps,tags,calories,ai_generated,published,photos,language,source_url,derived_from) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,COALESCE($17::jsonb,'[]'),$18,COALESCE($19,''),` + linkableRecipe + `)`
+	// Nor equipment: older apps and the sous-chef's drafts keep the saved list.
+	var equipment any
+	if r.Equipment != nil {
+		equipment = r.Equipment
+	}
+	args := []any{id, owner, r.Title, r.Description, r.Cuisine, r.Minutes, r.Servings, r.Difficulty, r.Image, r.Video, jsonBytes(r.Ingredients), jsonBytes(r.Steps), r.Tags, r.Calories, r.AIGenerated, r.Published, photos, r.Language, source, derived, equipment}
+	query := `INSERT INTO recipes(id,author_id,title,description,cuisine,minutes,servings,difficulty,image,video,ingredients,steps,tags,calories,ai_generated,published,photos,language,source_url,derived_from,equipment) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,COALESCE($17::jsonb,'[]'),$18,COALESCE($19,''),` + linkableRecipe + `,COALESCE($21::text[],'{}'))`
 	if update {
 		// Older clients don't send a language; theirs is kept.
 		query = `UPDATE recipes SET title=$3,description=$4,cuisine=$5,minutes=$6,servings=$7,difficulty=$8,image=$9,video=$10,ingredients=$11,steps=$12,tags=$13,calories=$14,ai_generated=$15,published=$16,photos=COALESCE($17::jsonb,photos),language=COALESCE(NULLIF($18,''),language),
- source_url=COALESCE($19,source_url),derived_from=CASE WHEN $20::text IS NULL OR $20=derived_from THEN derived_from ELSE ` + linkableRecipe + ` END,updated_at=now() WHERE id=$1 AND author_id=$2`
+ source_url=COALESCE($19,source_url),derived_from=CASE WHEN $20::text IS NULL OR $20=derived_from THEN derived_from ELSE ` + linkableRecipe + ` END,equipment=COALESCE($21::text[],equipment),updated_at=now() WHERE id=$1 AND author_id=$2`
 	}
 	result, e := db.Exec(ctx, query, args...)
 	if e == nil && result.RowsAffected() == 0 {
@@ -206,8 +213,12 @@ func persistRecipe(ctx context.Context, db recipeWriter, owner, id string, r Rec
 	if e != nil {
 		return e
 	}
-	// In the same transaction, so the saved recipe is never shown without its allergens.
-	return indexRecipeFood(ctx, db, id)
+	// In the same transaction, so the saved recipe is never shown without its allergens, or
+	// without what its method mentions.
+	if e = indexRecipeFood(ctx, db, id); e != nil {
+		return e
+	}
+	return indexRecipeEquipment(ctx, db, id)
 }
 
 func (a *App) deleteRecipe(c fiber.Ctx) error { return a.deleteOwned(c, "recipes", "author_id") }

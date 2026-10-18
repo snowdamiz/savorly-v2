@@ -101,6 +101,10 @@ type RecipeInput struct {
 	SourceURL *string `json:"sourceUrl,omitempty"`
 	// The recipe this one adapts; see RecipeRef.
 	DerivedFrom RecipeRef `json:"derivedFrom,omitzero"`
+	// What it needs besides ingredients (pots, pans, appliances, tools), in the author's order and
+	// words. nil (older apps and sous-chef drafts send none) leaves a saved recipe's as it is; []
+	// removes them.
+	Equipment []string `json:"equipment,omitempty"`
 }
 
 // RecipeRef is derivedFrom in a recipe write: a recipe id to link, or "" to remove the link. A
@@ -192,6 +196,9 @@ func (r *RecipeInput) Validate() error {
 	if r.Tags != nil {
 		r.Tags = cleanTags(r.Tags)
 	}
+	if r.Equipment != nil {
+		r.Equipment = cleanTags(r.Equipment)
+	}
 	for i := range r.Ingredients {
 		in := &r.Ingredients[i]
 		in.Name, in.Unit, in.Category = strings.TrimSpace(in.Name), strings.TrimSpace(in.Unit), strings.TrimSpace(in.Category)
@@ -251,6 +258,14 @@ func (r *RecipeInput) Validate() error {
 	for _, t := range r.Tags {
 		if !validText(t, 1, 40) {
 			return fiber.NewError(400, "Tags must be between 1 and 40 characters.")
+		}
+	}
+	if len(r.Equipment) > maxEquipment {
+		return fiber.NewError(400, "List up to 20 pieces of equipment.")
+	}
+	for _, e := range r.Equipment {
+		if !validText(e, 1, equipmentNameLength) {
+			return fiber.NewError(400, "Name each piece of equipment in 60 characters or fewer.")
 		}
 	}
 	return nil

@@ -24,7 +24,7 @@ const exportSQL = `SELECT json_build_object(
  'plan',json_build_object('plan',u.plan,'status',u.plan_status,'interval',u.plan_interval,'renewsAt',u.plan_renews_at,'cancelsAtPeriodEnd',u.plan_cancels),
  'connectedProviders',COALESCE((SELECT json_agg(json_build_object('provider',provider,'email',email,'connectedAt',created_at) ORDER BY created_at) FROM identities WHERE user_id=u.id),'[]'),
  'recipes',COALESCE((SELECT json_agg(json_build_object('id',r.id,'title',r.title,'description',r.description,'cuisine',r.cuisine,'minutes',r.minutes,
-   'servings',r.servings,'difficulty',r.difficulty,'calories',r.calories,'tags',r.tags,'ingredients',r.ingredients,'steps',r.steps,'image',r.image,
+   'servings',r.servings,'difficulty',r.difficulty,'calories',r.calories,'tags',r.tags,'ingredients',r.ingredients,'steps',r.steps,'equipment',r.equipment,'image',r.image,
    'photos',r.photos,'video',r.video,'language',r.language,'sourceUrl',r.source_url,'derivedFrom',r.derived_from,
    'aiGenerated',r.ai_generated,'published',r.published,'createdAt',r.created_at,'updatedAt',r.updated_at) ORDER BY r.created_at)
    FROM recipes r WHERE r.author_id=u.id),'[]'),

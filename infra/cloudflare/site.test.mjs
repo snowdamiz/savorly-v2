@@ -49,6 +49,8 @@ const apiRecipe = {
     { title: 'Cook the pasta', text: 'Boil it until al dente.', seconds: 600 },
     { title: '', text: 'Toss with the ricotta & lemon.', seconds: 0 },
   ],
+  equipment: ['Large pot', ' ', 'Colander'],
+  equipmentDetected: ['pot', 'colander'],
   tags: ['Vegetarian', 'Quick'],
   calories: 520,
   aiGenerated: false,
@@ -147,6 +149,10 @@ test('JSON-LD describes the recipe', () => {
     worstRating: 1,
   });
   assert.deepEqual(data.nutrition, { '@type': 'NutritionInformation', calories: '520 calories' });
+  assert.deepEqual(data.tool, [
+    { '@type': 'HowToTool', name: 'Large pot' },
+    { '@type': 'HowToTool', name: 'Colander' },
+  ]);
 
   const plain = JSON.parse(
     JSON.stringify(
@@ -158,12 +164,15 @@ test('JSON-LD describes the recipe', () => {
           calories: 0,
           image: '',
           photos: [],
+          equipment: undefined,
         }),
         url,
       ),
     ),
   );
   assert.equal(plain.aggregateRating, undefined);
+  // Without the cook's own list (an older API, or only what the method mentions), no tool.
+  assert.equal(plain.tool, undefined);
   assert.equal(plain.nutrition, undefined);
   assert.equal(plain.image, undefined);
 });

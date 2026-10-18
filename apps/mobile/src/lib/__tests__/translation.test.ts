@@ -105,6 +105,21 @@ test('the fingerprint changes with the text and the language, not with the rest'
   ).not.toBe(print);
 });
 
+test('the cook’s equipment reads translated name for name, and changes what is translated', () => {
+  const pots = soup({ equipment: ['Grande casserole', 'Mixeur plongeant'] });
+  const read = translated(pots, { ...english, equipment: ['Large pot', 'Immersion blender'] })!;
+  expect(read.equipment).toEqual(['Large pot', 'Immersion blender']);
+  // Without a name for each, the cook's own words stay; the rest is still translated.
+  const partial = translated(pots, { ...english, equipment: ['Large pot'] })!;
+  expect(partial.equipment).toEqual(['Grande casserole', 'Mixeur plongeant']);
+  expect(partial.title).toBe('French onion soup');
+  expect(translated(soup(), english)!.equipment).toBeUndefined();
+  // A recipe without a list keeps the fingerprint it had, so kept translations still apply.
+  expect(fingerprint(soup({ equipment: [] }))).toBe(fingerprint(soup()));
+  expect(fingerprint(pots)).not.toBe(fingerprint(soup()));
+  expect(fingerprint(soup({ equipmentDetected: ['pot'] }))).toBe(fingerprint(soup()));
+});
+
 test('the device keeps the newest translations, one per recipe and language', () => {
   const kept = (recipe: string, language = 'en') => ({
     recipe,

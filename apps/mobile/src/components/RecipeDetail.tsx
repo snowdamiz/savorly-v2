@@ -89,6 +89,7 @@ import { RevealFocus, useKeyboardLift, useKeyboardScroll } from '../lib/keyboard
 import { foodConflicts, joinNames, pantryLines, useFood } from '../lib/food';
 import { AvoidPill, FoodWarning } from './FoodWarning';
 import { RecipeOrder } from './GroceryCheckout';
+import { RecipeEquipment, useShownEquipment } from './Equipment';
 // Each twist asks in the cook's language: the request is their own message, and the model's cue.
 const twists = (tr: (key: string) => string) => [
   ['Vegetarian', tr('Make this recipe vegetarian.')],
@@ -171,6 +172,7 @@ export function RecipeDetail({
   // (the recipe, or its translation), while amounts, units and everything else stay the recipe's.
   const translation = useRecipeTranslation(recipe);
   const reading = translation.shown;
+  const equipment = useShownEquipment(reading);
   const saved = app.library.savedIds.includes(recipe.id);
   const following = app.library.followingIds.includes(recipe.author.id);
   const mine = app.user?.id === recipe.author.id;
@@ -298,6 +300,10 @@ export function RecipeDetail({
       image: recipe.image,
       ingredientsTitle: tr('Ingredients'),
       ingredients: reading.ingredients.map((i) => ({ name: i.name, amount: amountOf(i) })),
+      equipmentTitle: equipment.detected
+        ? `${tr('You’ll need')} · ${tr('From the method')}`
+        : tr('You’ll need'),
+      equipment: equipment.names,
       methodTitle: tr('Method'),
       steps: reading.steps.map((st) => ({ title: st.title, text: st.text })),
       credits: [
@@ -473,6 +479,8 @@ export function RecipeDetail({
         }
       />
       <RecipeOrder recipeId={recipe.id} servings={servings} />
+      {/* What else to get out, after what to buy: the cook's list, or what the method mentions. */}
+      <RecipeEquipment recipe={reading} onCard={webPage} />
       {/* Twists change the ingredients, so they sit with them rather than above the tabs. */}
       <View style={{ gap: 12, marginTop: 10 }}>
         <View style={[s.row, { gap: 8 }]}>

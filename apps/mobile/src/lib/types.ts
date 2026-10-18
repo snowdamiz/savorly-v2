@@ -46,6 +46,12 @@ export type RecipeInput = {
    * saved); recipes from the server carry the original itself, or null.
    */
   derivedFrom?: string | RecipeOrigin | null;
+  /**
+   * What it needs besides ingredients (pots, pans, appliances, tools), as its cook names them, in
+   * order: up to 20 names of up to 60 characters. Left out, the server keeps what's saved; []
+   * clears it.
+   */
+  equipment?: string[];
 };
 /** The recipe an adaptation came from, as recipes from the server name it. */
 export type RecipeOrigin = {
@@ -81,6 +87,11 @@ export type Recipe = Omit<RecipeInput, 'derivedFrom'> & {
   verifiedCooks?: number;
   /** How long verified cooks usually take, in minutes; null until 3 agree. Missing on older servers. */
   cookedMinutes?: number | null;
+  /**
+   * The equipment its method mentions, read by the server's lexicon, as English keys ('frying
+   * pan', 'oven') the app names in the reader's language (equipmentName). Missing on older servers.
+   */
+  equipmentDetected?: string[];
 };
 /**
  * What the server's ingredient lexicon reads in one ingredient line: what it is (`key`, which the
@@ -537,6 +548,8 @@ export type RecipeTranslation = {
   description: string;
   ingredients: { name: string }[];
   steps: { title: string; text: string }[];
+  /** The cook's equipment names, one for one; missing when the recipe lists none. */
+  equipment?: string[];
   /** When it was translated; null when the recipe is written in `language` already. */
   translatedAt: string | null;
 };
