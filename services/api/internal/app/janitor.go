@@ -58,6 +58,9 @@ var janitorTasks = []struct{ name, sql string }{
 	// notices; deleting one deletes its messages.
 	{"push_messages", `DELETE FROM push_messages WHERE id IN (SELECT id FROM push_messages WHERE created_at<now()-interval '7 days' LIMIT 500)`},
 	{"notification_outbox", `DELETE FROM notification_outbox WHERE id IN (SELECT id FROM notification_outbox WHERE created_at<now()-interval '7 days' LIMIT 500)`},
+	// Bulk imports are kept 90 days after they finish (import_batches.go), except a creator's own
+	// site's, which record their permission to import.
+	{"import_batches", `DELETE FROM import_batches WHERE id IN (SELECT id FROM import_batches WHERE purpose<>'own_site' AND finished_at<now()-interval '90 days' LIMIT 500)`},
 	{"household_invites", `DELETE FROM household_invites WHERE code_hash IN (SELECT code_hash FROM household_invites WHERE expires_at<now() LIMIT 500)`},
 	// The leaving trigger keeps households whole; these repair one that two members left at the
 	// same moment, so neither saw the other go.

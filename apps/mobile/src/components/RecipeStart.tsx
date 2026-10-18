@@ -11,11 +11,13 @@ import {
   Mic,
   PenLine,
 } from './icons';
-import { RecipeInput, StudioMode } from '../lib/types';
+import { RecipeInput, Screen, StudioMode } from '../lib/types';
 import { useApp } from '../lib/store';
 import { importError, importRecipe, postPlatform, recipeLink } from '../lib/recipeImport';
+import { MAX_BATCH, recipeLinks, useImports } from '../lib/imports';
 import { track } from '../lib/telemetry';
 import { color, font, radius, s } from '../lib/theme';
+import { ImportProgress } from './ImportProgress';
 import { Button, Dialog, Field, IconButton, Press } from './ui';
 const options = [
   {
@@ -60,12 +62,18 @@ export function RecipeStart({
   onClose,
   onStart,
   onImported,
+  onOpenRecipe,
+  onPage,
 }: {
   visible: boolean;
   onClose: () => void;
   onStart: (mode: StudioMode | 'write') => void;
   /** A recipe brought in from a link, ready for the editor; nothing is saved yet. */
   onImported: (recipe: RecipeInput) => void;
+  /** One of several links brought in at once, saved as a private draft. */
+  onOpenRecipe: (id: string) => void;
+  /** The pages that bring many recipes over: from Mealime, or from the cook's own site. */
+  onPage: (screen: Screen) => void;
 }) {
   const { t: tr } = useI18n();
   const app = useApp();
@@ -74,6 +82,11 @@ export function RecipeStart({
   const [invalid, setInvalid] = useState(false);
   const [stage, setStage] = useState<'idle' | 'opening' | 'reading'>('idle');
   const [error, setError] = useState('');
+  // Several links pasted at once are read on the server, as a batch of drafts (lib/imports.ts).
+  const imports = useImports('links', visible && importing);
+  const [batchId, setBatchId] = useState('');
+  const batch = imports.batches?.find((b) => b.id === batchId);
+  const links = recipeLinks(link);
   // Each import is numbered; going back, closing or starting another one leaves the old one behind.
   const attempt = useRef(0);
   // Each opening starts from the menu.
@@ -86,6 +99,7 @@ export function RecipeStart({
       setInvalid(false);
       setStage('idle');
       setError('');
+      setBatchId('');
     }
   }
   useEffect(() => {
@@ -103,15 +117,19 @@ export function RecipeStart({
     setError('');
     setInvalid(false);
     setImporting(false);
+    setBatchId('');
   };
   const type = (text: string) => {
     setInvalid(false);
+    // Several links stay as they are, to be brought in together.
+    if (recipeLinks(text).length > 1) return setLink(text);
     // Pasting a whole message ("Try this! https://…") keeps just the link.
     const pasted = recipeLink(text);
     setLink(pasted && text.length - link.length > 1 && pasted !== text.trim() ? pasted : text);
   };
   const submit = async () => {
     if (stage !== 'idle') return;
+    if (links.length > 1) return importMany();
     const url = recipeLink(link);
     if (!url) {
       setInvalid(true);
@@ -138,6 +156,22 @@ export function RecipeStart({
       setStage('idle');
     }
   };
+  const importMany = async () => {
+    if (!app.requireUser()) return;
+    if (links.length > MAX_BATCH) return setError('Import up to 50 recipes at a time.');
+    setError('');
+    setStage('opening');
+    try {
+      const started = await imports.start({ urls: links });
+      setBatchId(started.id);
+      setLink('');
+    } catch (e) {
+      // A batch's refusals say what to change, in the catalogs' words.
+      setError((e as Error).message);
+    } finally {
+      setStage('idle');
+    }
+  };
   const busy = stage !== 'idle';
   return (
     <Dialog
@@ -150,7 +184,23 @@ export function RecipeStart({
         ) : undefined
       }
     >
-      {importing ? (
+      {importing && batch ? (
+        <>
+          <ImportProgress
+            batch={batch}
+            onOpen={(id) => {
+              onClose();
+              onOpenRecipe(id);
+            }}
+            onStop={() => void app.act(() => imports.stop(batch.id))}
+          />
+          <Button
+            title={tr('Import more links')}
+            variant="secondary"
+            onPress={() => setBatchId('')}
+          />
+        </>
+      ) : importing ? (
         <>
           <Text style={[s.muted, { marginTop: -8 }]}>
             {tr(
@@ -207,7 +257,9 @@ export function RecipeStart({
             </View>
           )}
           <Button
-            title={tr('Import recipe')}
+            title={
+              links.length > 1 ? tr('importLinks', { count: links.length }) : tr('Import recipe')
+            }
             icon={ArrowRight}
             large
             busy={busy}
@@ -219,6 +271,30 @@ export function RecipeStart({
               'Imported recipes stay private until you share them, and credit the original page.',
             )}
           </Text>
+          <View style={[s.row, { gap: 4, flexWrap: 'wrap', marginTop: -4 }]}>
+            <Text style={s.small}>{tr('Many at once:')}</Text>
+            {(
+              [
+                ['mealime', 'From Mealime'],
+                ['own-site', 'From your own site'],
+              ] as const
+            ).map(([page, title]) => (
+              <Press
+                key={page}
+                accessibilityRole="link"
+                accessibilityLabel={tr(title)}
+                onPress={() => {
+                  onClose();
+                  onPage(page);
+                }}
+                style={{ minHeight: 36, justifyContent: 'center', paddingHorizontal: 4 }}
+              >
+                <Text style={[s.small, { color: color.ink, textDecorationLine: 'underline' }]}>
+                  {tr(title)}
+                </Text>
+              </Press>
+            ))}
+          </View>
         </>
       ) : (
         <>

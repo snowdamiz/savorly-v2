@@ -373,7 +373,9 @@ export type Screen =
   | 'profile'
   | 'create'
   | 'community'
-  | 'admin';
+  | 'admin'
+  | 'mealime'
+  | 'own-site';
 export const emptyRecipe = (): RecipeInput => ({
   title: '',
   description: '',

@@ -67,6 +67,9 @@ var publicRoutes = map[string]bool{
 	"POST /mcp":                                     true,
 	"GET /mcp":                                      true,
 	"DELETE /mcp":                                   true,
+
+	// The page for Mealime's members finds similar recipes before signing up (import_batches.go).
+	"POST /v1/imports/similar": true,
 }
 
 // Rejections the middleware makes before a handler runs.

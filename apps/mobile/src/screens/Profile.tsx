@@ -8,6 +8,7 @@ import {
   CalendarDays,
   Check,
   ChevronRight,
+  Globe,
   Leaf,
   LogOut,
   Plus,
@@ -298,6 +299,12 @@ export function Profile({
       title: tr('Sous-chef history'),
       text: 'Recipes, swaps and answers you asked for',
       go: () => app.requireUser(() => setHistory(true)),
+    },
+    {
+      icon: Globe,
+      title: tr('Import from my site'),
+      text: 'Your published recipes, with their photos',
+      go: () => navigate('own-site'),
     },
     {
       icon: Users,

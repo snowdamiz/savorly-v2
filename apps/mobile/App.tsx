@@ -111,6 +111,10 @@ const Admin = lazy(chunk(() => import('./src/screens/admin').then((m) => ({ defa
 const Editor = lazy(
   chunk(() => import('./src/screens/Editor').then((m) => ({ default: m.Editor }))),
 );
+// The pages for switching to Savorly: Mealime's members, and creators importing their own site.
+const switching = chunk(() => import('./src/screens/Switching'));
+const MealimePage = lazy(() => switching().then((m) => ({ default: m.MealimePage })));
+const OwnSitePage = lazy(() => switching().then((m) => ({ default: m.OwnSitePage })));
 const RecipeStudio = lazy(
   chunk(() => import('./src/components/RecipeStudio').then((m) => ({ default: m.RecipeStudio }))),
 );
@@ -147,6 +151,8 @@ const screenNames: Record<Screen, string> = {
   create: 'Share a recipe',
   community: 'Community',
   admin: 'Admin console',
+  mealime: 'Moving from Mealime',
+  'own-site': 'Bring your recipes from your own site',
 };
 const tabScreens: Screen[] = ['discover', 'explore', 'create', 'saved', 'profile'];
 const DESKTOP_HEADER = 84;
@@ -452,6 +458,7 @@ function Shell({ onReady }: { onReady: (ready: boolean) => void }) {
     pushPage(pagePath('create'));
   };
   const account = () => (app.user ? navigate('profile') : app.setAuthOpen(true));
+  const switchingPage = screen === 'mealime' || screen === 'own-site';
   const activeTab = tabScreens.includes(screen) ? screen : origin;
   const tabIndex = tabs.findIndex((t) => t.key === activeTab);
   const tabSlide = useState(() => new Animated.Value(tabIndex))[0];
@@ -507,6 +514,11 @@ function Shell({ onReady }: { onReady: (ready: boolean) => void }) {
       )}
       {screen === 'profile' && <Profile onOpen={open} navigate={navigate} onRecipe={edit} />}
       {screen === 'community' && <Community onCreator={setCreator} />}
+      {switchingPage && (
+        <Suspense fallback={<PageLoading />}>
+          {screen === 'mealime' ? <MealimePage onOpen={open} /> : <OwnSitePage onOpen={open} />}
+        </Suspense>
+      )}
       {screen === 'admin' && (
         <Suspense fallback={<PageLoading />}>
           <Admin onOpen={open} />
@@ -975,6 +987,8 @@ function Shell({ onReady }: { onReady: (ready: boolean) => void }) {
         onClose={() => setCreating(false)}
         onStart={create}
         onImported={edit}
+        onOpenRecipe={(id) => void openById(id, 'import')}
+        onPage={go}
       />
       {!webPage && recipePage}
       {studio && app.user && (
@@ -1012,7 +1026,8 @@ function Shell({ onReady }: { onReady: (ready: boolean) => void }) {
         />
       )}
       {ask && <SousChef key={askKey} request={ask} onClose={() => setAsk(null)} onRecipe={edit} />}
-      {welcoming && !app.loading && !app.error && !app.user && !selected && !authorizing && (
+      {/* A link to a page for switching to Savorly opens it, not the first-launch welcome. */}
+      {welcoming && !app.loading && !app.error && !app.user && !selected && !authorizing && !switchingPage && (
         <Suspense fallback={<Cover />}>
           <Welcome onDone={finishWelcome} />
         </Suspense>

@@ -84,6 +84,12 @@ describe('parseRoute', () => {
     expect(parseRoute('/?page=nowhere')).toEqual({ type: 'page', screen: null });
     expect(parseRoute('savorly://?page=pantry')).toEqual({ type: 'page', screen: 'pantry' });
     expect(parseRoute('savorly://')).toEqual({ type: 'page', screen: null });
+    // The pages for switching to Savorly: Mealime's members, and creators' own sites.
+    expect(parseRoute('https://savorly.cooking/?page=mealime')).toEqual({
+      type: 'page',
+      screen: 'mealime',
+    });
+    expect(parseRoute('/?page=own-site')).toEqual({ type: 'page', screen: 'own-site' });
   });
 
   test('the app scheme, in each way it is written', () => {

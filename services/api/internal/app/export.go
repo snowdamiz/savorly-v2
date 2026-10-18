@@ -16,9 +16,10 @@ import (
 // sessions and creator earnings, payouts and payout account (never its Stripe id) came after, as
 // new keys, then each session's step events, the questions asked while cooking, the assistants
 // linked to the account (never their tokens), their own versions of recipes and kitchen notes,
-// and the fixes suggested to recipes. json, not jsonb, keeps keys in the order written. The
-// password hash, provider tokens and billing IDs stay out; studio conversations keep only their
-// text.
+// the fixes suggested to recipes, and bulk imports with any permission a creator gave to import
+// their own site. json, not jsonb, keeps keys in the order written. The password hash, provider
+// tokens and billing IDs stay out; studio conversations keep only their text. export_files.go
+// writes it as files too.
 const exportSQL = `SELECT json_build_object(
  'format','savorly-export','version',2,'exportedAt',now(),
  'profile',json_build_object('id',u.id,'name',u.name,'email',u.email,'emailVerified',u.email_verified,'handle',u.handle,'bio',u.bio,'avatar',u.avatar,
@@ -73,7 +74,12 @@ const exportSQL = `SELECT json_build_object(
    FROM creator_earnings e WHERE e.creator_id=u.id),'[]'),
  'creatorPayouts',COALESCE((SELECT json_agg(json_build_object('amountCents',p.amount_cents,'status',p.status,'createdAt',p.created_at) ORDER BY p.created_at)
    FROM creator_payouts p WHERE p.creator_id=u.id),'[]'),
- 'payoutAccount',(SELECT json_build_object('country',a.country,'payoutsEnabled',a.payouts_enabled,'connectedAt',a.created_at) FROM creator_accounts a WHERE a.user_id=u.id AND a.stripe_account_id IS NOT NULL)
+ 'payoutAccount',(SELECT json_build_object('country',a.country,'payoutsEnabled',a.payouts_enabled,'connectedAt',a.created_at) FROM creator_accounts a WHERE a.user_id=u.id AND a.stripe_account_id IS NOT NULL),
+ 'imports',COALESCE((SELECT json_agg(json_build_object('purpose',b.purpose,'site',b.site,'createdAt',b.created_at,'finishedAt',b.finished_at,
+   'permission',CASE WHEN b.permission_at IS NOT NULL THEN json_build_object('statement',b.permission_statement,'agreedAt',b.permission_at) END,
+   'links',COALESCE((SELECT json_agg(json_build_object('url',i.url,'status',i.status,'recipeId',i.recipe_id) ORDER BY i.position) FROM import_items i WHERE i.batch_id=b.id AND i.url<>''),'[]'),
+   'texts',COALESCE((SELECT json_agg(json_build_object('text',i.pasted,'status',i.status,'recipeId',i.recipe_id) ORDER BY i.position) FROM import_items i WHERE i.batch_id=b.id AND i.pasted<>''),'[]')) ORDER BY b.created_at)
+   FROM import_batches b WHERE b.user_id=u.id),'[]')
 ) FROM users u WHERE u.id=$1`
 
 // sendExport answers with the member's export as a download.
@@ -100,7 +106,21 @@ func (a *App) exportMe(c fiber.Ctx) error { return a.sendExport(c, userID(c)) }
 
 // exportLink lets a native app hand the download to the browser, which can't carry its bearer
 // token: a single-use link, valid for ten minutes. A new link replaces the member's earlier one.
+// An optional {"format":"files"} makes it a link to the export as files (export_files.go).
 func (a *App) exportLink(c fiber.Ctx) error {
+	var in struct{ Format string }
+	if len(c.Body()) > 0 {
+		if e := decode(c, &in); e != nil {
+			return e
+		}
+	}
+	switch in.Format {
+	case "":
+		in.Format = "json"
+	case "json", "files":
+	default:
+		return fiber.NewError(400, "Choose the JSON file or the files.")
+	}
 	b := make([]byte, 32)
 	if _, e := rand.Read(b); e != nil {
 		return e
@@ -115,7 +135,7 @@ func (a *App) exportLink(c fiber.Ctx) error {
 		return e
 	}
 	var expires time.Time
-	if e = tx.QueryRow(c.Context(), `INSERT INTO export_tokens(token_hash,user_id,expires_at) VALUES($1,$2,now()+interval '10 minutes') RETURNING expires_at`, hashToken(tok), owner).Scan(&expires); e != nil {
+	if e = tx.QueryRow(c.Context(), `INSERT INTO export_tokens(token_hash,user_id,expires_at,format) VALUES($1,$2,now()+interval '10 minutes',$3) RETURNING expires_at`, hashToken(tok), owner, in.Format).Scan(&expires); e != nil {
 		return e
 	}
 	if e = tx.Commit(c.Context()); e != nil {
@@ -125,26 +145,45 @@ func (a *App) exportLink(c fiber.Ctx) error {
 	return c.JSON(fiber.Map{"url": "/v1/export/" + tok, "expiresAt": expires})
 }
 
-// exportByToken serves a link from exportLink once.
+// exportByToken serves a link from exportLink once, as JSON or as files.
 func (a *App) exportByToken(c fiber.Ctx) error {
 	hash := hashToken(c.Params("token"))
-	var owner string
-	var e error
-	if c.Method() == fiber.MethodHead {
-		// Download managers probe before fetching; a probe mustn't spend the link.
-		e = a.DB.QueryRow(c.Context(), `SELECT user_id FROM export_tokens WHERE token_hash=$1 AND expires_at>now()`, hash).Scan(&owner)
-	} else {
-		e = a.DB.QueryRow(c.Context(), `DELETE FROM export_tokens WHERE token_hash=$1 AND expires_at>now() RETURNING user_id`, hash).Scan(&owner)
-	}
+	var owner, format string
+	e := a.DB.QueryRow(c.Context(), `SELECT user_id,format FROM export_tokens WHERE token_hash=$1 AND expires_at>now()`, hash).Scan(&owner, &format)
 	if errors.Is(e, pgx.ErrNoRows) {
-		return fiber.NewError(404, "This download link has expired or was already used. Create a new one in My kitchen.")
+		return fiber.NewError(404, expiredExportLink)
 	}
 	if e != nil {
 		return e
 	}
 	if c.Method() == fiber.MethodHead {
-		exportHeaders(c)
+		// Download managers probe before fetching; a probe mustn't spend the link.
+		if format == "files" {
+			exportFilesHeaders(c)
+		} else {
+			exportHeaders(c)
+		}
 		return nil
+	}
+	release := func() {}
+	if format == "files" {
+		// While the member's files are already downloading, the link stays unspent.
+		if release, e = exportFilesSlot(owner); e != nil {
+			return e
+		}
+	}
+	// Spending the link is what serves it, so two requests can't both use it.
+	if e = a.DB.QueryRow(c.Context(), `DELETE FROM export_tokens WHERE token_hash=$1 AND expires_at>now() RETURNING user_id`, hash).Scan(&owner); e != nil {
+		release()
+		if errors.Is(e, pgx.ErrNoRows) {
+			return fiber.NewError(404, expiredExportLink)
+		}
+		return e
+	}
+	if format == "files" {
+		return a.sendExportFiles(c, owner, release)
 	}
 	return a.sendExport(c, owner)
 }
+
+const expiredExportLink = "This download link has expired or was already used. Create a new one in My kitchen."

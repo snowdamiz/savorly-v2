@@ -20,6 +20,8 @@ export const screens: readonly Screen[] = [
   'create',
   'community',
   'admin',
+  'mealime',
+  'own-site',
 ];
 
 // Recipe and cookbook ids: UUIDs, or slugs for the sample recipes (the Worker's recipeIdPattern).
