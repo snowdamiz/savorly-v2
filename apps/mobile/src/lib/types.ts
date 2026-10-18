@@ -9,6 +9,11 @@ export type RecipeStep = {
   video?: string;
   /** Where one of the recipe's family recordings says this step (lib/family.ts); missing for none. */
   voice?: StepVoice | null;
+  /**
+   * How the step spends its time, for cooking with other dishes (docs/MEAL-TIMELINE.md). Left
+   * out, the server keeps what's saved; null clears it.
+   */
+  timing?: StepTiming | null;
 };
 /** A stretch of a family recording: which one (`Recipe.recordings`), from and to, in milliseconds. */
 export type StepVoice = { recording: string; startMs: number; endMs: number };
@@ -19,6 +24,18 @@ export type RecipeRecording = {
   url: string;
   durationMs: number;
   consented: boolean;
+};
+/**
+ * Seconds that need the cook's hands and seconds that need none (baking, resting), the oven's heat
+ * in °C while the step runs (0 for none; a step with only an oven heat preheats it), the burners
+ * it takes, and whether these are an estimate rather than its cook's.
+ */
+export type StepTiming = {
+  active?: number;
+  wait?: number;
+  oven?: number;
+  burners?: number;
+  estimated?: boolean;
 };
 export type Creator = {
   id: string;

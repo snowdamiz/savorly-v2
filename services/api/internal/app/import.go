@@ -258,6 +258,7 @@ func (a *App) structuredRecipe(ld ldRecipe, doc pageData, page *url.URL, source 
 	if language, ok := recipeLanguage(firstOf(ldText(x["inLanguage"]), doc.Lang)); ok {
 		r.Language = language
 	}
+	importTiming(&r)
 	if e := r.Validate(); e != nil {
 		slog.Warn("recipe import: structured data didn't map to a recipe", "host", page.Hostname(), "error", e)
 		return RecipeInput{}, false

@@ -15,6 +15,7 @@ import {
   CalendarDays,
   ChevronLeft,
   ChevronRight,
+  CookingPot,
   Globe,
   Leaf,
   Pencil,
@@ -52,6 +53,7 @@ import { RecipeGrid, RecipeRow } from '../components/RecipeCard';
 import { AskCard } from '../components/SousChef';
 import { GroceryCheckout } from '../components/GroceryCheckout';
 import { DatePicker } from '../components/DatePicker';
+import { CookTogether } from '../components/CookTogether';
 import { CookbookSettings, useShareCookbook } from '../components/CookbookSettings';
 import { DangerButton } from '../components/DangerButton';
 import {
@@ -135,6 +137,8 @@ export function Cookbooks({
   }, [household]);
   const theirs =
     household && onOpenCookbook ? shared.filter((b) => b.owner.id !== app.user?.id) : [];
+  const [together, setTogether] = useState(false);
+  const { desktop } = useChrome();
   const selected = app.library.collections.find((c) => c.id === active);
   const shelf = useShelf(active);
   const { recipes } = shelf;
@@ -144,6 +148,24 @@ export function Cookbooks({
         title={tr('Saved')}
         subtitle={tr('Your favorites, and the ones you’ll make next.')}
       >
+        {/* A few saved recipes cooked as one meal (docs/MEAL-TIMELINE.md). */}
+        {!!app.user &&
+          recipes.length >= 2 &&
+          (desktop ? (
+            <Button
+              title={tr('Cook together')}
+              icon={CookingPot}
+              small
+              variant="secondary"
+              onPress={() => setTogether(true)}
+            />
+          ) : (
+            <IconButton
+              icon={CookingPot}
+              label={tr('Cook together')}
+              onPress={() => setTogether(true)}
+            />
+          ))}
         <HeadingAction
           title={tr('New cookbook')}
           icon={Plus}
@@ -309,6 +331,7 @@ export function Cookbooks({
           }
         />
       </Dialog>
+      <CookTogether visible={together} onClose={() => setTogether(false)} recipes={recipes} />
       <CookbookSettings
         cookbook={editing && selected ? selected : null}
         household={household?.name}
@@ -510,6 +533,7 @@ export function Planner({
   const [quantity, setQuantity] = useState('');
   const [busy, setBusy] = useState(false);
   const [sharing, setSharing] = useState(false);
+  const [together, setTogether] = useState<string | null>(null);
   const userId = app.user?.id ?? null;
   const today = localDate(new Date());
   // Weeks start where the cook's calendar does: Sunday in the US, Japan or Brazil, Monday in Europe.
@@ -560,6 +584,12 @@ export function Planner({
     });
     setBusy(false);
   };
+  // A day's meals that can be cooked together: another member's private recipe only shows its name.
+  const cookable = (day: string) =>
+    meals
+      .map((meal) => weekPlans.find((p) => p.day === day && p.meal === meal))
+      .filter((p): p is Plan => !!p && !p.recipe.teaser);
+  const togetherPlans = together ? cookable(together) : [];
   const slots = (day: string) =>
     meals.map((meal) => (
       <MealSlot
@@ -730,6 +760,16 @@ export function Planner({
                 })}
               </View>
               <View style={{ gap: 10 }}>{slots(selectedDay)}</View>
+              {cookable(selectedDay).length >= 2 && (
+                <Button
+                  title={tr('Cook together')}
+                  icon={CookingPot}
+                  small
+                  variant="secondary"
+                  onPress={() => setTogether(selectedDay)}
+                  style={{ alignSelf: 'flex-start' }}
+                />
+              )}
             </>
           ) : (
             <View style={{ gap: 10 }}>
@@ -760,6 +800,17 @@ export function Planner({
                       </Text>
                     </View>
                     <View style={{ flex: 1, flexDirection: 'row', gap: 10 }}>{slots(day)}</View>
+                    <View style={{ width: 44, justifyContent: 'center' }}>
+                      {cookable(day).length >= 2 && (
+                        <IconButton
+                          icon={CookingPot}
+                          label={tr('Cook together on {{v0}}', {
+                            v0: d.toLocaleDateString(locale, { weekday: 'long' }),
+                          })}
+                          onPress={() => setTogether(day)}
+                        />
+                      )}
+                    </View>
                   </View>
                 );
               })}
@@ -980,6 +1031,14 @@ export function Planner({
         </View>
       </Dialog>
       <HouseholdSheet visible={sharing} onClose={() => setSharing(false)} state={household} />
+      <CookTogether
+        visible={!!together}
+        onClose={() => setTogether(null)}
+        recipes={togetherPlans.map((p) => p.recipe)}
+        chosen={togetherPlans.map((p) => p.recipe.id)}
+        day={together}
+        meals={togetherPlans.map((p) => p.meal)}
+      />
     </View>
   );
 }

@@ -52,6 +52,10 @@ apostrophes, spacing in Japanese and Chinese, and polite words at either end ("n
 "请下一步", "次へ進んでください"). "Chef, next step" is still a free command. Ingredients are read in
 the recipe's language after a sentence in the app's.
 
+## Cooking a meal
+
+Cooking several dishes together ([meal timeline](MEAL-TIMELINE.md)) has the same switch, and the commands work across the dishes. "Next step" (or "done") is done with the step on screen: a step that then waits starts its dish's timer, and the next step is read, its dish's name first, then what's running in the app's language: "Salmon. Season. Season the fillets with salt. Crispy potatoes has 10 minutes left." "Start the timer" on a step that waits does the same; "pause the timer" and "resume the timer" act on the dishes' timer that ends first. "Previous step" takes the last step back, "repeat" reads the step and what's running again, "ingredients" are the dish on screen's, and a "Chef, …" question is about that dish and its step. With nothing to do until a timer ends, "next step" says so. A timer that runs out says so aloud, by its dish's name.
+
 ## Questions and what they cost
 
 A question is `POST /v1/recipes/:id/ask` with `{ "question", "step", "language" }` ([API](API.md#hands-free-cooking)).

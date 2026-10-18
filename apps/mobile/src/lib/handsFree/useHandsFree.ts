@@ -29,6 +29,13 @@ export type CookControls = {
   read: () => void;
   stopReading: () => void;
   setTimer: (running: boolean) => void;
+  /**
+   * Cooking several dishes at once (docs/MEAL-TIMELINE.md): the step's place in the meal, so
+   * moving to another dish's step reads it too; whether next finishes the meal; and whether the
+   * step's own timer starts when it's done, so "start the timer" is done with it. `timer` is then
+   * the dishes' timer that ends first, for pausing and resuming.
+   */
+  meal?: { position: number; last: boolean; startsTimer: boolean };
 };
 
 /** How long the wake word alone waits for its question. */
@@ -148,6 +155,14 @@ export function useHandsFree(recipe: Recipe, cook: CookControls) {
     (want: 'start' | 'resume' | 'pause') => {
       const { cook, tr } = latest.current;
       const { seconds, remaining, running } = cook.timer;
+      // In a meal, the step's timer runs on its own once it's done: the next step is read, with
+      // what's running.
+      if (cook.meal?.startsTimer && want === 'start') {
+        quiet();
+        readAfterMove.current = true;
+        cook.next();
+        return;
+      }
       if (!seconds) return speak(tr('This step has no timer.'));
       if (want === 'pause') {
         if (!running) return speak(tr("The timer isn't running."));
@@ -159,7 +174,7 @@ export function useHandsFree(recipe: Recipe, cook: CookControls) {
       cook.setTimer(true);
       speak(remaining < seconds ? tr('Timer resumed.') : tr('Timer started.'));
     },
-    [speak],
+    [speak, quiet],
   );
 
   const ingredients = useCallback(
@@ -191,7 +206,7 @@ export function useHandsFree(recipe: Recipe, cook: CookControls) {
   const run = useCallback(
     (command: HandsFreeCommand) => {
       const { recipe, cook, tr } = latest.current;
-      const last = cook.step >= recipe.steps.length - 1;
+      const last = cook.meal ? cook.meal.last : cook.step >= recipe.steps.length - 1;
       switch (command) {
         case 'next':
         case 'done':
@@ -207,7 +222,8 @@ export function useHandsFree(recipe: Recipe, cook: CookControls) {
           return;
         case 'previous':
           quiet();
-          if (cook.step === 0) return speak(tr('This is the first step.'));
+          if (cook.meal ? cook.meal.position === 0 : cook.step === 0)
+            return speak(tr('This is the first step.'));
           readAfterMove.current = true;
           cook.previous();
           return;
@@ -307,7 +323,7 @@ export function useHandsFree(recipe: Recipe, cook: CookControls) {
     readAfterMove.current = false;
     const id = setTimeout(() => latest.current.cook.read(), 0);
     return () => clearTimeout(id);
-  }, [cook.step]);
+  }, [cook.step, cook.meal?.position]);
 
   // The wake word's wait for its question runs out.
   useEffect(() => {

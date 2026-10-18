@@ -265,6 +265,8 @@ func (a *App) processJob(parent context.Context, id, owner, kind, prompt, source
 				}
 				// A page can list more equipment, or longer names, than a recipe holds.
 				out.Recipe.Equipment = fitEquipment(out.Recipe.Equipment)
+				// The model's step timing is its estimate, held to what a step may have.
+				fitTiming(out.Recipe.Steps, nil)
 				err = out.Recipe.Validate()
 				result = jsonBytes(out)
 			}

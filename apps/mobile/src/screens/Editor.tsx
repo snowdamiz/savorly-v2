@@ -60,6 +60,7 @@ import { LocalMedia, pickPhoto, preparePhoto, uploadMedia } from '../lib/photos'
 import { CuisineIcon } from '../components/CuisineIcon';
 import { CuisinePicker } from '../components/CuisinePicker';
 import { EquipmentEditor } from '../components/EquipmentEditor';
+import { fitTiming, StepTimingEditor } from '../components/StepTimingEditor';
 import { PhotoTouchUp } from '../components/PhotoTouchUp';
 import { postCreator, postPlatform } from '../lib/recipeImport';
 import { DangerButton, SignInKitchen } from './Kitchen';
@@ -240,12 +241,13 @@ const draftOf = (r: RecipeInput) =>
       unit,
       category,
     })),
-    steps: r.steps.map(({ title, text, seconds, image, video }) => ({
+    steps: r.steps.map(({ title, text, seconds, image, video, timing }) => ({
       title,
       text,
       seconds,
       ...(typeof image === 'string' ? { image } : {}),
       ...(typeof video === 'string' ? { video } : {}),
+      ...(timing !== undefined ? { timing } : {}),
     })),
     tags: r.tags || [],
     calories: r.calories || 0,
@@ -668,9 +670,14 @@ function EditorForm({ initial, onPublished, onAI }: EditorProps) {
       // Only a new adaptation names its original; an edit leaves the saved link as it is.
       const { derivedFrom, ...rest } = r;
       const credit = !id && typeof derivedFrom === 'string' && derivedFrom && !originGone;
+      // A step's timing goes as the server holds it; left out (an older draft), the server keeps
+      // the saved timing, and null clears it.
+      const steps = rest.steps.map((st) =>
+        st.timing === undefined ? st : { ...st, timing: fitTiming(st.timing) },
+      );
       const recipe = await api<Recipe>(id ? `/recipes/${id}` : '/recipes', {
         method: id ? 'PUT' : 'POST',
-        body: { ...rest, published, ...(credit ? { derivedFrom } : {}) },
+        body: { ...rest, steps, published, ...(credit ? { derivedFrom } : {}) },
       });
       saved.current = true;
       await AsyncStorage.removeItem(draftKey).catch(() => {});
@@ -1183,7 +1190,13 @@ function EditorForm({ initial, onPublished, onAI }: EditorProps) {
                         multiline
                         placeholder={tr('Explain it like a friend is cooking alongside you…')}
                         value={step.text}
-                        onChangeText={(v) => setStep(n, { text: v })}
+                        // An estimate was for the old words; the server estimates the new ones.
+                        onChangeText={(v) =>
+                          setStep(
+                            n,
+                            step.timing?.estimated ? { text: v, timing: null } : { text: v },
+                          )
+                        }
                         style={inset}
                       />
                       <View style={[s.wrap, { gap: 14 }]}>
@@ -1313,6 +1326,11 @@ function EditorForm({ initial, onPublished, onAI }: EditorProps) {
                       <MinutesField
                         seconds={step.seconds}
                         onChange={(seconds) => setStep(n, { seconds })}
+                      />
+                      <StepTimingEditor
+                        step={n + 1}
+                        timing={step.timing}
+                        onChange={(timing) => setStep(n, { timing })}
                       />
                     </View>
                   );

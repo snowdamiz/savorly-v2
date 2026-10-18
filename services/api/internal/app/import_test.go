@@ -208,17 +208,20 @@ func TestStructuredRecipeMapping(t *testing.T) {
 	if got := len(r.Ingredients); got != 5 || r.Ingredients[3] != (Ingredient{Name: "salt", Unit: "to taste"}) || r.Ingredients[4] != (Ingredient{Name: "parmesan", Amount: 2, Unit: "tbsp"}) {
 		t.Errorf("ingredients: %+v", r.Ingredients)
 	}
+	// Steps whose words give a time get it as an estimate for the meal timeline.
 	want := []Step{
-		{Title: "Cook the pasta", Text: "Bring a large pot of salted water to a boil and cook the spaghetti for 10 minutes.", Seconds: 600, Image: "https://cook.example/step1.jpg"},
+		{Title: "Cook the pasta", Text: "Bring a large pot of salted water to a boil and cook the spaghetti for 10 minutes.", Seconds: 600, Image: "https://cook.example/step1.jpg", Timing: &StepTiming{Active: 60, Wait: 540, Burners: 1, Estimated: true}},
 		{Title: "Save some water", Text: "Keep a cup of the cooking water before you drain it."},
-		{Title: "Make the sauce", Text: "Stir the ricotta with the lemon zest and juice. Mix. Toss", Seconds: 120},
+		{Title: "Make the sauce", Text: "Stir the ricotta with the lemon zest and juice. Mix. Toss", Seconds: 120, Timing: &StepTiming{Active: 120, Estimated: true}},
 	}
 	if len(r.Steps) != len(want) {
 		t.Fatalf("steps: %+v", r.Steps)
 	}
 	for i := range want {
-		if r.Steps[i] != want[i] {
-			t.Errorf("step %d: %+v, want %+v", i, r.Steps[i], want[i])
+		got, timing := r.Steps[i], r.Steps[i].Timing
+		got.Timing = nil
+		if expected := want[i]; got != (Step{Title: expected.Title, Text: expected.Text, Seconds: expected.Seconds, Image: expected.Image}) || (timing == nil) != (expected.Timing == nil) || (timing != nil && *timing != *expected.Timing) {
+			t.Errorf("step %d: %+v %+v, want %+v %+v", i, got, timing, expected, expected.Timing)
 		}
 	}
 	if e := r.Validate(); e != nil {
