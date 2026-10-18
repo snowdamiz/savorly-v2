@@ -51,7 +51,7 @@ import { AdminPending } from './admin/AdminPending';
 import { AccountSecurity } from '../components/AccountSecurity';
 import { DataExport } from '../components/DataExport';
 import { ConnectedApps } from '../components/ConnectedApps';
-import { ShareCooking } from '../components/CookInsights';
+import { YourCooking } from '../components/YourVersion';
 import { LegalLinks } from '../components/Legal';
 import { NotificationSettings } from '../components/NotificationSettings';
 import { FoundingMark } from '../components/FoundingMark';
@@ -423,7 +423,7 @@ export function Profile({
           <AccountSecurity />
           <ConnectedApps />
           <DataExport />
-          <ShareCooking />
+          <YourCooking />
         </View>
       )}
     </>

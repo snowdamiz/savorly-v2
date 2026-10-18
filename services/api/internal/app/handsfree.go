@@ -56,7 +56,8 @@ func (a *App) askCook(c fiber.Ctx) error {
 	if e != nil {
 		return e
 	}
-	q := ai.CookQuestion{Recipe: recipe.text(), Step: cookStep(recipe, in.Step), Insight: recipe.insight(in.Step), Question: question, Language: language}
+	q := ai.CookQuestion{Recipe: recipe.text(), Step: cookStep(recipe, in.Step), Insight: recipe.insight(in.Step), Question: question, Language: language,
+		Yours: yourVersionLine(ctx, a.DB, owner, recipe.id, recipe.steps, recipe.ingredients)}
 	usage, e := a.reserveCookQuestion(ctx, owner, q.Estimate())
 	if e != nil {
 		return e

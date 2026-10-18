@@ -59,7 +59,8 @@ The server reads the recipe as the member may see it (published by a cook in goo
 their own) and asks GPT-6 Luna (`OPENROUTER_AGENT_MODEL`, low reasoning, at most 300 output
 tokens) for one to three short spoken sentences from the recipe (its equipment included: the cook's
 list, or what the method mentions), the cook's step, and what other cooks found at that step: how
-long it really took them and what they often ask ([cook-tested recipes](COOK-TESTED.md)). The
+long it really took them and what they often ask ([cook-tested recipes](COOK-TESTED.md)), and
+the cook's own version of the recipe and kitchen notes ([your version](YOUR-VERSION.md)). The
 question itself is kept with its step for 90 days, for the questions recipes show, unless it's the
 cook's own recipe or they keep their cooking out. The call has
 no tools: it can't move a step, start a timer or change anything, and it is told never to claim it

@@ -439,7 +439,9 @@ export type StudioEffect = {
     | 'report'
     | 'media'
     | 'cooked'
-    | 'suggested';
+    | 'suggested'
+    | 'remembered'
+    | 'kitchen_note';
   count?: number;
   title?: string;
   /** A recipe to open from the receipt. */

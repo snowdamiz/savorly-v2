@@ -87,6 +87,8 @@ import { CookTested } from './CookTested';
 import { CooksGetStuck, StepQuestions, StepTimerHint, StepUsual } from './CookInsights';
 import { stepInsight, useCookInsights } from '../lib/cookInsights';
 import { CooksSuggest, FixHistory, SuggestFix } from './RecipeFixes';
+import { YourChanges, YoursMark, YourVersionBar } from './YourVersion';
+import { applyEdits, useYourVersion } from '../lib/yourVersion';
 import { FixDraft, useSuggestions } from '../lib/recipeFixes';
 import { DangerButton } from '../screens/Kitchen';
 import { RevealFocus, useKeyboardLift, useKeyboardScroll } from '../lib/keyboard';
@@ -178,19 +180,31 @@ export function RecipeDetail({
   // Written in another language, the recipe can show translated: `reading` is what the page shows
   // (the recipe, or its translation), while amounts, units and everything else stay the recipe's.
   const translation = useRecipeTranslation(recipe);
-  const reading = translation.shown;
+  const mine = app.user?.id === recipe.author.id;
+  // The member's own version of someone else's recipe (docs/YOUR-VERSION.md) goes over what the
+  // page shows, translated or not, unless they chose to see the original.
+  const yours = useYourVersion(recipe.id, !!app.user && !mine && recipe.published);
+  const [original, setOriginal] = useState(false);
+  const [managing, setManaging] = useState(false);
+  const version = useMemo(
+    () => applyEdits(translation.shown, original ? [] : yours.edits),
+    [translation.shown, original, yours.edits],
+  );
+  const reading = version.recipe;
   // What cooks found cooking it: the finish rate, and notes and questions at its steps.
   const insights = useCookInsights(recipe.id);
   const [stuck, setStuck] = useState(false);
   // What cooks who made it suggest changing (docs/RECIPE-FIXES.md), the suggestion being written
   // (with what cooking mode filled in), and how cooks improved it.
   const fixes = useSuggestions(recipe.id, recipe.published);
-  const [suggesting, setSuggesting] = useState<{ draft: FixDraft | null } | null>(null);
+  const [suggesting, setSuggesting] = useState<{
+    draft: FixDraft | null;
+    mode?: 'suggest' | 'mine';
+  } | null>(null);
   const [improved, setImproved] = useState(false);
   const equipment = useShownEquipment(reading);
   const saved = app.library.savedIds.includes(recipe.id);
   const following = app.library.followingIds.includes(recipe.author.id);
-  const mine = app.user?.id === recipe.author.id;
   const heroHeight = wide
     ? Math.min(560, Math.round(height * 0.6))
     : Math.min(470, Math.round(height * 0.55));
@@ -433,6 +447,7 @@ export function RecipeDetail({
                         </View>
                       )}
                       <Text style={[s.body, { flex: 1 }]}>{i.name}</Text>
+                      {version.ingredients.has(n) && <YoursMark />}
                     </View>
                     {pantry[n] && (
                       <View style={[s.row, { gap: 4 }]}>
@@ -568,6 +583,7 @@ export function RecipeDetail({
               >
                 {st.title}
               </Text>
+              {version.steps.has(i) && <YoursMark />}
               <Text
                 style={[s.body, { color: '#3A3A3A' }, webPage && { fontSize: 16, lineHeight: 26 }]}
               >
@@ -730,11 +746,28 @@ export function RecipeDetail({
         />
       )}
       <SuggestFix
-        recipe={recipe}
+        recipe={suggesting?.mode === 'mine' ? applyEdits(recipe, yours.edits).recipe : recipe}
         visible={!!suggesting}
         draft={suggesting?.draft}
+        mode={suggesting?.mode}
         onClose={() => setSuggesting(null)}
-        onSent={fixes.reload}
+        onSent={suggesting?.mode === 'mine' ? yours.reload : fixes.reload}
+      />
+      <YourChanges
+        visible={managing}
+        onClose={() => setManaging(false)}
+        edits={yours.edits}
+        author={recipe.author.name}
+        canSuggest={fixes.canSuggest}
+        onSuggest={(draft) => {
+          setManaging(false);
+          setSuggesting({ draft });
+        }}
+        onAdd={() => {
+          setManaging(false);
+          setSuggesting({ draft: null, mode: 'mine' });
+        }}
+        onChanged={yours.reload}
       />
       <FixHistory
         recipe={recipe}
@@ -755,6 +788,12 @@ export function RecipeDetail({
           onAsk={onAsk}
           onCooked={() => setCookedRequest((n) => n + 1)}
           onSuggest={(draft) => setSuggesting({ draft })}
+          onKept={yours.reload}
+          onChange={
+            app.user && !mine && recipe.published
+              ? () => setSuggesting({ draft: null, mode: 'mine' })
+              : undefined
+          }
           onClose={() => {
             setCook(false);
             setClosedCommand(cookCommand?.n);
@@ -1058,8 +1097,17 @@ export function RecipeDetail({
       onPress={() => setStuck(true)}
     />
   );
+  // Beside the translation, the member's own version of the recipe and the way back to the original.
   const translationBar = (
-    <TranslationBar language={recipe.language ?? ''} translation={translation} />
+    <>
+      <TranslationBar language={recipe.language ?? ''} translation={translation} />
+      <YourVersionBar
+        edits={yours.edits}
+        original={original}
+        onToggle={() => setOriginal((v) => !v)}
+        onManage={() => setManaging(true)}
+      />
+    </>
   );
   const facts = (
     <View

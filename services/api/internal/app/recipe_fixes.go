@@ -209,13 +209,8 @@ type preparedFix struct {
 // of the recipe, change something, and leave a recipe the editor would save.
 func prepareFix(ctx context.Context, q querier, recipe, me, kind string, step, ingredient int, change fixPart) (preparedFix, error) {
 	f := preparedFix{kind: kind}
-	part, known := fixKinds[kind]
-	if !known {
+	if _, known := fixKinds[kind]; !known {
 		return f, fiber.NewError(400, "Choose what kind of change this is.")
-	}
-	f.part, f.place = part, step
-	if part == "ingredient" {
-		f.place = ingredient
 	}
 	r, author, ok, e := recipeForFix(ctx, q, recipe, false)
 	if e != nil {
@@ -234,12 +229,24 @@ func prepareFix(ctx context.Context, q querier, recipe, me, kind string, step, i
 	if !cooked {
 		return f, fiber.NewError(403, "Cook this recipe through in cooking mode first, then suggest a change.")
 	}
-	f.target, f.before, ok = fixTarget(r, part, f.place)
+	return partChange(r, kind, step, ingredient, change)
+}
+
+// partChange is changing kind at step or ingredient of r (a missing step goes after step): the
+// part, its target and place, and the part as it is and would be. It must change something and
+// leave a recipe the editor would save.
+func partChange(r RecipeInput, kind string, step, ingredient int, change fixPart) (preparedFix, error) {
+	f := preparedFix{kind: kind, part: fixKinds[kind], place: step}
+	if f.part == "ingredient" {
+		f.place = ingredient
+	}
+	var ok bool
+	f.target, f.before, ok = fixTarget(r, f.part, f.place)
 	if !ok {
 		return f, fiber.NewError(400, "Choose a step or ingredient the recipe has.")
 	}
 	f.after = fixAfter(f.before, change)
-	if part == "new_step" && f.after.Title == "" {
+	if f.part == "new_step" && f.after.Title == "" {
 		f.after.Title = f.after.Text
 		if t := []rune(f.after.Title); len(t) > 60 {
 			f.after.Title = strings.TrimSpace(string(t[:60]))
@@ -250,7 +257,7 @@ func prepareFix(ctx context.Context, q querier, recipe, me, kind string, step, i
 	}
 	next := r
 	next.Steps, next.Ingredients = append([]Step(nil), r.Steps...), append([]Ingredient(nil), r.Ingredients...)
-	applyFix(&next, part, f.place, f.after)
+	applyFix(&next, f.part, f.place, f.after)
 	return f, next.Validate()
 }
 

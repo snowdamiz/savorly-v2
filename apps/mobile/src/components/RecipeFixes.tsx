@@ -16,6 +16,7 @@ import {
   Suggestion,
 } from '../lib/recipeFixes';
 import { Check, ChevronDown, Pencil, ThumbsUp, Undo2, X } from './icons';
+import { keepEdit } from '../lib/yourVersion';
 import { Button, Chip, Dialog, Field, IconButton } from './ui';
 
 type Translate = ReturnType<typeof useI18n>['t'];
@@ -222,20 +223,24 @@ const kinds: FixKind[] = ['time', 'heat', 'note', 'missing_step', 'amount', 'swa
 
 /**
  * Suggesting a change: what kind, which step or ingredient, and the change, with what happened.
- * `draft` opens it filled in, as after a cook where a step took longer than its timer.
+ * `draft` opens it filled in, as after a cook where a step took longer than its timer. With mode
+ * `mine` it keeps the change in the member's own version instead (docs/YOUR-VERSION.md), which
+ * changes steps and ingredients but adds none.
  */
 export function SuggestFix({
   recipe,
   visible,
   draft,
+  mode = 'suggest',
   onClose,
   onSent,
 }: {
   recipe: Recipe;
   visible: boolean;
   draft?: FixDraft | null;
+  mode?: 'suggest' | 'mine';
   onClose: () => void;
-  onSent: (s: Suggestion) => void;
+  onSent: () => void;
 }) {
   const { t: tr } = useI18n();
   const app = useApp();
@@ -245,6 +250,7 @@ export function SuggestFix({
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const part = fixPart[kind];
+  const mine = mode === 'mine';
   // Each part starts as it reads now, so the cook changes only what they mean to.
   const fill = (k: FixKind, n: number, change?: FixPart) => {
     const p = fixPart[k];
@@ -320,11 +326,14 @@ export function SuggestFix({
       reason: reason.trim(),
     };
     void app
-      .act(async () => {
-        const sent = await sendSuggestion(recipe.id, body);
-        onSent(sent);
-        onClose();
-      }, 'Your suggestion is sent.')
+      .act(
+        async () => {
+          await (mine ? keepEdit(recipe.id, body, 'typed') : sendSuggestion(recipe.id, body));
+          onSent();
+          onClose();
+        },
+        mine ? 'Kept in your version.' : 'Your suggestion is sent.',
+      )
       .finally(() => setBusy(false));
   };
   const places =
@@ -346,26 +355,35 @@ export function SuggestFix({
     <Dialog
       visible={visible}
       onClose={onClose}
-      title={tr('Suggest a change')}
+      title={mine ? tr('Change it for yourself') : tr('Suggest a change')}
       footer={
         <Button
-          title={tr('Send to {{v0}}', { v0: recipe.author.name })}
+          title={mine ? tr('Keep in my version') : tr('Send to {{v0}}', { v0: recipe.author.name })}
           busy={busy}
           onPress={send}
         />
       }
     >
       <Text style={s.muted}>
-        {tr(
-          'Suggest what another cook can check: a time, the heat, an amount, a missing step, a swap or a note. Taste is for comments.',
-        )}
+        {mine
+          ? tr('Only you see this. The recipe opens your way next time.')
+          : tr(
+              'Suggest what another cook can check: a time, the heat, an amount, a missing step, a swap or a note. Taste is for comments.',
+            )}
       </Text>
       <View style={{ gap: 10 }}>
         <Text style={s.label}>{tr('What should change?')}</Text>
         <View style={[s.wrap, { gap: 8 }]}>
-          {kinds.map((k) => (
-            <Chip key={k} title={kindLabel(tr, k)} active={kind === k} onPress={() => choose(k)} />
-          ))}
+          {kinds
+            .filter((k) => !mine || k !== 'missing_step')
+            .map((k) => (
+              <Chip
+                key={k}
+                title={kindLabel(tr, k)}
+                active={kind === k}
+                onPress={() => choose(k)}
+              />
+            ))}
         </View>
       </View>
       <View style={{ gap: 10 }}>

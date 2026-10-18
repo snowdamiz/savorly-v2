@@ -148,6 +148,7 @@ test('a member who keeps their cooking out sends no step events', async ({ page 
 test('the switch in My kitchen keeps a member’s cooking out', async ({ page }) => {
   const api = await mockApi(page);
   await page.goto('/?page=profile');
+  await page.getByRole('button', { name: 'Your cooking', exact: true }).click();
   const toggle = page.getByRole('switch', { name: /Share how my cooking goes/ });
   await expect(toggle).toBeChecked();
   await toggle.click();

@@ -449,14 +449,14 @@ function StuckQuestion({
  * Whether the member's cooking counts toward recipes' insights: on unless turned off. Off, the
  * server also takes back what their cooking already added.
  */
-export function ShareCooking() {
+export function ShareCooking({ bare }: { bare?: boolean }) {
   const { t: tr } = useI18n();
   const app = useApp();
   const [changed, setChanged] = useState<boolean | null>(null);
   if (!app.user) return null;
   const on = changed ?? app.user.preferences.shareCooking !== false;
   return (
-    <View style={[s.card, { paddingVertical: 4 }]}>
+    <View style={bare ? undefined : [s.card, { paddingVertical: 4 }]}>
       <SwitchRow
         title={tr('Share how my cooking goes')}
         text={tr(

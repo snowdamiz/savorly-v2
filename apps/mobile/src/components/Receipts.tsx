@@ -51,6 +51,8 @@ const icons: Record<StudioEffect['kind'], LucideIcon> = {
   media: ImagePlus,
   cooked: CookingPot,
   suggested: Pencil,
+  remembered: PenLine,
+  kitchen_note: CookingPot,
 };
 
 type Translate = ReturnType<typeof useI18n>['t'];
@@ -100,6 +102,10 @@ function receiptText(tr: Translate, f: StudioEffect) {
       return tr('Marked {{title}} as cooked', { title });
     case 'suggested':
       return tr('Suggested a change to {{title}}', { title });
+    case 'remembered':
+      return tr('Kept in your version of {{title}}', { title });
+    case 'kitchen_note':
+      return tr('Noted for your kitchen: {{title}}', { title });
   }
 }
 

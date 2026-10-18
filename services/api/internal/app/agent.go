@@ -83,6 +83,8 @@ var agentToolDefs = []agentToolDef{
 	{tool("follow_cook", "Follow or unfollow a cook.", object([]string{"cook_id"}, props{"cook_id": field("string", ""), "unfollow": field("boolean", "")})), "saving", (*toolTurn).followCook},
 	{tool("review_recipe", "Post or replace the user's review of another cook's published recipe, with their own rating and words. Needs confirmation.", object([]string{"recipe_id", "rating", "text"}, props{"recipe_id": recipeID(), "rating": field("integer", "1–5"), "text": field("string", "3–2000 characters")})), "saving", (*toolTurn).reviewRecipe},
 	{tool("suggest_fix", "Suggest a change to another cook's published recipe that the user cooked through in cooking mode, for its author to accept: kind time, heat or note changes step `step` (give its whole new text in change.text, and change.seconds for its timer); missing_step adds a step after `step` (0 for the start) with change.title, change.text and change.seconds; amount or swap changes ingredient `ingredient` (1-based) with change.name, change.amount and change.unit. Only changes a cook can check, never taste. Needs confirmation.", object([]string{"recipe_id", "kind"}, props{"recipe_id": recipeID(), "kind": choice("", "time", "heat", "note", "missing_step", "amount", "swap"), "step": field("integer", "1-based step; for missing_step the step it goes after, 0 for the start"), "ingredient": field("integer", "1-based ingredient"), "change": object(nil, props{"title": field("string", ""), "text": field("string", "The step's whole new text"), "seconds": field("integer", "The step's timer"), "name": field("string", ""), "amount": field("number", ""), "unit": field("string", "")}), "reason": field("string", "What happened when the user cooked it, in their words; up to 500 characters")})), "saving", (*toolTurn).suggestFix},
+	{tool("remember_change", "Keep a change the user made to another cook's published recipe in their own version of it, which only they see and which opens their way next time: kind time, heat or note changes step `step` (give its whole new text in change.text, and change.seconds for its timer); amount or swap changes ingredient `ingredient` (1-based) with change.name, change.amount and change.unit. A second change to the same step or ingredient replaces the first.", object([]string{"recipe_id", "kind"}, props{"recipe_id": recipeID(), "kind": choice("", "time", "heat", "note", "amount", "swap"), "step": field("integer", "1-based step"), "ingredient": field("integer", "1-based ingredient"), "change": object(nil, props{"text": field("string", "The step's whole new text"), "seconds": field("integer", "The step's timer"), "name": field("string", ""), "amount": field("number", ""), "unit": field("string", "")}), "said": field("string", "What the user said, in their words; up to 500 characters")})), "saving", (*toolTurn).rememberChange},
+	{tool("remember_kitchen_note", "Keep a short fact about the user's kitchen or taste that applies to every recipe, such as \"my oven runs hot\" or \"we like it mild\" (2–200 characters, in the user's words).", object([]string{"note"}, props{"note": field("string", "")})), "saving", (*toolTurn).rememberKitchenNote},
 	{tool("report_recipe", "Report a published recipe for moderation, with the user's reason. Needs confirmation.", object([]string{"recipe_id", "reason"}, props{"recipe_id": recipeID(), "reason": field("string", "5–1000 characters")})), "saving", (*toolTurn).reportRecipe},
 	{tool("edit_recipe", "Change one of the user's own existing recipes, keeping its photos. Send only the fields that change; ingredients, steps, tags and equipment replace the whole list, so include every item. Publishing it, or changing a published recipe, needs confirmation.", object([]string{"recipe_id"}, props{"recipe_id": recipeID(), "changes": editableRecipe, "published": field("boolean", "true publishes, false makes it private")})), "", (*toolTurn).editRecipe},
 	{tool("delete_recipe", "Permanently delete one of the user's own recipes. Needs confirmation.", object([]string{"recipe_id"}, props{"recipe_id": recipeID()})), "recipe", (*toolTurn).deleteRecipe},
@@ -194,6 +196,8 @@ func (a *App) agentAPI() *fiber.App {
 		f.Put("/recipes/:id/review", a.review)
 		f.Post("/recipes/:id/report", a.report)
 		f.Post("/recipes/:id/suggestions", a.suggestFix)
+		f.Put("/recipes/:id/my-version", a.keepEdit)
+		f.Post("/me/kitchen-notes", a.addKitchenNote)
 		f.Patch("/me", a.updateMe)
 		f.Get("/kitchen", a.kitchen)
 		f.Get("/kitchen/pantry-recipes", a.pantryRecipes)
@@ -307,6 +311,7 @@ type toolArgs struct {
 	Changes                                                                                          json.RawMessage `json:"changes"`
 	Change                                                                                           fixPart         `json:"change"`
 	Ingredient                                                                                       int
+	Said                                                                                             string
 	Kinds                                                                                            []string `json:"kinds"`
 	Items                                                                                            []struct{ Name, Quantity, Category string }
 	Recipe                                                                                           *RecipeInput
@@ -771,6 +776,31 @@ func (t *toolTurn) reportRecipe() string {
 		t.run.note(effect{Kind: "report", Title: title})
 	}
 	return t.result(status, b)
+}
+
+func (t *toolTurn) rememberChange() string {
+	status, b := t.call("PUT", "/recipes/"+pathID(t.in.RecipeID)+"/my-version", fiber.Map{"kind": t.in.Kind, "step": t.in.Step, "ingredient": t.in.Ingredient, "change": t.in.Change, "said": t.in.Said, "source": "sous_chef"})
+	if status >= 300 {
+		return t.result(status, b)
+	}
+	var kept struct {
+		Edit     recipeEdit
+		Replaced *recipeEdit
+	}
+	_ = json.Unmarshal(b, &kept)
+	t.run.note(effect{Kind: "remembered", Title: t.a.recipeTitle(t.ctx, t.in.RecipeID), Recipe: t.in.RecipeID, Undo: jsonBytes(fiber.Map{"edit": kept.Edit.ID, "previous": kept.Replaced})})
+	return string(jsonBytes(fiber.Map{"kept": suggestionSummary(kept.Edit.Kind, kept.Edit.Place, kept.Edit.Before, kept.Edit.After)}))
+}
+
+func (t *toolTurn) rememberKitchenNote() string {
+	status, b := t.call("POST", "/me/kitchen-notes", fiber.Map{"note": t.in.Note, "source": "sous_chef"})
+	if status >= 300 {
+		return t.result(status, b)
+	}
+	var n kitchenNote
+	_ = json.Unmarshal(b, &n)
+	t.run.note(effect{Kind: "kitchen_note", Title: n.Note, Page: "profile", Undo: jsonBytes(fiber.Map{"id": n.ID})})
+	return string(jsonBytes(fiber.Map{"kept": n.Note}))
 }
 
 func (t *toolTurn) suggestFix() string {

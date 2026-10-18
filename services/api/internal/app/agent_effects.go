@@ -241,6 +241,28 @@ func undoEffect(ctx context.Context, tx pgx.Tx, owner string, f effect) error {
 			return e
 		}
 		_, e = tx.Exec(ctx, `UPDATE groceries g SET checked=$3 WHERE g.id=$1 AND `+groceryScope(2), u.ID, owner, u.Checked)
+	case "remembered":
+		var u struct {
+			Edit     string
+			Previous *recipeEdit
+		}
+		if e = json.Unmarshal(f.Undo, &u); e != nil {
+			return e
+		}
+		// A change that replaced an earlier one puts that one back.
+		if u.Previous == nil {
+			_, e = tx.Exec(ctx, `DELETE FROM recipe_edits WHERE id=$1 AND user_id=$2`, u.Edit, owner)
+		} else {
+			p := u.Previous
+			_, e = tx.Exec(ctx, `UPDATE recipe_edits SET kind=$3,place=$4,before=$5,after=$6,said=$7,source=$8,updated_at=$9 WHERE id=$1 AND user_id=$2`,
+				u.Edit, owner, p.Kind, p.Place, jsonBytes(p.Before), jsonBytes(p.After), p.Said, p.Source, p.UpdatedAt)
+		}
+	case "kitchen_note":
+		var u struct{ ID string }
+		if e = json.Unmarshal(f.Undo, &u); e != nil {
+			return e
+		}
+		_, e = tx.Exec(ctx, `DELETE FROM kitchen_notes WHERE id=$1 AND user_id=$2`, u.ID, owner)
 	default:
 		return fiber.NewError(400, "That can't be undone.")
 	}

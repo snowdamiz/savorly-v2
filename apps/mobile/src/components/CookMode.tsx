@@ -8,6 +8,7 @@ import {
   Pressable,
   ScrollView,
   StatusBar,
+  StyleSheet,
   Text,
   View,
 } from 'react-native';
@@ -26,7 +27,7 @@ import {
 } from './icons';
 import * as Speech from 'expo-speech';
 import { useCookingNarration } from '../lib/narration/useCookingNarration';
-import { useCookSession } from '../lib/cookSessions';
+import { Overrun, useCookSession } from '../lib/cookSessions';
 import { useScreenAwake } from '../lib/screenAwake';
 import { announced, cancelTimerAlert, scheduleTimerAlert } from '../lib/timerAlerts';
 import { CookCommand, Recipe } from '../lib/types';
@@ -38,6 +39,8 @@ import { CookEquipment } from './Equipment';
 import { StepQuestions, StepUsual, TimerNote } from './CookInsights';
 import { cooksNeed, RecipeInsights, stepInsight } from '../lib/cookInsights';
 import { FixDraft } from '../lib/recipeFixes';
+import { dropEdit, editDraft, keepEdit, RecipeEdit } from '../lib/yourVersion';
+import { useApp } from '../lib/store';
 const RING = 92;
 const CIRCUMFERENCE = 2 * Math.PI * RING;
 export function CookMode({
@@ -48,6 +51,8 @@ export function CookMode({
   command,
   onCooked,
   onSuggest,
+  onKept,
+  onChange,
   translatedTo,
   insights,
 }: {
@@ -67,6 +72,10 @@ export function CookMode({
    * was a verified cook and a step took clearly longer than its timer.
    */
   onSuggest?: (draft: FixDraft) => void;
+  /** A change was kept in the member's own version (docs/YOUR-VERSION.md), or taken back. */
+  onKept?: () => void;
+  /** Offered when the cook is done and no step ran long: change the recipe for themselves. */
+  onChange?: () => void;
   /** The language `recipe` is translated into, so its steps are read aloud in it; null as written. */
   translatedTo?: string | null;
 }) {
@@ -309,42 +318,15 @@ export function CookMode({
               >
                 {tr('Take a moment to enjoy what you made.\nThen let the cook know how it went.')}
               </Text>
-              {overrun && verified && onSuggest && (
-                <View style={[s.row, { gap: 8, justifyContent: 'center', flexWrap: 'wrap' }]}>
-                  <Text style={[s.small, { color: color.onInk, fontSize: 14 }]}>
-                    {tr('tookYouLonger', {
-                      step: overrun.step,
-                      count: overrun.minutes,
-                      timer: overrun.timer,
-                    })}
-                  </Text>
-                  <Pressable
-                    accessibilityRole="button"
-                    hitSlop={8}
-                    onPress={() => {
-                      page.leave();
-                      onSuggest({
-                        kind: 'time',
-                        step: overrun.step,
-                        change: { seconds: overrun.minutes * 60 },
-                        reason: tr('It took me {{v0}} minutes, not {{v1}}.', {
-                          v0: overrun.minutes,
-                          v1: overrun.timer,
-                        }),
-                      });
-                    }}
-                  >
-                    <Text
-                      style={[
-                        s.small,
-                        { color: color.white, fontSize: 14, textDecorationLine: 'underline' },
-                      ]}
-                    >
-                      {tr('Suggest a change')}
-                    </Text>
-                  </Pressable>
-                </View>
-              )}
+              <AfterCook
+                recipeId={recipe.id}
+                overrun={overrun}
+                verified={verified}
+                onSuggest={onSuggest}
+                onKept={onKept}
+                onChange={onChange}
+                leave={page.leave}
+              />
               {onCooked && (
                 <Button
                   title={tr('I cooked this')}
@@ -579,3 +561,110 @@ export function CookMode({
     </Animated.View>
   );
 }
+
+/**
+ * Under "Dinner is served": when a step took clearly longer than its timer, a way to keep that
+ * time in the member's own version in one tap (and take it back), or, after a verified cook, to
+ * suggest it to the recipe's cook; otherwise a way to note any other change for next time.
+ */
+function AfterCook({
+  recipeId,
+  overrun,
+  verified,
+  onSuggest,
+  onKept,
+  onChange,
+  leave,
+}: {
+  recipeId: string;
+  overrun: Overrun | null;
+  verified: boolean;
+  onSuggest?: (draft: FixDraft) => void;
+  onKept?: () => void;
+  onChange?: () => void;
+  leave: () => void;
+}) {
+  const { t: tr } = useI18n();
+  const app = useApp();
+  const [kept, setKept] = useState<{ edit: RecipeEdit; replaced: RecipeEdit | null } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const act = (fn: () => Promise<void>) => {
+    if (busy) return;
+    setBusy(true);
+    void app
+      .act(async () => {
+        await fn();
+        onKept?.();
+      })
+      .finally(() => setBusy(false));
+  };
+  const link = (title: string, onPress: () => void) => (
+    <Pressable accessibilityRole="button" hitSlop={8} onPress={onPress} disabled={busy}>
+      <Text style={[s.small, styles.link]}>{title}</Text>
+    </Pressable>
+  );
+  if (!overrun)
+    return onChange ? (
+      <View style={styles.line}>
+        {link(tr('Changed something? Keep it for next time'), () => {
+          leave();
+          onChange();
+        })}
+      </View>
+    ) : null;
+  const draft: FixDraft = {
+    kind: 'time',
+    step: overrun.step,
+    change: { seconds: overrun.minutes * 60 },
+    reason: tr('It took me {{v0}} minutes, not {{v1}}.', {
+      v0: overrun.minutes,
+      v1: overrun.timer,
+    }),
+  };
+  const suggest = verified && onSuggest;
+  return (
+    <View style={styles.line}>
+      <Text style={[s.small, styles.note]}>
+        {tr('tookYouLonger', { step: overrun.step, count: overrun.minutes, timer: overrun.timer })}
+      </Text>
+      {kept ? (
+        <>
+          <Text style={[s.small, styles.note]}>{tr('Kept in your version.')}</Text>
+          {link(tr('Undo'), () =>
+            act(async () => {
+              // A time that replaced one kept before puts that one back.
+              const was = kept.replaced;
+              await (was ? keepEdit(recipeId, editDraft(was), was.source) : dropEdit(kept.edit.id));
+              setKept(null);
+            }),
+          )}
+        </>
+      ) : (
+        <>
+          {onKept &&
+            link(tr('keepMinutes', { count: overrun.minutes }), () =>
+              act(async () => setKept(await keepEdit(recipeId, draft, 'cooking'))),
+            )}
+          {onKept && suggest && <Text style={[s.small, styles.note]}>·</Text>}
+          {suggest &&
+            link(tr('Suggest a change'), () => {
+              leave();
+              onSuggest(draft);
+            })}
+        </>
+      )}
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  line: {
+    flexDirection: 'row',
+    gap: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+  },
+  note: { color: color.onInk, fontSize: 14 },
+  link: { color: color.white, fontSize: 14, textDecorationLine: 'underline' },
+});

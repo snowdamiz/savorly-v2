@@ -829,6 +829,18 @@ func (a *App) agentInput(ctx context.Context, state studioState) (any, error) {
 			r["mine"] = author["id"] == state.Owner
 			slimRecipe(r, false)
 			screen["openRecipe"] = r
+			// The member's own version of someone else's recipe, which their screen shows.
+			if r["mine"] != true {
+				var steps []Step
+				var ingredients []Ingredient
+				rawSteps, _ := json.Marshal(r["steps"])
+				rawIngredients, _ := json.Marshal(r["ingredients"])
+				if json.Unmarshal(rawSteps, &steps) == nil && json.Unmarshal(rawIngredients, &ingredients) == nil {
+					if line := versionLine(ctx, a.DB, state.Owner, view.RecipeID, steps, ingredients); line != "" {
+						screen["yourVersion"] = line
+					}
+				}
+			}
 			if view.CookingStep > 0 {
 				screen["cookingStep"] = view.CookingStep
 				// What other cooks found at this step: how long it really took, what they ask.
@@ -852,6 +864,14 @@ func (a *App) agentInput(ctx context.Context, state studioState) (any, error) {
 	}
 	if units != "" {
 		input["units"] = units
+	}
+	// What the member told Savorly about their kitchen and taste, for every recipe.
+	if notes, e := notesOf(ctx, a.DB, state.Owner); e == nil && len(notes) > 0 {
+		said := make([]string, len(notes))
+		for i, n := range notes {
+			said[i] = n.Note
+		}
+		input["kitchenNotes"] = said
 	}
 	// What the member's plan has left, so the assistant doesn't offer what would be refused.
 	if paidPlans() {
