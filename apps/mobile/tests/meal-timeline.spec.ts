@@ -12,6 +12,11 @@ import { afterPageTimers } from './waits';
 // Friday 16 October 2026, 2 pm in New York: dinner at 7 is today's.
 test.use({ timezoneId: 'America/New_York', locale: 'en-US' });
 const NOW = new Date('2026-10-16T18:00:00Z');
+/**
+ * A time the app sends as the cook's local time ("2026-10-16T19:00"), in New York like the page.
+ * The mock answers in the test's own process, whose zone is the machine's (UTC on CI).
+ */
+const inNewYork = (local: string) => new Date(`${local.slice(0, 16)}:00-04:00`).getTime();
 
 const steps = (...titles: string[]) =>
   titles.map((title) => ({ title, text: `${title} it as the recipe says.`, seconds: 0 }));
@@ -36,7 +41,7 @@ const beans = recipe({
 
 /** The plan the server answers for the roast dinner, ready at `eatAt` (the cook's local time). */
 function roastDinner(eatAt: string, warnings: TimelineWarning[] = []): MealTimeline {
-  const eat = new Date(eatAt).getTime();
+  const eat = inNewYork(eatAt);
   const at = (minutes: number) => new Date(eat + minutes * 60_000).toISOString();
   const step = (
     recipeId: string,
@@ -288,13 +293,13 @@ test('a few saved recipes are cooked together, and what the kitchen can’t do i
       roastDinner(sent.eatAt, [
         {
           kind: 'oven',
-          at: new Date(new Date(sent.eatAt).getTime() - 45 * 60_000).toISOString(),
+          at: new Date(inNewYork(sent.eatAt) - 45 * 60_000).toISOString(),
           recipeIds: ['roast', 'potatoes'],
           heats: [220, 180],
         },
         {
           kind: 'burners',
-          at: new Date(new Date(sent.eatAt).getTime() - 15 * 60_000).toISOString(),
+          at: new Date(inNewYork(sent.eatAt) - 15 * 60_000).toISOString(),
           recipeIds: ['potatoes', 'beans'],
           needed: 3,
           have: 2,
