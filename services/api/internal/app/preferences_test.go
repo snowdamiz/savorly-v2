@@ -26,7 +26,7 @@ func TestPreferencesMergeAndKeepTheirDefaults(t *testing.T) {
 		}
 		return out.Preferences
 	}
-	allOn := map[string]bool{"follows": true, "pantry": true, "reviews": true, "comments": true}
+	allOn := map[string]bool{"follows": true, "pantry": true, "reviews": true, "comments": true, "renewals": true}
 	if p := prefs("GET", "/v1/me", nil, 200); p.Units != "" || p.Language != "" || !reflect.DeepEqual(p.Notifications, allOn) || len(p.Diets) != 0 {
 		t.Fatalf("defaults: %+v", p)
 	}
@@ -38,7 +38,7 @@ func TestPreferencesMergeAndKeepTheirDefaults(t *testing.T) {
 	}
 	prefs("PATCH", "/v1/me/preferences", map[string]any{"notifications": map[string]bool{"pantry": false}}, 200)
 	p := prefs("PATCH", "/v1/me/preferences", map[string]any{"notifications": map[string]bool{"reviews": false}}, 200)
-	if want := map[string]bool{"follows": true, "pantry": false, "reviews": false, "comments": true}; !reflect.DeepEqual(p.Notifications, want) {
+	if want := map[string]bool{"follows": true, "pantry": false, "reviews": false, "comments": true, "renewals": true}; !reflect.DeepEqual(p.Notifications, want) {
 		t.Fatalf("notifications merge: %+v", p.Notifications)
 	}
 	for _, bad := range []map[string]any{

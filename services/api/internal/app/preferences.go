@@ -18,12 +18,13 @@ import (
 // preferencesJSON is the member's preferences (alias u) with every key filled in: units and
 // language empty, recipes as written, and every notification on, until changed.
 const preferencesJSON = `(jsonb_build_object('diets','[]'::jsonb,'allergies','[]'::jsonb,'units','','language','','translateRecipes',false,'shareDiet',false,'shareCooking',true) || u.preferences
- || jsonb_build_object('notifications',jsonb_build_object('follows',true,'pantry',true,'reviews',true,'comments',true)
+ || jsonb_build_object('notifications',jsonb_build_object('follows',true,'pantry',true,'reviews',true,'comments',true,'renewals',true)
   || CASE WHEN jsonb_typeof(u.preferences->'notifications')='object' THEN u.preferences->'notifications' ELSE '{}'::jsonb END))`
 
 // notificationKinds are the switches under preferences.notifications: new recipes from cooks
-// the member follows, pantry items about to expire, and reviews and comments on their recipes.
-var notificationKinds = []string{"follows", "pantry", "reviews", "comments"}
+// the member follows, pantry items about to expire, reviews and comments on their recipes, and
+// the reminder a week before a yearly plan renews (whose email goes either way).
+var notificationKinds = []string{"follows", "pantry", "reviews", "comments", "renewals"}
 
 // updatePreferences merges what it is sent; anything left out stays as it was.
 func (a *App) updatePreferences(c fiber.Ctx) error {

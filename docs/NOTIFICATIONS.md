@@ -10,20 +10,21 @@ The API sends push notifications through [Expo's push service](https://docs.expo
 | Review | A review is written. Editing one sends nothing; at most one per reviewer and recipe a day, even if a review is deleted and written again. | The recipe's author | `reviews` | `{ "type": "recipe", "recipeId" }` |
 | Comment | A comment or reply is written; at most one per commenter and recipe an hour. | The recipe's author | `comments` | `{ "type": "recipe", "recipeId" }` |
 | Pantry | Once a day, from 12:00 UTC: pantry items that expire today or in the next two days. Each item is mentioned once per expiry date; one notification lists a member's items. | The pantry's owner, or every member of a household's pantry | `pantry` | `{ "type": "pantry" }` |
+| Renewal | A week before a yearly plan renews: the plan, the day and what Stripe will charge, and how to cancel in two taps. Once per renewal; plans set to end, monthly and complimentary plans, and suspended members get none. An email says the same whatever the switch. | The member who pays for the plan | `renewals` | `{ "type": "plan" }` (opens My kitchen) |
 
 Nobody is told about their own action, and suspended members neither send nor receive notifications. A review or comment deleted before it goes out, a recipe unpublished, or a member suspended meanwhile sends nothing. Every switch is on until the member turns it off with `PATCH /me/preferences`.
 
-Text is in the recipient's `preferences.language` (the app's nine languages); a member without one gets English. The titles and bodies are in `noticeLanguages` in `notifications_outbox.go`; they quote the cook's name, the recipe's title and the start of the review or comment, never translated.
+Text is in the recipient's `preferences.language` (the app's nine languages); a member without one gets English. The titles and bodies are in `noticeLanguages` in `notifications_outbox.go`, and the renewal's in `renewalTexts` in `renewal_reminders.go`; they quote the cook's name, the recipe's title and the start of the review or comment, never translated. The renewal names the app's own buttons (Cancel plan, under Your plan in My kitchen), so a change to those labels in the catalogs belongs there too.
 
 ## How it works
 
-1. Database triggers (`021_engagement.sql`) write each event to `notification_outbox`, whichever code path made the change: the app, the sous-chef or an admin. The comment trigger attaches only where the `comments` table (`018_social.sql`) exists; after creating that table later, run `SELECT attach_social_triggers()`.
+1. Database triggers (`021_engagement.sql`) write each event to `notification_outbox`, whichever code path made the change: the app, the sous-chef or an admin. The comment trigger attaches only where the `comments` table (`018_social.sql`) exists; after creating that table later, run `SELECT attach_social_triggers()`. Renewals come from `renewal_reminders.go` instead ([pricing](PRICING.md#cancelling-renewals-and-refunds)), which claims a `renewal_reminders` row and writes the outbox row in one transaction, then sends the email.
 2. The sender polls every 2 seconds while there is work, backing off to 30 seconds when idle. It claims outbox rows (`FOR UPDATE SKIP LOCKED`) and writes one `push_messages` row per recipient device.
 3. It claims up to 100 due messages (Expo's limit per request) and sends them, up to five requests a turn. A message whose device has since signed out, or moved to another account, isn't sent.
 4. Expo answers with a ticket per message. `DeviceNotRegistered` deletes the device's token; `MessageRateExceeded`, network errors, 429 and 5xx are retried after 30 seconds, 2, 8 and 32 minutes, and then given up; anything else fails the message. Fifteen minutes after sending, the sender reads Expo's receipts and deletes the tokens Apple or Google no longer deliver to.
 5. A message is claimed before it is sent, so no two replicas send it. One left claimed by a server that stopped mid-request is marked failed after ten minutes rather than sent again, because Expo may already have it.
 
-The API container sleeps after 30 idle minutes ([deployment](DEPLOYMENT.md)), and the sender sleeps with it: notifications wait for the next request to wake it, and the pantry pass runs the first time the API is awake after 12:00 UTC. With no registered devices, nothing is sent.
+The API container sleeps after 30 idle minutes ([deployment](DEPLOYMENT.md)), and the sender sleeps with it: notifications wait for the next request to wake it, and the pantry pass runs the first time the API is awake after 12:00 UTC. The renewal pass runs three minutes after the API starts and then hourly, so a renewal is reminded within an hour of entering its last week, or the first time the API is awake after that. With no registered devices, nothing is sent.
 
 Devices: `PUT /me/push-token` registers the device's Expo push token with the session that sent it. Signing out, revoking the session from another device, a password change that signs other devices out, or the session expiring removes the token. A token registered by another account moves to it, and each member keeps their ten most recently registered devices.
 
@@ -43,6 +44,8 @@ Retention: messages, which carry names and the start of reviews and comments, ar
 SELECT status, error, count(*) FROM push_messages WHERE created_at > now() - interval '1 day' GROUP BY 1, 2 ORDER BY 3 DESC;
 -- Events waiting for the sender (should be empty within a minute while the API is awake).
 SELECT kind, count(*) FROM notification_outbox WHERE processed_at IS NULL GROUP BY 1;
+-- Renewal reminders of the last month whose email didn't go, and why.
+SELECT user_id, renews_at, email_error FROM renewal_reminders WHERE emailed_at IS NULL AND created_at > now() - interval '30 days';
 ```
 
 `failed` with `DeviceNotRegistered` is normal (an uninstalled app). `InvalidCredentials` or `MismatchSenderId` (from tickets or, as `receipt: …`, from receipts) points at a platform's credentials in EAS; `401` with `UNAUTHORIZED` on every message at `EXPO_ACCESS_TOKEN` after turning on enhanced push security.

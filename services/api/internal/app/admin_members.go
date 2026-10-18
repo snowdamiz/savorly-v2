@@ -81,6 +81,8 @@ func (a *App) adminUser(c fiber.Ctx) error {
    FROM (SELECT * FROM ai_jobs WHERE user_id=u.id ORDER BY created_at DESC LIMIT 20) j),'[]'),
  'reportsFiled',COALESCE((SELECT jsonb_agg(jsonb_build_object('id',p.id,'reason',p.reason,'status',p.status,'createdAt',p.created_at,'recipe',jsonb_build_object('id',r.id,'title',r.title)) ORDER BY p.created_at DESC)
    FROM (SELECT * FROM reports WHERE user_id=u.id ORDER BY created_at DESC LIMIT 20) p JOIN recipes r ON r.id=p.recipe_id),'[]'),
+ 'planRefunds',COALESCE((SELECT jsonb_agg(jsonb_build_object('amountCents',f.amount_cents,'currency',f.currency,'subscription',f.subscription_id,'createdAt',f.created_at,'completedAt',f.completed_at) ORDER BY f.created_at DESC)
+   FROM plan_refunds f WHERE f.user_id=u.id),'[]'),
  'history',COALESCE((SELECT jsonb_agg(`+auditJSON+` ORDER BY x.created_at DESC,x.id DESC)
    FROM (SELECT * FROM admin_actions WHERE target_type='user' AND target_id=u.id ORDER BY created_at DESC,id DESC LIMIT 20) x),'[]'))
  FROM users u`+memberLateral+`WHERE u.id=$1`, id, ownerEmails(), a.Config.Production)

@@ -77,7 +77,7 @@ STRIPE_CONNECT_WEBHOOK_SECRET=whsec_...
 ## Decisions and limits
 
 - **Deleting an account** deletes its sessions (so their cooks leave cook times the next time the recipe is cooked, and leave months not yet closed), its earnings, unpaid ones included, and its payout records. Closed months keep their totals. The creator's Express account stays at Stripe, where they can close it from the Express dashboard; deleting it from the API on account deletion is a possible follow-up.
-- **Refunds and disputes** aren't taken back from creators: the fund uses the plans' net after a conservative fee allowance, which already includes about 1% for refunds and disputes.
+- **Refunds and disputes** aren't taken back from creators once a month has closed: the fund uses the plans' net after a conservative fee allowance, which already includes about 1% for refunds and disputes. A yearly plan refunded in the app in its first 14 days ([pricing](PRICING.md#cancelling-renewals-and-refunds)) pays nothing for the cooks made since its year began in months not yet closed: their `net_cents` goes to 0, under the fund's lock, so a month can't close halfway through.
 - **Suspended creators** keep earning from cooks made before (their recipes are hidden meanwhile, so there are no new ones) but aren't paid until the suspension is lifted.
 - **Currency.** Earnings and transfers are in USD; Stripe converts for creators outside the US.
 - **Tax forms.** Stripe Express collects creators' tax details during onboarding; whether Savorly must file 1099s (US) or report under DAC7 (EU) for creator payouts needs checking with an accountant before launch.

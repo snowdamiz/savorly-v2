@@ -116,6 +116,8 @@ export type NotificationPreferences = {
   pantry: boolean;
   reviews: boolean;
   comments: boolean;
+  /** A week before a yearly plan renews. Older servers leave it out. */
+  renewals?: boolean;
 };
 export type Preferences = {
   diets: string[];
@@ -195,6 +197,15 @@ export type Billing = {
   sharedBy?: { id: string; name: string } | null;
   /** How many others in the household use this member's plan (0 or missing for none). */
   sharedWith?: number;
+  /** The plan is the member's own Stripe subscription, which they can cancel or keep in the app. Missing on older servers. */
+  cancelable?: boolean;
+  /**
+   * A yearly plan in its first 14 days can be refunded in full until `until`: `amountCents` in
+   * `currency` (lowercase, as Stripe writes it), left out when Stripe couldn't say. Null otherwise.
+   */
+  refund?: { until: string; amountCents?: number; currency?: string } | null;
+  /** When each allowance gets room back: its oldest use counted turns 30 days old (null when nothing is counted). */
+  usageFreesAt?: Partial<Record<keyof Billing['usage'], string | null>>;
 };
 export type Review = {
   id: string;

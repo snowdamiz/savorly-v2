@@ -23,6 +23,7 @@ const everything: NotificationPreferences = {
   pantry: true,
   reviews: true,
   comments: true,
+  renewals: true,
 };
 
 /** A setting that is on or off: the whole row is the switch. */
@@ -163,6 +164,16 @@ export function NotificationSettings() {
       title: t('Comments'),
       text: t('When someone comments on your recipes or replies to your reviews'),
     },
+    // Only while plans are on sale; the reminder's email goes either way.
+    ...(app.capabilities?.plans
+      ? [
+          {
+            kind: 'renewals' as const,
+            title: t('Renewal reminders'),
+            text: t('A week before a yearly plan renews. The email comes either way.'),
+          },
+        ]
+      : []),
   ];
   return (
     <>

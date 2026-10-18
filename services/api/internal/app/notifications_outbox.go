@@ -20,7 +20,9 @@ import (
 //   - a recipe's first publish: its author's followers (preferences.notifications.follows);
 //   - a review or a comment on a recipe: its author, never for their own (reviews, comments);
 //   - pantry items expiring within two days: their owner, once per item (pantry), from a pass
-//     that runs once a day.
+//     that runs once a day;
+//   - a yearly plan renewing within the week: its member, once per renewal (renewals), from
+//     renewal_reminders.go, which emails it too.
 // Outbox rows and messages are claimed before they are worked on, so no two replicas send the
 // same message; one whose send was cut off fails rather than risk arriving twice.
 
@@ -210,6 +212,10 @@ func composeMessages(ctx context.Context, q engagementDB, ev outboxEvent) ([]pus
 			data = jsonBytes(map[string]string{"type": "pantry"})
 			recipients, e = pushRecipients(ctx, q, memberDevices, ev.recipient, "pantry")
 		}
+	case "renewal":
+		// A yearly plan renewing within the week (renewal_reminders.go); its email goes either way.
+		data = jsonBytes(map[string]string{"type": "plan"})
+		recipients, e = pushRecipients(ctx, q, memberDevices, ev.recipient, "renewals")
 	}
 	if errors.Is(e, pgx.ErrNoRows) {
 		return nil, nil
@@ -223,6 +229,9 @@ func composeMessages(ctx context.Context, q engagementDB, ev outboxEvent) ([]pus
 			continue // nobody hears about what they did themselves
 		}
 		title, body := notice(ev.kind, r.language, vars)
+		if ev.kind == "renewal" {
+			title, body = renewalNoticeText(r.language, ev.detail)
+		}
 		out = append(out, pushMessage{user: r.user, token: r.token, title: title, body: body, data: data})
 	}
 	return out, nil

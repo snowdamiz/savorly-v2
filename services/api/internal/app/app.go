@@ -242,5 +242,6 @@ func NewWithContext(ctx context.Context, db *pgxpool.Pool, config Config) *fiber
 	a.equipmentRoutes(v)
 	a.cookInsightRoutes(v)
 	a.recipeFixRoutes(v)
+	a.cancellationRoutes(v)
 	return f
 }

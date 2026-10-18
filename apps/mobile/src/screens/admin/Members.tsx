@@ -208,6 +208,19 @@ export function MemberDialog({ id, onClose }: { id: string; onClose: () => void 
                   'Plan',
                   `${planNames[m.plan]}${m.comped ? ' (complimentary)' : ''}${m.planStatus ? ` · ${m.planStatus}` : ''}${m.planInterval ? ` · ${m.planInterval}` : ''}${m.planRenewsAt ? ` · ${m.planCancels ? 'ends' : 'renews'} ${f.date(m.planRenewsAt)}` : ''}`,
                 ],
+                ...(m.planRefunds?.length
+                  ? [
+                      [
+                        'Refunds',
+                        m.planRefunds
+                          .map(
+                            (r) =>
+                              `${r.currency === 'usd' ? f.money(r.amountCents / 100) : `${(r.amountCents / 100).toFixed(2)} ${r.currency.toUpperCase()}`} ${r.completedAt ? `refunded ${f.date(r.completedAt)}` : `under way since ${f.dateTime(r.createdAt)} (finished when the member asks again)`}`,
+                          )
+                          .join('; '),
+                      ] as [string, string],
+                    ]
+                  : []),
                 ...(m.stripeCustomerId
                   ? [['Stripe customer', m.stripeCustomerId] as [string, string]]
                   : []),

@@ -167,6 +167,14 @@ export type AdminMemberDetail = AdminMember & {
   planInterval: string;
   planRenewsAt: string | null;
   planCancels: boolean;
+  /** Refunds the member got in the app, newest first; `completedAt` is null while one is under way. */
+  planRefunds?: {
+    amountCents: number;
+    currency: string;
+    subscription: string;
+    createdAt: string;
+    completedAt: string | null;
+  }[];
   stripeCustomerId: string | null;
   stripeSubscriptionId: string;
   appointedAdmin: boolean;

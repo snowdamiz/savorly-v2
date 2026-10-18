@@ -80,34 +80,51 @@ func (a *App) billing(c fiber.Ctx) error {
 	if !paidPlans() {
 		return fiber.NewError(404, "Plans aren't available yet.")
 	}
-	owner := userID(c)
-	var plan, status, interval string
-	var renews *time.Time
+	ctx, owner := c.Context(), userID(c)
+	var plan, status, interval, sub string
+	var renews, start *time.Time
 	var cancels, customer bool
-	e := a.DB.QueryRow(c.Context(), `SELECT `+effectivePlanSQL+`,plan_status,plan_interval,plan_renews_at,plan_cancels,stripe_customer_id IS NOT NULL FROM users u WHERE id=$1`, owner).Scan(&plan, &status, &interval, &renews, &cancels, &customer)
+	e := a.DB.QueryRow(ctx, `SELECT `+effectivePlanSQL+`,plan_status,plan_interval,plan_renews_at,plan_cancels,stripe_customer_id IS NOT NULL,stripe_subscription_id,`+periodStartSQL+` FROM users u WHERE id=$1`, owner).
+		Scan(&plan, &status, &interval, &renews, &cancels, &customer, &sub, &start)
 	if e != nil {
 		return e
 	}
 	// On a plan a household shares, the allowances shown are what everyone on it has used.
-	pool, e := poolOf(c.Context(), a.DB, owner)
+	pool, e := poolOf(ctx, a.DB, owner)
 	if e != nil {
 		return e
 	}
-	used, e := poolUsage(c.Context(), a.DB, pool.Members)
+	used, e := poolUsage(ctx, a.DB, pool.Members)
+	if e != nil {
+		return e
+	}
+	frees, e := poolUsageFrees(ctx, a.DB, pool.Members)
 	if e != nil {
 		return e
 	}
 	var sharedBy any
 	if pool.SharedBy != "" {
 		var name string
-		if e = a.DB.QueryRow(c.Context(), `SELECT name FROM users WHERE id=$1`, pool.SharedBy).Scan(&name); e != nil {
+		if e = a.DB.QueryRow(ctx, `SELECT name FROM users WHERE id=$1`, pool.SharedBy).Scan(&name); e != nil {
 			return e
 		}
 		plan, sharedBy = pool.Plan.ID, fiber.Map{"id": pool.SharedBy, "name": name}
 	}
+	// Members cancel, keep and refund their own subscription in the app (billing_cancel.go).
+	own := billingEnabled() && ownsSubscription(sub, status, interval)
+	var refund any
+	if own {
+		if refund, e = refundOffer(ctx, a.DB, owner, sub, status, interval, start); e != nil {
+			return e
+		}
+	}
 	return c.JSON(fiber.Map{"plan": plan, "status": status, "interval": interval, "renewsAt": renews, "cancels": cancels, "usage": used, "plans": plans, "checkout": billingEnabled(), "manage": customer && billingEnabled(),
-		"sharedBy": sharedBy, "sharedWith": len(pool.Members) - 1})
+		"sharedBy": sharedBy, "sharedWith": len(pool.Members) - 1, "cancelable": own, "refund": refund, "usageFreesAt": frees})
 }
+
+// periodStartSQL is when the current period of a users row (alias u) began: as Stripe reported it,
+// or, for a row recorded before Stripe's start was kept, a period before its end.
+const periodStartSQL = `COALESCE(u.plan_period_start,CASE u.plan_interval WHEN 'yearly' THEN u.plan_renews_at-interval '1 year' WHEN 'monthly' THEN u.plan_renews_at-interval '1 month' END)`
 
 func (a *App) checkout(c fiber.Ctx) error {
 	if !billingEnabled() {
@@ -211,39 +228,77 @@ func (a *App) stripeWebhook(c fiber.Ctx) error {
 }
 
 func (a *App) syncSubscription(ctx context.Context, id string) error {
-	var s struct {
-		ID, Customer, Status string
-		CancelAtPeriodEnd    bool  `json:"cancel_at_period_end"`
-		CurrentPeriodEnd     int64 `json:"current_period_end"`
-		Items                struct {
-			Data []struct {
-				CurrentPeriodEnd int64 `json:"current_period_end"`
-				Price            struct{ ID string }
-			}
-		}
-	}
-	if e := stripeCall(ctx, "GET", "/subscriptions/"+url.PathEscape(id), "", nil, &s); e != nil {
+	s, e := fetchSubscription(ctx, id)
+	if e != nil {
 		return e
 	}
-	plan, interval, end := "", "", s.CurrentPeriodEnd
-	if len(s.Items.Data) > 0 {
-		plan, interval = planForPrice(s.Items.Data[0].Price.ID)
-		// Newer API versions report the period on the item instead of the subscription.
-		if s.Items.Data[0].CurrentPeriodEnd > 0 {
-			end = s.Items.Data[0].CurrentPeriodEnd
+	return recordSubscription(ctx, a.DB, s)
+}
+
+// stripeSubscription is what the API reads of a Stripe subscription.
+type stripeSubscription struct {
+	ID, Customer, Status string
+	CancelAtPeriodEnd    bool   `json:"cancel_at_period_end"`
+	CancelAt             int64  `json:"cancel_at"`
+	CurrentPeriodStart   int64  `json:"current_period_start"`
+	CurrentPeriodEnd     int64  `json:"current_period_end"`
+	LatestInvoice        string `json:"latest_invoice"`
+	Items                struct {
+		Data []struct {
+			CurrentPeriodStart int64 `json:"current_period_start"`
+			CurrentPeriodEnd   int64 `json:"current_period_end"`
+			Price              struct{ ID string }
 		}
 	}
+}
+
+func fetchSubscription(ctx context.Context, id string) (stripeSubscription, error) {
+	var s stripeSubscription
+	e := stripeCall(ctx, "GET", "/subscriptions/"+url.PathEscape(id), "", nil, &s)
+	return s, e
+}
+
+// plan is the catalog plan and billing interval of the subscription's price.
+func (s stripeSubscription) plan() (string, string) {
+	if len(s.Items.Data) == 0 {
+		return "", ""
+	}
+	return planForPrice(s.Items.Data[0].Price.ID)
+}
+
+// period is the current period's start and end (Unix seconds, 0 when unknown). Newer API versions
+// report it on the item instead of the subscription.
+func (s stripeSubscription) period() (start, end int64) {
+	start, end = s.CurrentPeriodStart, s.CurrentPeriodEnd
+	if len(s.Items.Data) > 0 {
+		if item := s.Items.Data[0]; item.CurrentPeriodEnd > 0 {
+			start, end = item.CurrentPeriodStart, item.CurrentPeriodEnd
+		}
+	}
+	return start, end
+}
+
+// recordSubscription writes a subscription as Stripe reported it onto its member's row.
+func recordSubscription(ctx context.Context, db execer, s stripeSubscription) error {
+	plan, interval := s.plan()
 	if plan == "" {
 		slog.Warn("subscription has an unknown price", "subscription", s.ID)
 		plan = "free"
+	}
+	start, end := s.period()
+	// A subscription set to end on a date (cancel_at, as the portal may set it) ends then.
+	cancels := s.CancelAtPeriodEnd || s.CancelAt > 0
+	if s.CancelAt > 0 && (end == 0 || s.CancelAt < end) {
+		end = s.CancelAt
 	}
 	live := s.Status == "active" || s.Status == "trialing" || s.Status == "past_due"
 	// A live subscription replaces whatever was recorded, a complimentary plan included. Any
 	// other event applies only to the subscription on record, never to a member with none (a
 	// comp forgets the ended subscription it replaces) or to a comp: a late or redelivered event
 	// about an older subscription changes nothing.
-	_, e := a.DB.Exec(ctx, `UPDATE users SET plan=$3,plan_status=$4,plan_interval=$5,plan_renews_at=to_timestamp(NULLIF($6,0)),plan_cancels=$7,stripe_subscription_id=$2
- WHERE stripe_customer_id=$1 AND ($8 OR (stripe_subscription_id=$2 AND NOT (plan<>'free' AND plan_status='active' AND plan_interval='')))`, s.Customer, s.ID, plan, s.Status, interval, end, s.CancelAtPeriodEnd, live)
+	_, e := db.Exec(ctx, `UPDATE users SET plan=$3,plan_status=$4,plan_interval=$5,plan_renews_at=to_timestamp(NULLIF($6,0)),plan_cancels=$7,stripe_subscription_id=$2,
+ plan_period_start=to_timestamp(NULLIF($9,0))
+ WHERE stripe_customer_id=$1 AND ($8 OR (stripe_subscription_id=$2 AND NOT (plan<>'free' AND plan_status='active' AND plan_interval='')))`, s.Customer, s.ID, plan, s.Status, interval, end, cancels, live, start)
 	return e
 }
 
