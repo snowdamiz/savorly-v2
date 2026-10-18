@@ -281,11 +281,20 @@ test('Download my data offers everything as files', async ({ page }) => {
   await open();
   const sheet = page.getByRole('dialog');
   await shot(page, 'download-my-data', open);
+  // Going back to a desktop-sized window can close the sheet a moment later, as the page lays
+  // itself out again, and on a slow machine shot's open() can find it on its way out. Open it
+  // until it stays.
+  const download = sheet.getByRole('button', { name: 'Download as files', exact: true });
+  await expect(async () => {
+    await open();
+    await afterPageTimers(page, 1000);
+    await expect(download).toBeVisible({ timeout: 1000 });
+  }).toPass({ timeout: 20_000 });
   // The browser fetches the archive itself, from a single-use link, rather than the page.
   const fetched = page.waitForRequest(
     (r) => r.url().endsWith('/v1/export/single-use') && r.isNavigationRequest(),
   );
-  await sheet.getByRole('button', { name: 'Download as files', exact: true }).click();
+  await download.click();
   await fetched;
   await expect(page.getByText('Your data is downloading.', { exact: true })).toBeVisible();
   await expect(page).toHaveURL(/\?page=profile$/);
