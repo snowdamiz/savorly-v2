@@ -99,11 +99,10 @@ export function useShownEquipment(recipe: Recipe) {
 }
 
 /**
- * The recipe page's "You'll need", with the ingredients: the cook's list, or what the method
- * mentions, labelled as such. `onCard` sets its names on the card's ground (the web page's
- * ingredients card) rather than the page's.
+ * The recipe page's "You'll need", at the head of the method: the cook's list, or what the method
+ * mentions, labelled as such.
  */
-export function RecipeEquipment({ recipe, onCard }: { recipe: Recipe; onCard?: boolean }) {
+export function RecipeEquipment({ recipe }: { recipe: Recipe }) {
   const { t: tr } = useI18n();
   const { names, detected } = useShownEquipment(recipe);
   if (!names.length) return null;
@@ -122,11 +121,7 @@ export function RecipeEquipment({ recipe, onCard }: { recipe: Recipe; onCard?: b
       </View>
       <View role="list" style={[s.wrap, { gap: 8 }]}>
         {names.map((name) => (
-          <View
-            key={name}
-            role="listitem"
-            style={[styles.item, { backgroundColor: onCard ? color.bg : color.white }]}
-          >
+          <View key={name} role="listitem" style={styles.item}>
             <Text style={styles.name}>{name}</Text>
           </View>
         ))}
@@ -152,7 +147,12 @@ export function CookEquipment({ recipe }: { recipe: Recipe }) {
 }
 
 const styles = StyleSheet.create({
-  item: { borderRadius: radius.pill, paddingHorizontal: 12, paddingVertical: 7 },
+  item: {
+    backgroundColor: color.white,
+    borderRadius: radius.pill,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
   name: { fontFamily: font.semibold, fontSize: 14, color: color.ink },
   cook: {
     backgroundColor: 'rgba(255,255,255,0.08)',

@@ -88,6 +88,12 @@
           "category": "Produce"
         }
       ],
+      "equipment": [
+        "Large pot",
+        "Colander",
+        "Large mixing bowl",
+        "Fine grater"
+      ],
       "steps": [
         {
           "title": "Cook the pasta",
@@ -164,6 +170,13 @@
           "category": "Produce"
         }
       ],
+      "equipment": [
+        "Saucepan or rice cooker",
+        "Oven",
+        "Baking tray",
+        "Baking paper",
+        "Instant-read thermometer"
+      ],
       "steps": [
         {
           "title": "Start the rice",
@@ -234,6 +247,10 @@
           "unit": "tbsp",
           "category": "Pantry"
         }
+      ],
+      "equipment": [
+        "Serrated knife",
+        "Serving platter"
       ],
       "steps": [
         {
@@ -307,6 +324,11 @@
           "category": "Produce"
         }
       ],
+      "equipment": [
+        "Oven",
+        "Large roasting tray",
+        "Meat thermometer"
+      ],
       "steps": [
         {
           "title": "Prepare the tray",
@@ -377,6 +399,11 @@
           "unit": "tsp",
           "category": "Pantry"
         }
+      ],
+      "equipment": [
+        "Small saucepan",
+        "Slotted spoon",
+        "Toaster"
       ],
       "steps": [
         {
@@ -454,6 +481,12 @@
           "category": "Pantry"
         }
       ],
+      "equipment": [
+        "Large pot",
+        "Colander",
+        "Fine grater",
+        "Heatproof bowl"
+      ],
       "steps": [
         {
           "title": "Build the dressing",
@@ -529,6 +562,12 @@
           "unit": "g",
           "category": "Produce"
         }
+      ],
+      "equipment": [
+        "2 mixing bowls",
+        "Whisk",
+        "Non-stick skillet",
+        "Spatula"
       ],
       "steps": [
         {
@@ -607,6 +646,13 @@
           "category": "Produce"
         }
       ],
+      "equipment": [
+        "Oven",
+        "Large baking tray",
+        "Saucepan",
+        "Small bowl",
+        "Whisk"
+      ],
       "steps": [
         {
           "title": "Roast the vegetables",
@@ -682,6 +728,12 @@
           "unit": "g",
           "category": "Dairy"
         }
+      ],
+      "equipment": [
+        "Large heavy pan",
+        "Small saucepan for the stock",
+        "Ladle",
+        "Wooden spoon"
       ],
       "steps": [
         {
@@ -760,6 +812,10 @@
           "category": "Pantry"
         }
       ],
+      "equipment": [
+        "Large frying pan with a lid",
+        "Wooden spoon"
+      ],
       "steps": [
         {
           "title": "Soften the vegetables",
@@ -837,6 +893,13 @@
           "category": "Baking"
         }
       ],
+      "equipment": [
+        "Saucepan",
+        "Mixing bowl",
+        "Oven",
+        "2 baking trays",
+        "Baking paper"
+      ],
       "steps": [
         {
           "title": "Brown the butter",
@@ -912,6 +975,12 @@
           "unit": "clove",
           "category": "Produce"
         }
+      ],
+      "equipment": [
+        "Small frying pan",
+        "Blender or food processor",
+        "Large pot",
+        "Colander"
       ],
       "steps": [
         {

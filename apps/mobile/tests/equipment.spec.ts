@@ -26,7 +26,7 @@ const frittata = recipe({
 const needs = (page: Page) => page.getByRole('heading', { name: 'You’ll need', exact: true });
 const item = (page: Page, name: string) => page.getByRole('listitem').filter({ hasText: name });
 
-test('a recipe page lists the cook’s equipment with the ingredients', async ({ page }) => {
+test('a recipe page lists the cook’s equipment before the method', async ({ page }) => {
   await mockApi(page, { recipes: [pasta] });
   await page.goto('/recipes/pasta');
   await expect(needs(page)).toBeVisible();
@@ -54,13 +54,18 @@ test('without a list, the page shows what the method mentions, and says so', asy
 
 test.describe('on a phone', () => {
   test.use({ viewport: { width: 390, height: 844 } });
-  test('the ingredients tab ends with what you’ll need', async ({ page }) => {
+  test('the method tab starts with what you’ll need', async ({ page }) => {
     await mockApi(page, { recipes: [pasta] });
     await page.goto('/recipes/pasta');
+    await expect(page.getByRole('heading', { name: 'Ingredients', exact: true })).toBeVisible();
+    await expect(needs(page)).toHaveCount(0);
+    await page.getByRole('tab', { name: 'Method', exact: true }).click();
     await expect(needs(page)).toBeVisible();
     await expect(item(page, 'Large pot')).toBeVisible();
-    await page.getByRole('tab', { name: 'Method', exact: true }).click();
-    await expect(needs(page)).toHaveCount(0);
+    // Above the first step, so it's read before cooking starts.
+    const top = async (name: string) =>
+      (await page.getByRole('heading', { name, exact: true }).boundingBox())!.y;
+    expect(await top('You’ll need')).toBeLessThan(await top('Boil'));
   });
 });
 

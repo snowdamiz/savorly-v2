@@ -531,8 +531,6 @@ export function RecipeDetail({
         }
       />
       <RecipeOrder recipeId={recipe.id} servings={servings} />
-      {/* What else to get out, after what to buy: the cook's list, or what the method mentions. */}
-      <RecipeEquipment recipe={reading} onCard={webPage} />
       {/* Twists change the ingredients, so they sit with them rather than above the tabs. */}
       <View style={{ gap: 12, marginTop: 10 }}>
         <View style={[s.row, { gap: 8 }]}>
@@ -568,6 +566,9 @@ export function RecipeDetail({
       >
         {tr('Let’s make it')}
       </Text>
+      {/* What to get out before step 1, as cooking mode starts: the cook's list, or what the
+          method mentions. */}
+      <RecipeEquipment recipe={reading} />
       <View style={webPage ? [s.card, { paddingVertical: 6, paddingHorizontal: 28 }] : { gap: 12 }}>
         {reading.steps.map((st, i) => (
           <View

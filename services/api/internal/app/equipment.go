@@ -18,7 +18,7 @@ import (
 // What a recipe needs besides its ingredients (032_recipe_equipment.sql): equipment, the pots,
 // pans, appliances and tools its author lists, in their order and words; and equipmentDetected,
 // what its method mentions, read with the equipment lexicon (equipment_lexicon.go) as English keys
-// the app names in the reader's language. Seeded, imported and older recipes have no list, and
+// the app names in the reader's language. Many imported and older recipes have no list, and
 // authors forget things, so the recipe page and cooking mode fall back on what the method
 // mentions, and say so. Like the food index this reads words: it can miss a tool the method takes
 // for granted, and the app never mixes what it found with what the author wrote.
