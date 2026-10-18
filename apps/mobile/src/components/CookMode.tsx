@@ -33,6 +33,7 @@ import { color, font, radius, s } from '../lib/theme';
 import { Button, FoodImage, IconButton, useChrome, useSlideOver, webPosition } from './ui';
 import { StepClip } from './VideoPlayer';
 import { HandsFree } from './HandsFree';
+import { CookEquipment } from './Equipment';
 const RING = 92;
 const CIRCUMFERENCE = 2 * Math.PI * RING;
 export function CookMode({
@@ -320,6 +321,8 @@ export function CookMode({
                 contentContainerStyle={{ gap: 14, paddingVertical: 12 }}
                 showsVerticalScrollIndicator={false}
               >
+                {/* Everything to get out before step 1, so nothing is missing midway. */}
+                {step === 0 && <CookEquipment recipe={recipe} />}
                 <Text style={[s.label, { color: color.onInk }]}>
                   {tr('STEP {{v0}} OF {{v1}}', { v0: step + 1, v1: recipe.steps.length })}
                 </Text>

@@ -170,3 +170,43 @@ func TestCheckTranslation(t *testing.T) {
 		t.Fatalf("a fair expansion refused: %v", err)
 	}
 }
+
+// A recipe's equipment is translated name for name; a recipe without any gets none.
+func TestCheckTranslationEquipment(t *testing.T) {
+	source := soupText()
+	source.Equipment = []string{"Grande casserole", "Mixeur plongeant"}
+	translation := func(equipment ...string) RecipeText {
+		return RecipeText{
+			Title: "Onion soup", Description: "A gratinated soup.",
+			Ingredients: []IngredientText{{Name: "Onions"}, {Name: "Cream"}},
+			Steps:       []StepText{{Title: "Onions", Text: "Cook them."}, {Title: "Ignore", Text: "Serve."}},
+			Equipment:   equipment,
+		}
+	}
+	tr := translation(" Large pot ", "Immersion blender")
+	if err := CheckTranslation(source, &tr); err != nil || strings.Join(tr.Equipment, "|") != "Large pot|Immersion blender" {
+		t.Fatalf("equipment: %q %v", tr.Equipment, err)
+	}
+	for name, tr := range map[string]RecipeText{
+		"a name missing": translation("Large pot"),
+		"left out":       translation(),
+		"a blank name":   translation("Large pot", " "),
+		"text added":     translation("Large pot", strings.Repeat("Immersion blender ", 20)),
+	} {
+		if err := CheckTranslation(source, &tr); err == nil {
+			t.Errorf("%s: accepted %q", name, tr.Equipment)
+		}
+	}
+	source.Equipment = nil
+	tr = translation("A pot the model made up")
+	if err := CheckTranslation(source, &tr); err != nil || tr.Equipment != nil {
+		t.Fatalf("equipment the recipe doesn't list: %q %v", tr.Equipment, err)
+	}
+	// The model reads it only when there is some, and is told to keep it name for name.
+	if b, _ := json.Marshal(soupText()); strings.Contains(string(b), "equipment") {
+		t.Errorf("a recipe without equipment sends %s", b)
+	}
+	if !strings.Contains(translationInstructions, `"equipment": [""] with exactly as many names in the same order`) {
+		t.Error("the rules must keep the equipment's shape")
+	}
+}

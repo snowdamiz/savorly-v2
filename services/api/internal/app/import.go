@@ -237,6 +237,7 @@ func (a *App) structuredRecipe(ld ldRecipe, doc pageData, page *url.URL, source 
 		r.Calories = int(math.Round(min(firstNumber(nutrition["calories"]), 10000)))
 	}
 	r.Difficulty = difficultyOf(r.Minutes, len(r.Steps))
+	r.Equipment = ldEquipment(x["tool"])
 	r.Image = a.importedMedia(page, firstOf(ld.image(x["image"]), doc.Image))
 	if language, ok := recipeLanguage(firstOf(ldText(x["inLanguage"]), doc.Lang)); ok {
 		r.Language = language
@@ -297,6 +298,20 @@ func ldIngredients(v any) []Ingredient {
 		}
 	}
 	return out
+}
+
+// ldEquipment reads a Recipe's tool (schema.org has Recipe inherit it from HowTo): HowToTool
+// items or names, or one text listing them, which is split at its commas and lines.
+func ldEquipment(v any) []string {
+	s, ok := v.(string)
+	if !ok {
+		return fitEquipment(ldTexts(v, false))
+	}
+	var names []string
+	for _, line := range textLines(s) {
+		names = append(names, strings.Split(line, ",")...)
+	}
+	return fitEquipment(names)
 }
 
 // draftStep is an instruction as a page gives it.

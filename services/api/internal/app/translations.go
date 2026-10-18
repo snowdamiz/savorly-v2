@@ -64,8 +64,8 @@ func loadRecipeSource(ctx context.Context, q querier, id, viewer string) (recipe
 	var s recipeSource
 	var ingredients []Ingredient
 	var steps []Step
-	e := q.QueryRow(ctx, `SELECT r.title,r.description,r.ingredients,r.steps,r.language`+recipeFrom+`WHERE r.id=$1 AND (r.published OR r.author_id=$2)`, id, viewer).
-		Scan(&s.text.Title, &s.text.Description, &ingredients, &steps, &s.language)
+	e := q.QueryRow(ctx, `SELECT r.title,r.description,r.ingredients,r.steps,r.language,r.equipment`+recipeFrom+`WHERE r.id=$1 AND (r.published OR r.author_id=$2)`, id, viewer).
+		Scan(&s.text.Title, &s.text.Description, &ingredients, &steps, &s.language, &s.text.Equipment)
 	if e != nil {
 		return s, e
 	}

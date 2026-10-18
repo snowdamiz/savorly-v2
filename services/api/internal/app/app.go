@@ -236,5 +236,6 @@ func NewWithContext(ctx context.Context, db *pgxpool.Pool, config Config) *fiber
 	a.translationRoutes(v)
 	a.creatorFundRoutes(v)
 	a.handsFreeRoutes(v)
+	a.equipmentRoutes(v)
 	return f
 }

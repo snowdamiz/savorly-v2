@@ -51,6 +51,9 @@ func newTranslator(t *testing.T) *translator {
 		for i := range out.Steps {
 			out.Steps[i] = ai.StepText{Title: mark + out.Steps[i].Title, Text: mark + out.Steps[i].Text}
 		}
+		for i := range out.Equipment {
+			out.Equipment[i] = mark + out.Equipment[i]
+		}
 		if tr.broken.Load() {
 			out.Steps = out.Steps[:1]
 		}

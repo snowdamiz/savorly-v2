@@ -1058,7 +1058,11 @@ func (a *App) applyDraftAction(ctx context.Context, state studioState, action st
 			for i, step := range r.Steps {
 				directions = append(directions, fmt.Sprintf("Step %d: %s", i+1, step.Text))
 			}
-			reply = fmt.Sprintf("Here's the draft: %s, %d servings, %d minutes. Ingredients: %s. %s Shall I publish this version, or would you like changes?", r.Title, r.Servings, r.Minutes, strings.Join(names, ", "), strings.Join(directions, " "))
+			equipment := ""
+			if len(r.Equipment) > 0 {
+				equipment = " Equipment: " + strings.Join(r.Equipment, ", ") + "."
+			}
+			reply = fmt.Sprintf("Here's the draft: %s, %d servings, %d minutes. Ingredients: %s.%s %s Shall I publish this version, or would you like changes?", r.Title, r.Servings, r.Minutes, strings.Join(names, ", "), equipment, strings.Join(directions, " "))
 			if len(reply) > 10000 {
 				reply = fmt.Sprintf("%s makes %d servings in %d minutes, with %d ingredients and %d steps. %s Shall I publish this version, or would you like changes?", r.Title, r.Servings, r.Minutes, len(r.Ingredients), len(r.Steps), truncate(r.Description, 700))
 			}

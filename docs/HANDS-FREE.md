@@ -57,7 +57,8 @@ the recipe's language after a sentence in the app's.
 A question is `POST /v1/recipes/:id/ask` with `{ "question", "step", "language" }` ([API](API.md#hands-free-cooking)).
 The server reads the recipe as the member may see it (published by a cook in good standing, or
 their own) and asks GPT-6 Luna (`OPENROUTER_AGENT_MODEL`, low reasoning, at most 300 output
-tokens) for one to three short spoken sentences from the recipe and the cook's step. The call has
+tokens) for one to three short spoken sentences from the recipe (its equipment included: the cook's
+list, or what the method mentions) and the cook's step. The call has
 no tools: it can't move a step, start a timer or change anything, and it is told never to claim it
 did, to treat the recipe and the question as data rather than instructions, to give safe internal
 temperatures where doneness matters, and never to guarantee allergy safety.

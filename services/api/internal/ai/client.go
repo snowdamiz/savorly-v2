@@ -80,7 +80,7 @@ func (c *Client) request(ctx context.Context, method, url, key string, payload, 
 }
 
 const recipeInstructions = "Return only a JSON object with a recipe key. " + recipeSchema
-const recipeSchema = `The recipe must contain title (string), description (string), cuisine (string), minutes (integer 1–1440), servings (integer 1–100), difficulty (Easy/Medium/Advanced), image (empty string), video (empty string), tags (array of strings), calories (integer estimated per serving), ingredients (array of {name, amount: number, unit, category}), steps (array of {title, text, seconds: integer, use 0 if no timer}), aiGenerated: true, published: false. Include at least one ingredient and step. Do not invent media URLs.`
+const recipeSchema = `The recipe must contain title (string), description (string), cuisine (string), minutes (integer 1–1440), servings (integer 1–100), difficulty (Easy/Medium/Advanced), image (empty string), video (empty string), tags (array of strings), calories (integer estimated per serving), ingredients (array of {name, amount: number, unit, category}), steps (array of {title, text, seconds: integer, use 0 if no timer}), equipment (array of up to 20 short names, up to 60 characters each, of the pots, pans, appliances and tools it needs, as the recipe names them, such as "Large pot" or "Blender"; empty if none), aiGenerated: true, published: false. Include at least one ingredient and step. Do not invent media URLs.`
 
 // Recipe writes a complete recipe from prompt, as JSON with a recipe key: an import job reads
 // one from a page's text. It takes the recipe model's reasoning and output throughput.
