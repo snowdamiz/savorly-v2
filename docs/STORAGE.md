@@ -63,11 +63,11 @@ Uploads are limited to 50 MiB, checked by file signature, and stored under rando
 
 Large files, videos especially, go straight from the device to storage instead of through the API, so a slow connection never meets the API's timeouts:
 
-1. `POST /v1/media/uploads` with `{ "kind": "image" | "video", "contentType", "size" }` (JPEG, PNG or WebP photos; MP4 or WebM videos; up to 50 MiB) answers `{ uploadUrl, method: "PUT", headers, url, key, expiresAt }`. The URL is valid for 15 minutes, for one key under `uploads/<user-id>/` in the media bucket, and its signature covers the content type, the cache policy and the exact length, so storage refuses any other file. Each member can request 60 an hour.
+1. `POST /v1/media/uploads` with `{ "kind": "image" | "video" | "audio", "contentType", "size" }` (JPEG, PNG or WebP photos; MP4 or WebM videos; up to 50 MiB; and [family recordings](FAMILY-RECIPES.md), M4A, WebM or MP3, up to 25 MiB) answers `{ uploadUrl, method: "PUT", headers, url, key, expiresAt }`. The URL is valid for 15 minutes, for one key under `uploads/<user-id>/` in the media bucket, and its signature covers the content type, the cache policy and the exact length, so storage refuses any other file. Each member can request 60 an hour.
 2. The app sends the file to `uploadUrl` with exactly `headers`.
 3. `POST /v1/media/uploads/complete` with `{ "key" }` checks that the key is the member's, then reads the object's size, type and first bytes; a file whose bytes aren't what its label says is deleted. It answers `{ url }`, which recipes and profiles accept like any other upload.
 
-The app shows the upload's progress and can cancel it. When the API can't sign uploads (an older or unconfigured server answers `404` or `503`), or the browser's PUT fails before any byte is sent (a bucket without the CORS rules above), it falls back to `POST /v1/media` on its own, so a missing CORS rule makes web uploads slower rather than broken.
+The app shows the upload's progress and can cancel it. When the API can't sign uploads (an older or unconfigured server answers `404` or `503`), or the browser's PUT fails before any byte is sent (a bucket without the CORS rules above), it falls back to `POST /v1/media` on its own, so a missing CORS rule makes web uploads slower rather than broken. Recordings have no such fallback (`POST /v1/media` takes photos and videos only): without the CORS rules, a browser can't upload one.
 
 `POST /v1/media` (multipart field `file`) stays for older apps. The server spools a large part to a temporary file while it reads the request and streams it to storage from there; its read timeout allows a slow 50 MiB upload.
 
@@ -81,13 +81,13 @@ With `APP_ENV=production`, recipe covers, gallery photos and videos must be unde
 
 ### Private bucket
 
-`savorly-sources` holds recipe-source photos the sous-chef reads (`recipe-sources/`) and natural-voice narration recordings (`narration/`, one object per recording; rows from before this layout keep their audio in Postgres). Without object storage, narration stays in Postgres. When a recording goes unused for 60 days, or its recipe or account is deleted, the row is removed and its object is queued in `source_deletions`, which the API's worker empties.
+`savorly-sources` holds recipe-source photos the sous-chef reads (`recipe-sources/`), natural-voice narration recordings (`narration/`, one object per recording; rows from before this layout keep their audio in Postgres), and the private copy of each [family recording](FAMILY-RECIPES.md) (`recordings/<user-id>/<id>.<ext>`). Without object storage, narration stays in Postgres. When a narration recording goes unused for 60 days, or its recipe or account is deleted, the row is removed and its object is queued in `source_deletions`, which the API's worker empties. A family recording is kept twice: its public copy in `savorly-media`, which the app plays, and this one, which only the API reads. Deleting the recording, or the account, queues both for deletion; deleting its recipe doesn't.
 
 Do not deploy the local SeaweedFS development credentials or Compose setup publicly. R2 is the production media service. Back up metadata and objects together.
 
 ### When uploaded files are deleted
 
-Every upload waits in a deletion queue (`media_deletions`), and whatever uses a file keeps it: the API's janitor checks recipes (cover, video, gallery, step photos and clips), profile photos, cooked-it photos and the sous-chef history before it deletes anything. A file that stops being used (a replaced photo, a deleted recipe or account) is deleted about a day later; a file that was uploaded but never used, including a direct upload that was never confirmed, two weeks after upload. Only files under `S3_PUBLIC_URL` named the way Savorly names uploads are ever deleted. See `services/api/internal/app/media_cleanup.go`.
+Every upload waits in a deletion queue (`media_deletions`), and whatever uses a file keeps it: the API's janitor checks recipes (cover, video, gallery, step photos and clips), profile photos, cooked-it photos, family recordings and the sous-chef history before it deletes anything. A file that stops being used (a replaced photo, a deleted recipe or account) is deleted about a day later; a file that was uploaded but never used, including a direct upload that was never confirmed, two weeks after upload. Only files under `S3_PUBLIC_URL` named the way Savorly names uploads are ever deleted. See `services/api/internal/app/media_cleanup.go`.
 
 ## Verification
 

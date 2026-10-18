@@ -25,28 +25,75 @@ type Step struct {
 	Image string `json:"image,omitempty"`
 	// A short clip of this step, held to the same rules as the recipe's own video.
 	Video string `json:"video,omitempty"`
-	// Whether the request named an image, or a video, at all: older apps and the sous-chef never
-	// do, and then a saved recipe keeps its step photos and clips (keepStepMedia).
-	imageSet, videoSet bool
+	// Where one of the recipe's family recordings says this step (family.go).
+	Voice *StepVoice `json:"voice,omitempty"`
+	// What the meal timeline needs of the step (meal_timeline.go); nil when nobody said.
+	Timing *StepTiming `json:"timing,omitempty"`
+	// Whether the request named an image, a video, a voice or timing at all: older apps and the
+	// sous-chef never do, and then a saved recipe keeps its step photos, clips, voices and timing
+	// (keepStepMedia, keepStepVoices, keepStepTiming).
+	imageSet, videoSet, voiceSet, timingSet bool
+}
+
+// StepTiming is how a step spends its time, for cooking several dishes at once: the seconds that
+// need the cook's hands and those that need no attention (baking, simmering, resting), the oven's
+// heat in °C while it runs (0 for none), and the burners it takes, each with its pot or pan. A
+// step that heats the oven and takes no time is preheating it. Estimated is set when a model or
+// a reading of the text guessed them, rather than the cook saying so.
+type StepTiming struct {
+	Active    int  `json:"active,omitempty"`
+	Wait      int  `json:"wait,omitempty"`
+	Oven      int  `json:"oven,omitempty"`
+	Burners   int  `json:"burners,omitempty"`
+	Estimated bool `json:"estimated,omitempty"`
+}
+
+// The bounds a step's timing is held to.
+const (
+	maxStepSeconds           = 86400
+	minOvenHeat, maxOvenHeat = 50, 300
+	maxStepBurners           = 6
+)
+
+func (t StepTiming) valid() bool {
+	return t.Active >= 0 && t.Active <= maxStepSeconds && t.Wait >= 0 && t.Wait <= maxStepSeconds &&
+		(t.Oven == 0 || (t.Oven >= minOvenHeat && t.Oven <= maxOvenHeat)) && t.Burners >= 0 && t.Burners <= maxStepBurners
 }
 
 func (s *Step) UnmarshalJSON(b []byte) error {
 	var in struct {
-		Title   string  `json:"title"`
-		Text    string  `json:"text"`
-		Seconds int     `json:"seconds"`
-		Image   *string `json:"image"`
-		Video   *string `json:"video"`
+		Title   string          `json:"title"`
+		Text    string          `json:"text"`
+		Seconds int             `json:"seconds"`
+		Image   *string         `json:"image"`
+		Video   *string         `json:"video"`
+		Timing  json.RawMessage `json:"timing"`
+		// Raw, so a voice of null (taken off the step) differs from none named.
+		Voice json.RawMessage `json:"voice"`
 	}
 	if e := json.Unmarshal(b, &in); e != nil {
 		return e
 	}
-	*s = Step{Title: in.Title, Text: in.Text, Seconds: in.Seconds, imageSet: in.Image != nil, videoSet: in.Video != nil}
+	*s = Step{Title: in.Title, Text: in.Text, Seconds: in.Seconds, imageSet: in.Image != nil, videoSet: in.Video != nil, voiceSet: in.Voice != nil, timingSet: in.Timing != nil}
+	if in.Voice != nil && string(in.Voice) != "null" {
+		s.Voice = new(StepVoice)
+		if e := json.Unmarshal(in.Voice, s.Voice); e != nil {
+			return e
+		}
+	}
 	if in.Image != nil {
 		s.Image = *in.Image
 	}
 	if in.Video != nil {
 		s.Video = *in.Video
+	}
+	// "timing": null says the step has none, so the server's estimate takes its place.
+	if in.Timing != nil && string(in.Timing) != "null" {
+		var t StepTiming
+		if e := json.Unmarshal(in.Timing, &t); e != nil {
+			return e
+		}
+		s.Timing = &t
 	}
 	return nil
 }
@@ -76,6 +123,24 @@ func keepStepMedia(steps, saved []Step) {
 	}
 	keep(func(s *Step) bool { return s.imageSet }, func(s *Step) *string { return &s.Image })
 	keep(func(s *Step) bool { return s.videoSet }, func(s *Step) *string { return &s.Video })
+}
+
+// keepStepTiming gives steps that didn't name their timing that of the saved step with the same
+// text, so a write from an app or the sous-chef that doesn't know timing keeps it. A step whose
+// text changed has none until it is given or estimated again: its old timing may no longer fit.
+func keepStepTiming(steps, saved []Step) {
+	byText := map[string]*StepTiming{}
+	for _, st := range saved {
+		if st.Timing != nil {
+			byText[strings.TrimSpace(st.Text)] = st.Timing
+		}
+	}
+	for i := range steps {
+		if t, ok := byText[strings.TrimSpace(steps[i].Text)]; ok && !steps[i].timingSet {
+			copied := *t
+			steps[i].Timing = &copied
+		}
+	}
 }
 
 type RecipeInput struct {
@@ -248,11 +313,14 @@ func (r *RecipeInput) Validate() error {
 		}
 	}
 	for _, s := range r.Steps {
-		if !validText(s.Title, 1, 120) || !validText(s.Text, 5, 3000) || s.Seconds < 0 || s.Seconds > 86400 {
+		if !validText(s.Title, 1, 120) || !validText(s.Text, 5, 3000) || s.Seconds < 0 || s.Seconds > maxStepSeconds {
 			return fiber.NewError(400, "Each step needs a title and instructions.")
 		}
 		if !validMedia(s.Image) || !validMedia(s.Video) {
 			return fiber.NewError(400, "Media must use an HTTPS URL.")
+		}
+		if s.Timing != nil && !s.Timing.valid() {
+			return fiber.NewError(400, "Check each step's timing.")
 		}
 	}
 	for _, t := range r.Tags {

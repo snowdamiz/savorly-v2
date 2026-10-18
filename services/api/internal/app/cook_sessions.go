@@ -28,15 +28,15 @@ const (
 )
 
 const cookSessionJSON = `jsonb_build_object('id',k.id,'recipeId',k.recipe_id,'steps',k.steps,'stepReached',k.step_reached,
- 'startedAt',k.started_at,'finishedAt',k.finished_at,'verified',k.verified)`
+ 'startedAt',k.started_at,'finishedAt',k.finished_at,'verified',k.verified,'mealId',k.meal_id)`
 
 // startCookSession begins a session on a recipe the member can cook: a published one, or their
-// own (which never counts).
+// own or their household's (family.go), which never counts.
 func (a *App) startCookSession(c fiber.Ctx) error {
 	var b []byte
 	e := a.DB.QueryRow(c.Context(), `WITH k AS (INSERT INTO cook_sessions(id,user_id,recipe_id,steps)
  SELECT $1,$2,r.id,jsonb_array_length(r.steps) FROM recipes r JOIN users u ON u.id=r.author_id AND u.suspended_at IS NULL
- WHERE r.id=$3 AND (r.published OR r.author_id=$2) AND jsonb_array_length(r.steps)>0 RETURNING *)
+ WHERE r.id=$3 AND `+visibleRecipeSQL("r", "$2")+` AND jsonb_array_length(r.steps)>0 RETURNING *)
 SELECT `+cookSessionJSON+` FROM k`, uuid.NewString(), userID(c), c.Params("id")).Scan(&b)
 	// A recipe deleted meanwhile fails the reference instead.
 	if errors.Is(e, pgx.ErrNoRows) || pgCode(e) == "23503" {

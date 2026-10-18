@@ -43,6 +43,7 @@ func (a *App) adminRoutes(v fiber.Router) {
 	g.Get("/reviews", a.adminReviews)
 	g.Delete("/reviews/:id", a.adminDeleteReview)
 	g.Delete("/comments/:id", a.adminDeleteComment)
+	g.Delete("/suggestions/:id", a.adminDeleteSuggestion)
 	g.Get("/ai", a.adminAI)
 	g.Get("/jobs", a.adminJobs)
 	g.Get("/jobs/:id", a.adminJob)
@@ -196,8 +197,8 @@ func (a *App) adminOverview(c fiber.Ctx) error {
    'last7d',round(COALESCE(sum(s.cost) FILTER (WHERE s.created_at>now()-interval '7 days'),0)::numeric,4),
    'last30d',round(COALESCE(sum(s.cost),0)::numeric,4)) FROM ai_spend s LEFT JOIN users u ON u.id=s.user_id WHERE s.created_at>now()-interval '30 days'),
  'spendBySource',jsonb_build_object(
-   'media',(SELECT round(COALESCE(sum(estimated_cost),0),4) FROM ai_jobs WHERE kind IN ('image','video') AND created_at>now()-interval '30 days'),
-   'tools',(SELECT round(COALESCE(sum(estimated_cost),0),4) FROM ai_jobs WHERE kind NOT IN ('image','video') AND created_at>now()-interval '30 days'),
+   'media',(SELECT round(COALESCE(sum(estimated_cost),0),4) FROM ai_jobs WHERE kind IN ('image','video','clip') AND created_at>now()-interval '30 days'),
+   'tools',(SELECT round(COALESCE(sum(estimated_cost),0),4) FROM ai_jobs WHERE kind NOT IN ('image','video','clip') AND created_at>now()-interval '30 days'),
    'assistant',(SELECT round(COALESCE(sum(estimated_cost),0),4) FROM voice_actions WHERE created_at>now()-interval '30 days'),
    'narration',(SELECT round(COALESCE(sum(estimated_cost),0)::numeric,4) FROM narration_usage WHERE created_at>now()-interval '30 days'),
    'voice',(SELECT round(COALESCE(sum((CASE WHEN status IN ('connecting','active') OR NOT finalized THEN reserved_seconds ELSE greatest(seconds,15) END)*0.05/60),0)::numeric,4) FROM voice_sessions WHERE reserved_seconds>0 AND created_at>now()-interval '30 days')),

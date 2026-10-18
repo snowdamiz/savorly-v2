@@ -24,6 +24,7 @@ describe('GET /feed', () => {
       quick: [recipe('q1')],
       following: [],
       newest: [recipe('n1')],
+      cookAlong: { week: '2026-10-12', recipe: recipe('c'), cooks: 2, started: 5 },
     };
     expect(parseFeed(feed)).toEqual(feed);
     // Missing shelves are empty; things that aren't recipes are left out.
@@ -33,9 +34,20 @@ describe('GET /feed', () => {
       quick: [],
       following: [],
       newest: [],
+      cookAlong: null,
     });
     for (const answer of [null, undefined, [], [recipe('a')], 'feed', {}, { trending: [] }])
       expect(parseFeed(answer)).toBeNull();
+  });
+
+  test('reads the cook-along, with counts that are never negative', () => {
+    const cookAlong = (value: unknown) =>
+      parseFeed({ trending: [], quick: [], cookAlong: value })?.cookAlong;
+    expect(cookAlong({ week: '2026-10-12', recipe: recipe('c'), started: 3.7, cooks: -1 })).toEqual(
+      { week: '2026-10-12', recipe: recipe('c'), started: 3, cooks: 0 },
+    );
+    for (const value of [null, undefined, 'soup', { week: '2026-10-12' }, { recipe: recipe('c') }])
+      expect(cookAlong(value)).toBeNull();
   });
 });
 
@@ -71,6 +83,15 @@ describe('the home shelves', () => {
     expect(homeShelves(feed, [], ['friend'], { ...counts, following: 0 }).following).toEqual([]);
   });
 
+  test('the cook-along has its own card, so no shelf repeats it', () => {
+    const cookAlong = { week: '2026-10-12', recipe: recipe('h'), cooks: 0, started: 0 };
+    const shelves = homeShelves({ ...feed, cookAlong }, [], ['friend'], counts);
+    expect(shelves.cookAlong).toBe(cookAlong);
+    expect(shelves.hero?.id).toBe('t1');
+    expect(ids(shelves.trending)).toEqual(['t2', 't3', 't4']);
+    expect(homeShelves(feed, [], [], counts).cookAlong).toBeNull();
+  });
+
   test('without a hero the feed still leads with something', () => {
     expect(homeShelves({ ...feed, hero: null }, [], [], counts).hero?.id).toBe('t1');
     const empty: Feed = { hero: null, trending: [], quick: [], following: [], newest: [] };
@@ -94,6 +115,7 @@ describe('the home shelves', () => {
     expect(ids(shelves.following)).toEqual([]);
     expect(homeShelves(null, all.slice(2), [], counts).hero?.id).toBe('quick');
     expect(homeShelves(null, [], [], counts)).toEqual({
+      cookAlong: null,
       hero: undefined,
       trending: [],
       quick: [],

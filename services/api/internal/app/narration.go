@@ -37,7 +37,7 @@ func (a *App) narrationStep(c fiber.Ctx, language string) (string, string, int, 
 	if language != "" {
 		text, err = translatedStep(c.Context(), a.DB, id, step, userID(c), language)
 	} else {
-		err = a.DB.QueryRow(c.Context(), `SELECT steps->($2::int)->>'text' FROM recipes WHERE id=$1 AND (published OR author_id=$3) AND jsonb_array_length(steps)>$2::int`, id, step, userID(c)).Scan(&text)
+		err = a.DB.QueryRow(c.Context(), `SELECT r.steps->($2::int)->>'text' FROM recipes r WHERE r.id=$1 AND `+visibleRecipeSQL("r", "$3")+` AND jsonb_array_length(r.steps)>$2::int`, id, step, userID(c)).Scan(&text)
 	}
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", "", 0, fiber.NewError(404, "Cooking step not found.")

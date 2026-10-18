@@ -9,16 +9,26 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// updateCollection renames, shares or describes one of the member's cookbooks. Fields it
-// doesn't send stay as they are.
+// updateCollection renames, shares or describes one of the member's cookbooks, or shares it with
+// their household (family.go). Fields it doesn't send stay as they are.
 func (a *App) updateCollection(c fiber.Ctx) error {
 	var in struct {
 		Name        *string
 		Public      *bool
 		Description *string
+		Household   *bool
 	}
 	if e := decode(c, &in); e != nil {
 		return e
+	}
+	if in.Household != nil && *in.Household {
+		household, _, e := householdOf(c.Context(), a.DB, userID(c))
+		if e != nil {
+			return e
+		}
+		if household == "" {
+			return fiber.NewError(409, "Start or join a household to share a cookbook with it.")
+		}
 	}
 	if in.Name != nil {
 		name := strings.TrimSpace(*in.Name)
@@ -35,9 +45,9 @@ func (a *App) updateCollection(c fiber.Ctx) error {
 		in.Description = &description
 	}
 	var b []byte
-	e := a.DB.QueryRow(c.Context(), `UPDATE collections SET name=COALESCE($3,name),public=COALESCE($4,public),description=COALESCE($5,description)
- WHERE id=$1 AND user_id=$2 RETURNING jsonb_build_object('id',id,'name',name,'public',public,'description',description)`,
-		c.Params("id"), userID(c), in.Name, in.Public, in.Description).Scan(&b)
+	e := a.DB.QueryRow(c.Context(), `UPDATE collections SET name=COALESCE($3,name),public=COALESCE($4,public),description=COALESCE($5,description),household=COALESCE($6,household)
+ WHERE id=$1 AND user_id=$2 RETURNING jsonb_build_object('id',id,'name',name,'public',public,'description',description,'household',household)`,
+		c.Params("id"), userID(c), in.Name, in.Public, in.Description, in.Household).Scan(&b)
 	switch {
 	case errors.Is(e, pgx.ErrNoRows):
 		return fiber.NewError(404, "Cookbook not found.")
@@ -49,19 +59,29 @@ func (a *App) updateCollection(c fiber.Ctx) error {
 	return c.Type("json").Send(b)
 }
 
-// cookbookRecipes is what cookbook b shows: the published recipes its owner saved in it, by
+// cookbookRecipes is what cookbook b shows anyone: the published recipes its owner saved in it, by
 // cooks in good standing.
 const cookbookRecipes = `SELECT s.recipe_id,s.created_at,r.image FROM saves s JOIN recipes r ON r.id=s.recipe_id AND r.published
  JOIN users u ON u.id=r.author_id AND u.suspended_at IS NULL WHERE s.collection_id=b.id AND s.user_id=b.user_id`
 
+// cookbookRecipesFor is what cookbook b shows viewer (a SQL expression): cookbookRecipes, and the
+// owner's own private recipes in it where the viewer may open them, being its owner or in the
+// household it's shared with (family.go).
+func cookbookRecipesFor(viewer string) string {
+	return `SELECT s.recipe_id,s.created_at,r.image FROM saves s JOIN recipes r ON r.id=s.recipe_id
+ AND (r.published OR (r.author_id=b.user_id AND (b.user_id=` + viewer + ` OR (b.household AND ` + sameHouseholdSQL("b.user_id", viewer) + `))))
+ JOIN users u ON u.id=r.author_id AND u.suspended_at IS NULL WHERE s.collection_id=b.id AND s.user_id=b.user_id`
+}
+
 // cookbookSQL is cookbook $1's page for viewer $2, its recipes newest saved first ($3 of them
-// from $4): anyone may open a shared cookbook, and its owner their own.
-const cookbookSQL = `WITH b AS (SELECT k.id,k.user_id,k.name,k.description,k.public FROM collections k JOIN users o ON o.id=k.user_id AND o.suspended_at IS NULL
- WHERE k.id=$1 AND (k.public OR k.user_id=$2)),
-listed AS (SELECT x.* FROM b CROSS JOIN LATERAL (` + cookbookRecipes + `) x),
+// from $4): anyone may open a shared cookbook, its owner their own, and their household one shared
+// with it.
+var cookbookSQL = `WITH b AS (SELECT k.id,k.user_id,k.name,k.description,k.public,k.household FROM collections k JOIN users o ON o.id=k.user_id AND o.suspended_at IS NULL
+ WHERE k.id=$1 AND (k.public OR k.user_id=$2 OR (k.household AND ` + sameHouseholdSQL("k.user_id", "$2") + `))),
+listed AS (SELECT x.* FROM b CROSS JOIN LATERAL (` + cookbookRecipesFor("$2") + `) x),
 page AS (SELECT ` + recipeJSON + ` AS j,row_number() OVER (ORDER BY l.created_at DESC,r.id DESC)-$4 AS n FROM listed l JOIN recipes r ON r.id=l.recipe_id JOIN users u ON u.id=r.author_id
  ORDER BY l.created_at DESC,r.id DESC LIMIT $3::int+1 OFFSET $4)
-SELECT jsonb_build_object('id',b.id,'name',b.name,'description',b.description,'public',b.public,
+SELECT jsonb_build_object('id',b.id,'name',b.name,'description',b.description,'public',b.public,'household',b.household,
  'owner',(SELECT ` + creatorJSON + ` FROM users u WHERE u.id=b.user_id),
  'recipeCount',(SELECT count(*) FROM listed),
  'recipes',COALESCE((SELECT jsonb_agg(j ORDER BY n) FROM page WHERE n<=$3),'[]'),

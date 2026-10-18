@@ -268,7 +268,8 @@ async function mockStudio(
         project!.recipeId = recipe.id;
         project!.revision = 1;
         project!.status = 'generating';
-        project!.reply = 'Your private recipe is saved. The photo and video are creating.';
+        project!.reply = 'Your private recipe is saved. The photo is creating.';
+        // A video asset is what an older conversation made; the draft card leaves it out.
         project!.assets = [
           { kind: 'image', status: 'running', error: '' },
           { kind: 'video', status: 'processing', error: '' },
@@ -415,7 +416,7 @@ test('words typed while the conversation is still loading stay in the box', asyn
   ).toBeVisible();
 });
 
-test('chat clarifies, saves a complete recipe with both media jobs, and resumes', async ({
+test('chat clarifies, saves a complete recipe with its cover photo, and resumes', async ({
   page,
 }, testInfo) => {
   const state = await mockStudio(page);
@@ -431,7 +432,7 @@ test('chat clarifies, saves a complete recipe with both media jobs, and resumes'
   await page.getByRole('button', { name: 'Send message' }).click();
   await expect(page.getByText('Private draft saved', { exact: true })).toBeVisible();
   await expect(page.getByText('AI cover photo', { exact: true })).toBeVisible();
-  await expect(page.getByText('AI recipe video', { exact: true })).toBeVisible();
+  await expect(page.getByText('Creating…', { exact: true })).toHaveCount(1);
   expect(state.messages).toHaveLength(2);
   await page.screenshot({ path: testInfo.outputPath('recipe-studio-chat.png') });
   await page.getByRole('button', { name: 'Close the sous-chef', exact: true }).click();

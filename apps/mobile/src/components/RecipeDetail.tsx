@@ -25,10 +25,10 @@ import {
   Flag,
   Flame,
   Gauge,
+  Hourglass,
   Leaf,
   Minus,
   Pencil,
-  Play,
   Plus,
   Printer,
   Repeat2,
@@ -36,11 +36,18 @@ import {
   ShoppingBasket,
   Sparkles,
   Star,
-  Timer,
   Trash2,
   Users,
 } from './icons';
-import { CookCommand, Creator, GroceryMerge, Ingredient, Recipe, Review } from '../lib/types';
+import {
+  CookCommand,
+  Creator,
+  GroceryMerge,
+  Ingredient,
+  Recipe,
+  RecipeStep,
+  Review,
+} from '../lib/types';
 import { api } from '../lib/api';
 import { recipeUrl } from '../lib/routes';
 import { track } from '../lib/telemetry';
@@ -69,7 +76,9 @@ import {
 } from './ui';
 import { CookMode } from './CookMode';
 import { AppToast } from './AppToast';
-import { StepVideo, VideoPlayer } from './VideoPlayer';
+import { StepVideo } from './VideoPlayer';
+import { useVoiceClip, VoiceLink } from './VoiceClip';
+import { stepVoice } from '../lib/family';
 import { localDate } from '../lib/utils';
 import { foodIcon } from '../lib/icons';
 import { CuisineIcon } from './CuisineIcon';
@@ -83,7 +92,13 @@ import { CookPhotos, CookSheets, useCooked } from './CookedIt';
 import { Lineage } from './Variations';
 import { TranslationBar } from './TranslationBar';
 import { useRecipeTranslation } from '../lib/useRecipeTranslation';
-import { CookTime } from './CookTime';
+import { CookTested } from './CookTested';
+import { CooksGetStuck, StepQuestions, StepTimerHint, StepUsual } from './CookInsights';
+import { stepInsight, useCookInsights } from '../lib/cookInsights';
+import { CooksSuggest, FixHistory, SuggestFix } from './RecipeFixes';
+import { YourChanges, YoursMark, YourVersionBar } from './YourVersion';
+import { applyEdits, useYourVersion } from '../lib/yourVersion';
+import { FixDraft, useSuggestions } from '../lib/recipeFixes';
 import { DangerButton } from '../screens/Kitchen';
 import { RevealFocus, useKeyboardLift, useKeyboardScroll } from '../lib/keyboard';
 import { foodConflicts, joinNames, pantryLines, useFood } from '../lib/food';
@@ -109,6 +124,7 @@ export function RecipeDetail({
   onAsk,
   onCooking,
   cookCommand,
+  onReload,
 }: {
   recipe: Recipe;
   onClose: () => void;
@@ -124,6 +140,8 @@ export function RecipeDetail({
   /** Reports the cooking-mode step (1-based), or null when not cooking. */
   onCooking: (step: number | null) => void;
   cookCommand?: CookCommand | null;
+  /** Reads the recipe again, after something else changed it: an accepted or undone fix. */
+  onReload?: () => void;
 }) {
   const { t: tr, number, locale, language } = useI18n();
   const app = useApp();
@@ -151,7 +169,6 @@ export function RecipeDetail({
   // A sous-chef command opens cooking mode until the cook closes it.
   const [closedCommand, setClosedCommand] = useState<number>();
   const cooking = cook || (!!cookCommand && cookCommand.n !== closedCommand);
-  const [watch, setWatch] = useState(false);
   const [reviews, setReviews] = useState<Review[]>([]);
   // Cooking mode's "I cooked this" opens the sheet on the page it returns to.
   const [cookedRequest, setCookedRequest] = useState(0);
@@ -171,11 +188,45 @@ export function RecipeDetail({
   // Written in another language, the recipe can show translated: `reading` is what the page shows
   // (the recipe, or its translation), while amounts, units and everything else stay the recipe's.
   const translation = useRecipeTranslation(recipe);
-  const reading = translation.shown;
+  const mine = app.user?.id === recipe.author.id;
+  // The member's own version of someone else's recipe (docs/YOUR-VERSION.md) goes over what the
+  // page shows, translated or not, unless they chose to see the original.
+  const yours = useYourVersion(recipe.id, !!app.user && !mine && recipe.published);
+  const [original, setOriginal] = useState(false);
+  const [managing, setManaging] = useState(false);
+  const version = useMemo(
+    () => applyEdits(translation.shown, original ? [] : yours.edits),
+    [translation.shown, original, yours.edits],
+  );
+  const reading = version.recipe;
+  // What cooks found cooking it: the finish rate, and notes and questions at its steps.
+  const insights = useCookInsights(recipe.id);
+  const [stuck, setStuck] = useState(false);
+  // What cooks who made it suggest changing (docs/RECIPE-FIXES.md), the suggestion being written
+  // (with what cooking mode filled in), and how cooks improved it.
+  const fixes = useSuggestions(recipe.id, recipe.published);
+  const [suggesting, setSuggesting] = useState<{
+    draft: FixDraft | null;
+    mode?: 'suggest' | 'mine';
+  } | null>(null);
+  const [improved, setImproved] = useState(false);
+  // A family recipe's steps play the relative who told them (lib/family.ts), from a quiet link on
+  // the step's last line.
+  const voice = useVoiceClip();
+  const voiceLink = (step: RecipeStep, i: number) => {
+    const clip = stepVoice(reading, step);
+    const key = String(i);
+    return clip ? (
+      <VoiceLink
+        clip={clip}
+        playing={voice.playing === key}
+        onPress={() => (voice.playing === key ? voice.stop() : voice.play(key, clip))}
+      />
+    ) : null;
+  };
   const equipment = useShownEquipment(reading);
   const saved = app.library.savedIds.includes(recipe.id);
   const following = app.library.followingIds.includes(recipe.author.id);
-  const mine = app.user?.id === recipe.author.id;
   const heroHeight = wide
     ? Math.min(560, Math.round(height * 0.6))
     : Math.min(470, Math.round(height * 0.55));
@@ -418,6 +469,7 @@ export function RecipeDetail({
                         </View>
                       )}
                       <Text style={[s.body, { flex: 1 }]}>{i.name}</Text>
+                      {version.ingredients.has(n) && <YoursMark />}
                     </View>
                     {pantry[n] && (
                       <View style={[s.row, { gap: 4 }]}>
@@ -553,6 +605,7 @@ export function RecipeDetail({
               >
                 {st.title}
               </Text>
+              {version.steps.has(i) && <YoursMark />}
               <Text
                 style={[s.body, { color: '#3A3A3A' }, webPage && { fontSize: 16, lineHeight: 26 }]}
               >
@@ -579,18 +632,25 @@ export function RecipeDetail({
                   style={{ maxWidth: 480, aspectRatio: 16 / 9, marginTop: 4 }}
                 />
               )}
-              {st.seconds > 0 && (
-                <View style={[s.row, { gap: 6, marginTop: 2 }]}>
-                  <Timer size={14} color={color.muted} />
-                  <Text style={s.small}>
-                    {tr('timerHint', { count: Math.round(st.seconds / 60) })}
-                  </Text>
+              {(st.seconds > 0 || !!stepVoice(reading, st)) && (
+                <View style={[s.row, { gap: 16, marginTop: 2, flexWrap: 'wrap' }]}>
+                  <StepTimerHint seconds={st.seconds} insight={stepInsight(insights, i + 1)} />
+                  {voiceLink(st, i)}
                 </View>
               )}
+              <StepUsual insight={stepInsight(insights, i + 1)} />
+              <StepQuestions insight={stepInsight(insights, i + 1)} />
             </View>
           </View>
         ))}
       </View>
+      {!mine && (
+        <CooksSuggest
+          recipe={recipe}
+          fixes={fixes}
+          onSuggest={() => setSuggesting({ draft: null })}
+        />
+      )}
     </View>
   );
   const table = (
@@ -645,7 +705,8 @@ export function RecipeDetail({
           />
         </View>
       ))}
-      {!mine && (
+      {/* Only published recipes take reviews: a household's private family recipe doesn't. */}
+      {!mine && recipe.published && (
         <View style={[s.card, { gap: 14 }, webPage && { padding: 24 }]}>
           <Text style={s.h3}>{tr('How did it turn out?')}</Text>
           <View style={[s.row, { gap: 6 }]}>
@@ -698,14 +759,69 @@ export function RecipeDetail({
   const overlays = (
     <>
       <CookSheets cooked={cooks} />
+      {mine && (
+        <CooksGetStuck
+          recipe={reading}
+          visible={stuck}
+          onClose={() => setStuck(false)}
+          onEdit={() => {
+            setStuck(false);
+            onEdit(recipe);
+          }}
+          fixes={fixes}
+          onFixed={() => onReload?.()}
+          onHistory={recipe.improvedBy ? () => setImproved(true) : undefined}
+        />
+      )}
+      <SuggestFix
+        recipe={suggesting?.mode === 'mine' ? applyEdits(recipe, yours.edits).recipe : recipe}
+        visible={!!suggesting}
+        draft={suggesting?.draft}
+        mode={suggesting?.mode}
+        onClose={() => setSuggesting(null)}
+        onSent={suggesting?.mode === 'mine' ? yours.reload : fixes.reload}
+      />
+      <YourChanges
+        visible={managing}
+        onClose={() => setManaging(false)}
+        edits={yours.edits}
+        author={recipe.author.name}
+        canSuggest={fixes.canSuggest}
+        onSuggest={(draft) => {
+          setManaging(false);
+          setSuggesting({ draft });
+        }}
+        onAdd={() => {
+          setManaging(false);
+          setSuggesting({ draft: null, mode: 'mine' });
+        }}
+        onChanged={yours.reload}
+      />
+      <FixHistory
+        recipe={recipe}
+        visible={improved}
+        onClose={() => setImproved(false)}
+        onUndone={() => {
+          fixes.reload();
+          onReload?.();
+        }}
+      />
       {cooking && (
         <CookMode
           recipe={reading}
+          insights={insights}
           translatedTo={translation.translatedTo}
           command={cookCommand}
           onStep={onCooking}
           onAsk={onAsk}
           onCooked={() => setCookedRequest((n) => n + 1)}
+          onSuggest={(draft) => setSuggesting({ draft })}
+          onKept={yours.reload}
+          onChange={
+            app.user && !mine && recipe.published
+              ? () => setSuggesting({ draft: null, mode: 'mine' })
+              : undefined
+          }
           onClose={() => {
             setCook(false);
             setClosedCommand(cookCommand?.n);
@@ -713,9 +829,6 @@ export function RecipeDetail({
           }}
         />
       )}
-      <Dialog visible={watch} onClose={() => setWatch(false)} title={tr('Watch and cook')}>
-        {watch && recipe.video ? <VideoPlayer uri={recipe.video} /> : null}
-      </Dialog>
       <Dialog visible={plan} onClose={() => setPlan(false)} title={tr('Plan this meal')}>
         <ScrollView
           horizontal
@@ -883,17 +996,6 @@ export function RecipeDetail({
       label: tr('Add to cookbook'),
       onPress: () => app.requireUser(() => setCollections(true)),
     },
-    ...(recipe.video
-      ? [
-          {
-            key: 'video',
-            icon: Play,
-            title: tr('Video'),
-            label: tr('Watch video'),
-            onPress: () => setWatch(true),
-          },
-        ]
-      : []),
     ...(cooks.off
       ? []
       : [
@@ -950,9 +1052,14 @@ export function RecipeDetail({
             {recipe.author.name}
           </Text>
           <Text numberOfLines={1} style={s.small}>
-            {recipe.author.followerCount
-              ? tr('followerCount', { count: recipe.author.followerCount })
-              : `@${recipe.author.handle}`}
+            {[
+              recipe.author.founding && tr('Founding creator'),
+              recipe.author.followerCount
+                ? tr('followerCount', { count: recipe.author.followerCount })
+                : `@${recipe.author.handle}`,
+            ]
+              .filter(Boolean)
+              .join(' · ')}
           </Text>
         </View>
       </Pressable>
@@ -989,8 +1096,32 @@ export function RecipeDetail({
     </View>
   );
   const lineage = <Lineage recipe={recipe} onOpen={onOpen} onCreator={onCreator} />;
+  // The author's view of how cooks get on with their recipe, once it's out there.
+  const stuckButton = mine && recipe.published && (
+    <Button
+      title={
+        fixes.suggestions.length
+          ? tr('stuckWithSuggestions', { count: fixes.suggestions.length })
+          : tr('Where cooks get stuck')
+      }
+      icon={Hourglass}
+      variant="secondary"
+      small
+      style={{ alignSelf: 'flex-start' }}
+      onPress={() => setStuck(true)}
+    />
+  );
+  // Beside the translation, the member's own version of the recipe and the way back to the original.
   const translationBar = (
-    <TranslationBar language={recipe.language ?? ''} translation={translation} />
+    <>
+      <TranslationBar language={recipe.language ?? ''} translation={translation} />
+      <YourVersionBar
+        edits={yours.edits}
+        original={original}
+        onToggle={() => setOriginal((v) => !v)}
+        onManage={() => setManaging(true)}
+      />
+    </>
   );
   const facts = (
     <View
@@ -1181,7 +1312,12 @@ export function RecipeDetail({
                 {byline}
                 {lineage}
                 {facts}
-                <CookTime recipe={recipe} />
+                <CookTested
+                  recipe={recipe}
+                  insights={insights}
+                  onImproved={() => setImproved(true)}
+                />
+                {stuckButton}
                 <View style={{ gap: 20 }}>
                   <Button
                     title={tr('Start cooking')}
@@ -1283,7 +1419,12 @@ export function RecipeDetail({
               {/* The facts in one card and the things to do in one row, so the page goes
                   straight from the story to the cooking. */}
               <FadeIn delay={130}>{facts}</FadeIn>
-              <CookTime recipe={recipe} />
+              <CookTested
+                recipe={recipe}
+                insights={insights}
+                onImproved={() => setImproved(true)}
+              />
+              {stuckButton}
               <FadeIn delay={200}>{actionRow}</FadeIn>
               {wide ? (
                 <View style={{ flexDirection: 'row', gap: 32, alignItems: 'flex-start' }}>

@@ -23,6 +23,8 @@ type Client struct {
 	ImageEditModel string
 	// Translates recipes for readers in other languages (translate.go).
 	TranslationModel string
+	// Transcribes family recordings, with timestamps (family.go).
+	TranscriptionModel string
 }
 
 func env(k, d string) string {
@@ -41,9 +43,11 @@ func New() *Client {
 		AgentModel:     env("OPENROUTER_AGENT_MODEL", env("OPENROUTER_VOICE_MODEL", DefaultAgentModel)),
 		ImageModel:     env("OPENROUTER_IMAGE_MODEL", DefaultImageModel),
 		ImageEditModel: env("OPENROUTER_IMAGE_EDIT_MODEL", DefaultImageEditModel),
-		VideoModel:     env("REAPI_VIDEO_MODEL", "doubao-seedance-2.5-eco"),
+		VideoModel:     env("REAPI_VIDEO_MODEL", DefaultVideoModel),
 		// Its own setting, so translations can move to a cheaper model than the agent's.
 		TranslationModel: env("OPENROUTER_TRANSLATION_MODEL", DefaultTranslationModel),
+		// Speech-to-text, its own kind of model: it hears a recording and nothing else.
+		TranscriptionModel: env("OPENROUTER_TRANSCRIPTION_MODEL", DefaultTranscriptionModel),
 	}
 }
 func (c *Client) TextEnabled() bool  { return c.OpenRouterKey != "" }
@@ -80,7 +84,7 @@ func (c *Client) request(ctx context.Context, method, url, key string, payload, 
 }
 
 const recipeInstructions = "Return only a JSON object with a recipe key. " + recipeSchema
-const recipeSchema = `The recipe must contain title (string), description (string), cuisine (string), minutes (integer 1–1440), servings (integer 1–100), difficulty (Easy/Medium/Advanced), image (empty string), video (empty string), tags (array of strings), calories (integer estimated per serving), ingredients (array of {name, amount: number, unit, category}), steps (array of {title, text, seconds: integer, use 0 if no timer}), equipment (array of up to 20 short names, up to 60 characters each, of the pots, pans, appliances and tools it needs, as the recipe names them, such as "Large pot" or "Blender"; empty if none), aiGenerated: true, published: false. Include at least one ingredient and step. Do not invent media URLs.`
+const recipeSchema = `The recipe must contain title (string), description (string), cuisine (string), minutes (integer 1–1440), servings (integer 1–100), difficulty (Easy/Medium/Advanced), image (empty string), video (empty string), tags (array of strings), calories (integer estimated per serving), ingredients (array of {name, amount: number, unit, category}), steps (array of {title, text, seconds: integer, use 0 if no timer, timing: {active: integer seconds that need the cook's hands, wait: integer seconds that need no attention such as baking, simmering or resting, oven: the oven's heat in °C while the step runs or 0, burners: integer burners of the hob it uses}}), equipment (array of up to 20 short names, up to 60 characters each, of the pots, pans, appliances and tools it needs, as the recipe names them, such as "Large pot" or "Blender"; empty if none), aiGenerated: true, published: false. Include at least one ingredient and step. Do not invent media URLs.`
 
 // Recipe writes a complete recipe from prompt, as JSON with a recipe key: an import job reads
 // one from a page's text. It takes the recipe model's reasoning and output throughput.
@@ -156,9 +160,16 @@ type VideoTask struct {
 	Error json.RawMessage `json:"error"`
 }
 
-func (c *Client) Video(ctx context.Context, prompt string) (VideoTask, error) {
+// Video asks for one short clip of a recipe step: four silent seconds at 720p, landscape like
+// the step's place on the recipe page and in cooking mode. firstFrame, a public photo of the
+// step, is the clip's opening frame, so the clip shows the cook's own dish moving.
+func (c *Client) Video(ctx context.Context, prompt, firstFrame string) (VideoTask, error) {
 	var out VideoTask
-	e := c.request(ctx, "POST", c.VideoURL+"/videos/generations", c.VideoKey, map[string]any{"model": c.VideoModel, "prompt": "A realistic cinematic food close-up for a recipe. Show only the described dish. " + prompt, "duration": 5, "size": "9:16", "resolution": "720p", "content_filter": true, "generate_audio": true, "watermark": true}, &out)
+	body := map[string]any{"model": c.VideoModel, "prompt": "A realistic close-up cooking clip in a home kitchen. Show only what is described. " + prompt, "duration": 4, "size": "16:9", "resolution": "720p", "content_filter": true, "generate_audio": false, "watermark": true}
+	if firstFrame != "" {
+		body["image_with_roles"] = []map[string]string{{"url": firstFrame, "role": "first_frame"}}
+	}
+	e := c.request(ctx, "POST", c.VideoURL+"/videos/generations", c.VideoKey, body, &out)
 	if out.ID == "" {
 		out.ID = out.TaskID
 	}

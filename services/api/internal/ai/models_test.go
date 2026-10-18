@@ -11,7 +11,7 @@ import (
 
 func clearModelEnv(t *testing.T) {
 	t.Helper()
-	for _, key := range []string{"OPENROUTER_RECIPE_MODEL", "OPENROUTER_AGENT_MODEL", "OPENROUTER_VOICE_MODEL", "OPENROUTER_IMAGE_MODEL", "OPENROUTER_IMAGE_EDIT_MODEL"} {
+	for _, key := range []string{"OPENROUTER_RECIPE_MODEL", "OPENROUTER_AGENT_MODEL", "OPENROUTER_VOICE_MODEL", "OPENROUTER_IMAGE_MODEL", "OPENROUTER_IMAGE_EDIT_MODEL", "REAPI_VIDEO_MODEL"} {
 		t.Setenv(key, "")
 	}
 }
@@ -19,7 +19,7 @@ func clearModelEnv(t *testing.T) {
 func TestModelConfiguration(t *testing.T) {
 	clearModelEnv(t)
 	c := New()
-	if c.RecipeModel != "openai/gpt-6.1-sol" || c.AgentModel != "openai/gpt-6-luna" || c.ImageModel != "openai/gpt-image-2.5-flare" || c.ImageEditModel != "openai/gpt-image-2.5-sunburst" {
+	if c.RecipeModel != "openai/gpt-6.1-sol" || c.AgentModel != "openai/gpt-6-luna" || c.ImageModel != "openai/gpt-image-2.5-flare" || c.ImageEditModel != "openai/gpt-image-2.5-sunburst" || c.VideoModel != "doubao-seedance-2.0-eco-mini" {
 		t.Fatal("model defaults drifted from the documented configuration")
 	}
 	t.Setenv("OPENROUTER_VOICE_MODEL", "legacy/agent")

@@ -79,9 +79,11 @@ export type LocalMedia = {
   /** What the picker says the file is, when it knows. */
   mimeType?: string | null;
 };
-export type MediaKind = 'image' | 'video';
+export type MediaKind = 'image' | 'video' | 'audio';
 /** The largest photo or video the server takes. */
 export const MEDIA_LIMIT = 50 * 1024 * 1024;
+/** The largest family recording the server takes: what speech-to-text hears in one go. */
+export const RECORDING_LIMIT = 25 * 1024 * 1024;
 /** Large files on slow connections need far longer than an ordinary request. */
 export const UPLOAD_TIMEOUT = 5 * 60_000;
 /** A direct upload gives up once no bytes have moved for this long. */
@@ -94,6 +96,9 @@ export type UploadOptions = {
 };
 
 const tooLarge = 'Choose a file smaller than 50 MB.';
+const recordingTooLarge = 'Choose a recording smaller than 25 MB.';
+const notRecording = 'Use an M4A, WebM or MP3 recording.';
+const noRecordings = 'Recordings can’t be uploaded here right now. Please try again later.';
 const stopped = 'The upload stopped. Check your connection and try again.';
 const refused = 'The upload didn’t finish. Please try again.';
 const abortError = () =>
@@ -103,6 +108,8 @@ const abortError = () =>
 const directTypes: Record<MediaKind, string[]> = {
   image: ['image/jpeg', 'image/png', 'image/webp'],
   video: ['video/mp4', 'video/webm'],
+  // Recordings only go straight to storage: the classic upload takes photos and videos.
+  audio: ['audio/mp4', 'audio/webm', 'audio/mpeg'],
 };
 const extensionTypes: Record<string, string> = {
   jpg: 'image/jpeg',
@@ -112,6 +119,20 @@ const extensionTypes: Record<string, string> = {
   mp4: 'video/mp4',
   m4v: 'video/mp4',
   webm: 'video/webm',
+  m4a: 'audio/mp4',
+  mp3: 'audio/mpeg',
+  weba: 'audio/webm',
+};
+// The names devices give recordings, as the server knows them: AAC in MP4, WebM, or MP3. A voice
+// memo in a video container is a recording all the same.
+const recordingTypes: Record<string, string> = {
+  'audio/x-m4a': 'audio/mp4',
+  'audio/m4a': 'audio/mp4',
+  'audio/mp4a-latm': 'audio/mp4',
+  'audio/aacp': 'audio/mp4',
+  'video/mp4': 'audio/mp4',
+  'video/webm': 'audio/webm',
+  'audio/mp3': 'audio/mpeg',
 };
 const typeOf = (...candidates: (string | null | undefined)[]) => {
   const found = candidates.find(Boolean)?.split(';')[0].trim().toLowerCase() || '';
@@ -295,11 +316,11 @@ async function throughApi(media: LocalMedia, kind: MediaKind, signal?: AbortSign
 }
 
 /**
- * Stores a photo or video and returns its public address. Every upload goes through here. The
- * file goes straight to storage on an address the API signs (`POST /media/uploads`, a PUT, then
- * `POST /media/uploads/complete`), with real progress; servers that can't sign one, and storage
- * this device can't reach (a bucket without CORS for this site), get the classic multipart
- * `POST /media` instead.
+ * Stores a photo, video or family recording and returns its public address. Every upload goes
+ * through here. The file goes straight to storage on an address the API signs (`POST
+ * /media/uploads`, a PUT, then `POST /media/uploads/complete`), with real progress; servers that
+ * can't sign one, and storage this device can't reach (a bucket without CORS for this site), get
+ * the classic multipart `POST /media` instead, which takes photos and videos only.
  */
 export async function uploadMedia(
   file: LocalMedia | string,
@@ -307,19 +328,25 @@ export async function uploadMedia(
   { onProgress, signal }: UploadOptions = {},
 ) {
   const media: LocalMedia = typeof file === 'string' ? { uri: file } : file;
-  if (media.fileSize && media.fileSize > MEDIA_LIMIT) throw new Error(tooLarge);
+  const [limit, large] =
+    kind === 'audio' ? [RECORDING_LIMIT, recordingTooLarge] : [MEDIA_LIMIT, tooLarge];
+  if (media.fileSize && media.fileSize > limit) throw new Error(large);
   stopIfAborted(signal);
   const source = await sourceOf(media);
-  if (source.size > MEDIA_LIMIT) throw new Error(tooLarge);
+  if (source.size > limit) throw new Error(large);
+  if (kind === 'audio') {
+    source.type = recordingTypes[source.type] ?? source.type;
+    if (!directTypes.audio.includes(source.type)) throw new Error(notRecording);
+  }
   stopIfAborted(signal);
   onProgress?.(0);
   const target =
     source.size > 0 && directTypes[kind].includes(source.type)
       ? await presign(kind, source, signal)
       : null;
-  const url =
-    (target ? await direct(target, source, onProgress, signal) : null) ??
-    (await throughApi(media, kind, signal));
+  const sent = target ? await direct(target, source, onProgress, signal) : null;
+  if (!sent && kind === 'audio') throw new Error(noRecordings);
+  const url = sent ?? (await throughApi(media, kind, signal));
   onProgress?.(1);
   return url;
 }

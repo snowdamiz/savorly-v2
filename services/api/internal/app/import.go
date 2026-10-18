@@ -78,11 +78,19 @@ type importRead struct {
 	post    *socialPost
 	caption bool
 	via     string
+	// image is the photo the page gives its recipe, as an address on the web, whether or not
+	// the recipe may show it from there (importedMedia).
+	image string
+	// pasted is a recipe the member pasted as text (import_batches.go), for the model to read.
+	pasted string
 }
 
 // prompt is the recipe job that reads what the import found.
 func (r importRead) prompt() string {
-	if r.caption {
+	switch {
+	case r.pasted != "":
+		return pastedPrompt(r.pasted)
+	case r.caption:
 		return captionPrompt(*r.post)
 	}
 	return importPrompt(r.source, r.doc, r.via)
@@ -117,7 +125,15 @@ func (a *App) readWebPage(ctx context.Context, target string) (importRead, error
 		return importRead{}, fiber.NewError(502, "We couldn’t open that page.")
 	}
 	read := importRead{doc: readPage(page.HTML), source: sourceLink(at)}
-	if ld, ok := findRecipe(read.doc.LD); ok {
+	ld, structured := findRecipe(read.doc.LD)
+	photo := read.doc.Image
+	if structured {
+		photo = firstOf(ld.image(ld.Recipe["image"]), photo)
+	}
+	if u, e := at.Parse(photo); photo != "" && e == nil {
+		read.image = u.String()
+	}
+	if structured {
 		if r, ok := a.structuredRecipe(ld, read.doc, at, read.source); ok {
 			read.recipe = &r
 			return read, nil
@@ -242,6 +258,7 @@ func (a *App) structuredRecipe(ld ldRecipe, doc pageData, page *url.URL, source 
 	if language, ok := recipeLanguage(firstOf(ldText(x["inLanguage"]), doc.Lang)); ok {
 		r.Language = language
 	}
+	importTiming(&r)
 	if e := r.Validate(); e != nil {
 		slog.Warn("recipe import: structured data didn't map to a recipe", "host", page.Hostname(), "error", e)
 		return RecipeInput{}, false
@@ -511,9 +528,10 @@ func (a *App) failImport(ctx context.Context, id, message string, called bool) {
 	if e == nil {
 		defer tx.Rollback(ctx)
 		var reserved float64
+		var key string
 		// An admin's cancellation, or the stalled-job sweep, stands.
 		e = tx.QueryRow(ctx, `WITH job AS (SELECT id,estimated_cost FROM ai_jobs WHERE id=$1 AND status IN ('queued','running','processing') FOR UPDATE)
- UPDATE ai_jobs j SET status='failed',result='{}',error=$2,estimated_cost=0,updated_at=now() FROM job WHERE j.id=job.id RETURNING job.estimated_cost::float8`, id, message).Scan(&reserved)
+ UPDATE ai_jobs j SET status='failed',result='{}',error=$2,estimated_cost=0,updated_at=now() FROM job WHERE j.id=job.id RETURNING job.estimated_cost::float8,j.request_key`, id, message).Scan(&reserved, &key)
 		if errors.Is(e, pgx.ErrNoRows) {
 			return
 		}
@@ -523,10 +541,19 @@ func (a *App) failImport(ctx context.Context, id, message string, called bool) {
 		if e == nil {
 			e = tx.Commit(ctx)
 		}
+		if e == nil && strings.HasPrefix(key, batchJobKey) {
+			a.importJobDone(ctx)
+		}
 	}
 	if e != nil {
 		slog.Error("save failed import", "job", id, "error", e)
 	}
+}
+
+// importJob reports whether a recipe job's prompt is an import's: a page, a post's caption, or
+// a recipe the member pasted (import_batches.go).
+func importJob(prompt string) bool {
+	return importedFrom(prompt) != nil || strings.HasPrefix(prompt, pastedPrefix)
 }
 
 // importedFrom is the page or post an import job's prompt names (importPrompt, captionPrompt),

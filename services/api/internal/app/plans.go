@@ -6,6 +6,7 @@ import (
 	"os"
 	"slices"
 	"strconv"
+	"time"
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/jackc/pgx/v5"
@@ -21,7 +22,7 @@ type Plan struct {
 	Assistant    int     `json:"assistant"` // sous-chef turns and one-shot text tools
 	VoiceMinutes int     `json:"voiceMinutes"`
 	Images       int     `json:"images"`
-	Videos       int     `json:"videos"`
+	Videos       int     `json:"videos"`    // AI step clips, one a step (released apps' videos count too)
 	Narration    int     `json:"narration"` // natural-voice step read-alouds
 	SpendCap     float64 `json:"-"`
 	// Questions asked hands-free in cooking mode ("Chef, …"); its commands are free.
@@ -33,7 +34,7 @@ type Plan struct {
 var plans = []Plan{
 	{ID: "free", Assistant: 10, VoiceMinutes: 2, Images: 1, Videos: 0, Narration: 5, CookQuestions: 30, SpendCap: 0.50},
 	{ID: "plus", MonthlyUSD: 9.99, YearlyUSD: 79.99, Assistant: 80, VoiceMinutes: 20, Images: 6, Videos: 0, Narration: 30, CookQuestions: 100, SpendCap: 3.80},
-	{ID: "pro", MonthlyUSD: 19.99, YearlyUSD: 159.99, Assistant: 130, VoiceMinutes: 40, Images: 10, Videos: 1, Narration: 30, CookQuestions: 150, SpendCap: 7.69},
+	{ID: "pro", MonthlyUSD: 19.99, YearlyUSD: 159.99, Assistant: 130, VoiceMinutes: 40, Images: 10, Videos: 8, Narration: 30, CookQuestions: 150, SpendCap: 7.69},
 }
 
 // paidPlans reports whether the plan catalog is live (PAID_PLANS=true): Free allowances
@@ -191,10 +192,10 @@ func poolUsage(ctx context.Context, q querier, members []string) (usage, error) 
 	var u usage
 	e := q.QueryRow(ctx, `SELECT
  (SELECT count(*) FROM voice_actions a JOIN voice_projects p ON p.id=a.project_id WHERE p.user_id=ANY($1) AND a.estimated_cost>0 AND a.created_at>now()-interval '30 days')
-  +(SELECT count(*) FROM ai_jobs WHERE user_id=ANY($1) AND kind NOT IN ('image','video') AND estimated_cost>0 AND created_at>now()-interval '30 days'),
+  +(SELECT count(*) FROM ai_jobs WHERE user_id=ANY($1) AND kind NOT IN ('image','video','clip') AND estimated_cost>0 AND created_at>now()-interval '30 days'),
  (SELECT COALESCE(sum(CASE WHEN finalized THEN seconds ELSE reserved_seconds END),0)::int FROM voice_sessions WHERE user_id=ANY($1) AND reserved_seconds>0 AND created_at>now()-interval '30 days'),
  (SELECT count(*) FROM ai_jobs WHERE user_id=ANY($1) AND kind='image' AND estimated_cost>0 AND created_at>now()-interval '30 days'),
- (SELECT count(*) FROM ai_jobs WHERE user_id=ANY($1) AND kind='video' AND estimated_cost>0 AND created_at>now()-interval '30 days'),
+ (SELECT count(*) FROM ai_jobs WHERE user_id=ANY($1) AND kind IN ('video','clip') AND estimated_cost>0 AND created_at>now()-interval '30 days'),
  (SELECT count(*) FROM narration_usage WHERE user_id=ANY($1) AND created_at>now()-interval '30 days'),
  (SELECT COALESCE(sum(cost),0) FROM ai_spend WHERE user_id=ANY($1) AND created_at>now()-interval '30 days'),
  (SELECT count(*) FROM ai_usage WHERE user_id=ANY($1) AND kind='cook_question' AND created_at>now()-interval '30 days')`, members).
@@ -202,10 +203,32 @@ func poolUsage(ctx context.Context, q querier, members []string) (usage, error) 
 	return u, e
 }
 
-// allowance refuses one more unit of kind ("assistant", "image", "video", "narration", "cook_question")
-// when the plan's 30-day allowance is used. The message stays neutral: whether the app
-// may offer an upgrade depends on the storefront, which only the client knows.
+// poolUsageFrees is when each allowance gets room back: its oldest use that poolUsage counts stops
+// counting 30 days after it was made. Keys are usage's; an allowance with nothing counted is nil.
+func poolUsageFrees(ctx context.Context, q querier, members []string) (map[string]*time.Time, error) {
+	var assistant, voice, images, videos, narration, cookQuestions *time.Time
+	e := q.QueryRow(ctx, `SELECT
+ least((SELECT min(a.created_at) FROM voice_actions a JOIN voice_projects p ON p.id=a.project_id WHERE p.user_id=ANY($1) AND a.estimated_cost>0 AND a.created_at>now()-interval '30 days'),
+  (SELECT min(created_at) FROM ai_jobs WHERE user_id=ANY($1) AND kind NOT IN ('image','video','clip') AND estimated_cost>0 AND created_at>now()-interval '30 days'))+interval '30 days',
+ (SELECT min(created_at) FROM voice_sessions WHERE user_id=ANY($1) AND reserved_seconds>0 AND created_at>now()-interval '30 days')+interval '30 days',
+ (SELECT min(created_at) FROM ai_jobs WHERE user_id=ANY($1) AND kind='image' AND estimated_cost>0 AND created_at>now()-interval '30 days')+interval '30 days',
+ (SELECT min(created_at) FROM ai_jobs WHERE user_id=ANY($1) AND kind IN ('video','clip') AND estimated_cost>0 AND created_at>now()-interval '30 days')+interval '30 days',
+ (SELECT min(created_at) FROM narration_usage WHERE user_id=ANY($1) AND created_at>now()-interval '30 days')+interval '30 days',
+ (SELECT min(created_at) FROM ai_usage WHERE user_id=ANY($1) AND kind='cook_question' AND created_at>now()-interval '30 days')+interval '30 days'`, members).
+		Scan(&assistant, &voice, &images, &videos, &narration, &cookQuestions)
+	return map[string]*time.Time{"assistant": assistant, "voiceSeconds": voice, "images": images, "videos": videos, "narration": narration, "cookQuestions": cookQuestions}, e
+}
+
+// allowance refuses one more unit of kind ("assistant", "image", "video", "clip", "narration",
+// "cook_question") when the plan's 30-day allowance is used. The message stays neutral: whether
+// the app may offer an upgrade depends on the storefront, which only the client knows.
 func allowance(ctx context.Context, q querier, owner, kind string) error {
+	return allowanceFor(ctx, q, owner, kind, 1)
+}
+
+// allowanceFor refuses n more units of kind unless the plan's 30-day allowance has room for all
+// of them. Step clips count against the plan's videos, as released apps' videos still do.
+func allowanceFor(ctx context.Context, q querier, owner, kind string, n int) error {
 	if !paidPlans() {
 		return nil
 	}
@@ -221,7 +244,8 @@ func allowance(ctx context.Context, q querier, owner, kind string) error {
 	switch kind {
 	case "image":
 		used, limit = u.Images, p.Images
-	case "video":
+	case "video", "clip":
+		kind = "video"
 		used, limit = u.Videos, p.Videos
 	case "narration":
 		used, limit = u.Narration, p.Narration
@@ -231,10 +255,13 @@ func allowance(ctx context.Context, q querier, owner, kind string) error {
 		kind = "assistant"
 		used, limit = u.Assistant, p.Assistant
 	}
-	if used >= limit {
+	if used+n > limit {
 		refusal := allowanceRefusals[kind]
 		if limit == 0 {
 			return fiber.NewError(429, refusal.excluded)
+		}
+		if used < limit && refusal.tooFew != "" {
+			return fiber.NewError(429, refusal.tooFew)
 		}
 		return fiber.NewError(429, refusal.usedUp)
 	}
@@ -243,13 +270,14 @@ func allowance(ctx context.Context, q querier, owner, kind string) error {
 
 // Whole sentences, so the app can translate each one.
 // l10n: shown to members
-var allowanceRefusals = map[string]struct{ excluded, usedUp string }{
-	"image":     {"Your plan doesn't include AI photo generation.", "You've used your plan's AI photos for the last 30 days."},
-	"video":     {"Your plan doesn't include AI video generation.", "You've used your plan's AI videos for the last 30 days."},
-	"narration": {"Your plan doesn't include natural-voice read-alouds.", "You've used your plan's natural-voice read-alouds for the last 30 days."},
-	"assistant": {"Your plan doesn't include the sous-chef.", "You've used your plan's sous-chef messages for the last 30 days."},
+// tooFew is for a request of several units with fewer left.
+var allowanceRefusals = map[string]struct{ excluded, usedUp, tooFew string }{
+	"image":     {"Your plan doesn't include AI photo generation.", "You've used your plan's AI photos for the last 30 days.", ""},
+	"video":     {"Your plan doesn't include AI step clips.", "You've used your plan's AI step clips for the last 30 days.", "Your plan's AI step clips left for the last 30 days don't cover every step of this recipe."},
+	"narration": {"Your plan doesn't include natural-voice read-alouds.", "You've used your plan's natural-voice read-alouds for the last 30 days.", ""},
+	"assistant": {"Your plan doesn't include the sous-chef.", "You've used your plan's sous-chef messages for the last 30 days.", ""},
 	// Hands-free questions in cooking mode (handsfree.go).
-	"cook_question": {"Your plan doesn't include cooking questions.", "You've used your plan's cooking questions for the last 30 days."},
+	"cook_question": {"Your plan doesn't include cooking questions.", "You've used your plan's cooking questions for the last 30 days.", ""},
 }
 
 func envFloat(key string, fallback float64) float64 {

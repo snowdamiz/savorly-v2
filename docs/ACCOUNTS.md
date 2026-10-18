@@ -2,7 +2,7 @@
 
 Checked October 7, 2026 against the app and provider documentation. This is the setup guide for the intended Cloudflare deployment. No Fly.io or separate ElevenLabs account is needed.
 
-Start with Cloudflare, OpenRouter, OpenAI, and Neon. Add reAPI when testing generated videos, Stripe when testing subscriptions, and the mobile/sign-in accounts when preparing native builds.
+Start with Cloudflare, OpenRouter, OpenAI, and Neon. Add reAPI when testing AI step clips, Stripe when testing subscriptions, and the mobile/sign-in accounts when preparing native builds.
 
 The Go API runs on Cloudflare Containers and password-reset email goes through Cloudflare Email Service (see [staging](STAGING.md) for a working deployment). Account creation alone will not deploy the app.
 
@@ -149,21 +149,21 @@ APP_URL=https://savorly.cooking
 
 Neon remains because the existing app uses PostgreSQL. Cloudflare D1 is not a compatible connection-string replacement.
 
-## 5. reAPI — generated recipe videos
+## 5. reAPI — AI step clips
 
 1. Sign up at [reAPI](https://reapi.ai/).
 2. Open **Dashboard → API Keys → Create new key**, name it for Savorly, and save the key when shown.
-3. Add credits in the account and confirm access to Seedance 2.5 Eco.
+3. Add credits in the account and confirm access to Seedance 2.0 Mini Eco.
 4. Set:
 
 ```dotenv
 REAPI_API_KEY=YOUR_REAPI_KEY
-REAPI_VIDEO_MODEL=doubao-seedance-2.5-eco
+REAPI_VIDEO_MODEL=doubao-seedance-2.0-eco-mini
 ```
 
-5. Restart the API and generate one short recipe video with any account while paid plans are off. Once `PAID_PLANS=true`, only Pro includes video; a Pro test subscription can be created using Stripe's sandbox below. Media storage must also be working.
+5. Restart the API, open a saved recipe with one or two steps in the editor, and tap **Make step clips** with any account while paid plans are off. Once `PAID_PLANS=true`, only Pro includes step clips; a Pro test subscription can be created using Stripe's sandbox below. Media storage must also be working.
 
-**Done when:** the job completes and the clip plays from your media storage. The test is a paid generation. You can leave this key blank until you need video generation. [reAPI quickstart](https://reapi.ai/docs/api/quickstart).
+**Done when:** each clip finishes, lands on its step and plays from your media storage. Each clip is a paid generation (about $0.14). You can leave this key blank until you need step clips. [reAPI quickstart](https://reapi.ai/docs/api/quickstart).
 
 ## 6. Stripe — subscriptions
 
@@ -360,7 +360,8 @@ What members find in My kitchen once these services are set up:
 
 - **Account and security:** the email address, changed with a 6-digit code sent to the new address (the change happens when the code is entered, and the old address is told); the password, changed with the current one or, for a kitchen made with Apple or Google, set after signing in once more with that account (either way the other devices are signed out); and the signed-in devices, this one first, each of the others with **Sign out**, plus **Sign out everywhere else**. Email changes need the email setup in section 1.
 - **Confirm your email address:** while a new kitchen's address is unconfirmed (and email is set up), a banner asks for the code sign-up sent, and can send a new one.
-- **Download my data:** everything the account holds as one JSON file. The web saves it directly; the apps open a single-use link, valid for ten minutes, in the browser.
+- **Download my data:** everything the account holds, as files (a ZIP with a folder for each recipe to read or print, its photos and clips, and the lists as spreadsheets) or as one JSON file. The web saves the JSON file directly; the files, and both from the apps, come through a single-use link, valid for ten minutes, that the browser opens ([switching](SWITCHING.md#the-export-as-files)).
+- **Import from my site:** a creator's import of the recipes on their own site, with their photos and their permission ([switching](SWITCHING.md#a-creators-own-site)).
 - **Measurements** (as written, metric or imperial), **Notifications** (new recipes, pantry reminders, reviews, comments) and the **Language**, which notifications are written in, are saved with the account.
 - The **Privacy policy**, **Terms of use** and **Delete your account** pages (the static pages the Worker serves at `/privacy`, `/terms` and `/account-deletion`) are linked at the foot of My kitchen, and the sign-up form links the terms and the privacy policy.
 
@@ -372,7 +373,7 @@ Once the Cloudflare Containers and email changes are implemented, the remaining 
 
 - `/health` against the API succeeds; through the same-origin gateway use `/api/health`.
 - `/v1/capabilities` (or `/api/v1/capabilities`) reports the intended models/features. These flags detect configuration, not whether a key has credit or provider access.
-- One real text, image, narration, live-voice, and optional video request works.
+- One real text, image, narration, live-voice, and optional step-clip request works.
 - R2 public media loads while private source objects remain private.
 - Password recovery delivers mail, sandbox billing updates a plan, and enabled social sign-ins work.
 

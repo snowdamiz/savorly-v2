@@ -21,6 +21,7 @@ const kindLabel: Record<AIKind, string> = {
   assistant: 'Cooking question',
   image: 'Food photo',
   video: 'Recipe clip',
+  clip: 'Step clip',
 };
 export function JobResult({
   job,
@@ -65,37 +66,23 @@ export function JobResult({
   // A touch-up is already where it was asked for; history just shows it.
   if (r.url && job.source)
     return <FoodImage uri={r.url} style={{ height: 300, borderRadius: radius.lg }} />;
-  if (r.url && (job.kind === 'image' || job.kind === 'video')) {
-    const image = job.kind === 'image';
+  // A clip, of a step or from an older app's Create a short clip, is already where it belongs.
+  if (r.url && (job.kind === 'clip' || job.kind === 'video')) return <VideoPlayer uri={r.url} />;
+  if (r.url && job.kind === 'image')
     return (
       <View style={{ gap: 12 }}>
-        {image ? (
-          <FoodImage uri={r.url} style={{ height: 300, borderRadius: radius.lg }} />
-        ) : (
-          <VideoPlayer uri={r.url} />
-        )}
+        <FoodImage uri={r.url} style={{ height: 300, borderRadius: radius.lg }} />
         <Button
-          title={
-            onMedia
-              ? image
-                ? tr('Use this photo')
-                : tr('Use this clip')
-              : tr('Start a recipe with it')
-          }
+          title={onMedia ? tr('Use this photo') : tr('Start a recipe with it')}
           icon={ArrowRight}
           onPress={() =>
             onMedia
               ? onMedia(r.url!)
-              : onRecipe({
-                  ...emptyRecipe(),
-                  [image ? 'image' : 'video']: r.url,
-                  aiGenerated: true,
-                })
+              : onRecipe({ ...emptyRecipe(), image: r.url!, aiGenerated: true })
           }
         />
       </View>
     );
-  }
   if (r.text)
     return (
       <View style={!bare && s.card}>
@@ -115,13 +102,13 @@ export function SousChef({
   onClose: () => void;
   onRecipe: (r: RecipeInput) => void;
 }) {
-  const { t: tr, number } = useI18n();
+  const { t: tr } = useI18n();
   const app = useApp();
   const { kind } = request;
   const [prompt, setPrompt] = useState(() => tr(request.prompt || ''));
   const [job, setJob] = useState<AIJob | null>(null);
   const [error, setError] = useState('');
-  const enabled = kind === 'video' ? app.capabilities?.videoAI : app.capabilities?.imageAI;
+  const enabled = app.capabilities?.imageAI;
   const prepare = (ask: string) => {
     const body = `${ask}${request.context ? `\n\nContext: ${request.context}` : ''}`;
     return { kind, prompt: body.slice(0, 12000), key: requestKey() };
@@ -163,17 +150,14 @@ export function SousChef({
   useEffect(() => {
     if (!job || finished(job)) return;
     let alive = true;
-    const timer = setInterval(
-      () => {
-        api<AIJob[]>('/ai/jobs')
-          .then((all) => {
-            const next = all.find((j) => j.id === job.id);
-            if (alive && next) setJob(next);
-          })
-          .catch(() => {});
-      },
-      job.kind === 'video' ? 5000 : 2000,
-    );
+    const timer = setInterval(() => {
+      api<AIJob[]>('/ai/jobs')
+        .then((all) => {
+          const next = all.find((j) => j.id === job.id);
+          if (alive && next) setJob(next);
+        })
+        .catch(() => {});
+    }, 2000);
     return () => {
       alive = false;
       clearInterval(timer);
@@ -192,9 +176,7 @@ export function SousChef({
             {tr('Not connected yet')}
           </Text>
           <Text style={[s.muted, { color: color.warning }]}>
-            {kind === 'video'
-              ? tr('Video needs a reAPI key on the server.')
-              : tr('The sous-chef needs an OpenRouter key on the server.')}
+            {tr('The sous-chef needs an OpenRouter key on the server.')}
           </Text>
         </View>
       )}
@@ -202,9 +184,7 @@ export function SousChef({
         <View style={{ gap: 12 }}>
           <Asked>{prompt}</Asked>
           {!finished(job) ? (
-            <Thinking
-              label={kind === 'video' ? tr('Filming your clip…') : tr('Thinking it through…')}
-            />
+            <Thinking label={tr('Thinking it through…')} />
           ) : job.status === 'failed' ? (
             <View
               style={{
@@ -310,16 +290,6 @@ export function SousChef({
               />
             )}
           </View>
-          {kind === 'video' && (
-            <Text style={s.small}>
-              {tr('5-second clip · 720p · about {{v0}}', {
-                v0: number(app.capabilities?.videoEstimateUSD || 1.005, {
-                  style: 'currency',
-                  currency: 'USD',
-                }),
-              })}
-            </Text>
-          )}
         </View>
       )}
       {!!error && (

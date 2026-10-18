@@ -129,7 +129,7 @@ func TestDirectUploadsPresignAndComplete(t *testing.T) {
 	}
 	for _, bad := range []map[string]any{
 		{"kind": "image", "contentType": "image/svg+xml", "size": 10}, {"kind": "image", "contentType": "video/mp4", "size": 10},
-		{"kind": "audio", "contentType": "audio/mpeg", "size": 10}, {"kind": "video", "contentType": "video/mp4", "size": 51 << 20},
+		{"kind": "audio", "contentType": "audio/wav", "size": 10}, {"kind": "video", "contentType": "video/mp4", "size": 51 << 20},
 		{"kind": "image", "contentType": "image/png", "size": 0},
 	} {
 		if status, _ := uploadCall(t, f, "/media/uploads", "cook", bad); status != 400 {

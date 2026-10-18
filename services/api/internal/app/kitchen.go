@@ -15,7 +15,7 @@ import (
 const libraryIDs = `
  'savedIds',COALESCE((SELECT jsonb_agg(recipe_id) FROM saves WHERE user_id=$1),'[]'),
  'saves',COALESCE((SELECT jsonb_agg(jsonb_build_object('recipeId',recipe_id,'collectionId',collection_id)) FROM saves WHERE user_id=$1),'[]'),
- 'collections',COALESCE((SELECT jsonb_agg(jsonb_build_object('id',id,'name',name,'public',public,'description',description)) FROM collections WHERE user_id=$1),'[]'),
+ 'collections',COALESCE((SELECT jsonb_agg(jsonb_build_object('id',id,'name',name,'public',public,'description',description,'household',household)) FROM collections WHERE user_id=$1),'[]'),
  'followingIds',COALESCE((SELECT jsonb_agg(creator_id) FROM follows WHERE user_id=$1),'[]'),
  'cookedIds',COALESCE((SELECT jsonb_agg(recipe_id) FROM cooks WHERE user_id=$1),'[]'),
  'ownIds',COALESCE((SELECT jsonb_agg(id ORDER BY created_at DESC,id DESC) FROM recipes WHERE author_id=$1),'[]'),
@@ -37,12 +37,13 @@ SELECT jsonb_build_object(`+libraryIDs+`,
 }
 
 // libraryPage selects one page plus one more row (to tell whether there are more) of the
-// member's ($1) recipes: saved ones, in a cookbook ($3) if given, and their own unless scope
-// or a cookbook says otherwise. Newest first, by when they saved or wrote each.
+// member's ($1) recipes: saved ones (published, or their own kept in a cookbook), in a cookbook
+// ($3) if given, and their own unless scope or a cookbook says otherwise. Newest first, by when
+// they saved or wrote each.
 func libraryPage(scope, collection string, limit, offset int) (string, bool) {
 	var parts []string
 	if scope != "mine" {
-		saved := `SELECT s.recipe_id AS id,s.created_at AS at FROM saves s JOIN recipes p ON p.id=s.recipe_id AND p.published WHERE s.user_id=$1`
+		saved := `SELECT s.recipe_id AS id,s.created_at AS at FROM saves s JOIN recipes p ON p.id=s.recipe_id AND (p.published OR p.author_id=$1) WHERE s.user_id=$1`
 		if collection != "" {
 			saved += ` AND s.collection_id=$3`
 		}
@@ -95,7 +96,9 @@ func (a *App) save(c fiber.Ctx) error {
 			return fiber.NewError(404, "Cookbook not found.")
 		}
 	}
-	r, e := a.DB.Exec(c.Context(), `INSERT INTO saves(user_id,recipe_id,collection_id) SELECT $1,id,$3 FROM recipes WHERE id=$2 AND published ON CONFLICT(user_id,recipe_id) DO UPDATE SET collection_id=excluded.collection_id`, userID(c), c.Params("id"), in.CollectionID)
+	// A published recipe, or one of the member's own, which they keep in a cookbook (a family
+	// cookbook shared with the household, family.go).
+	r, e := a.DB.Exec(c.Context(), `INSERT INTO saves(user_id,recipe_id,collection_id) SELECT $1,id,$3 FROM recipes WHERE id=$2 AND (published OR author_id=$1) ON CONFLICT(user_id,recipe_id) DO UPDATE SET collection_id=excluded.collection_id`, userID(c), c.Params("id"), in.CollectionID)
 	if e != nil {
 		return e
 	}
@@ -138,7 +141,7 @@ func (a *App) kitchen(c fiber.Ctx) error {
 	}
 	return a.queryOne(c, `SELECT jsonb_build_object(
  'plans',COALESCE((SELECT jsonb_agg(jsonb_build_object('id',p.id,'recipeId',p.recipe_id,'day',p.day,'meal',p.meal,'servings',p.servings,
-   'recipe',CASE WHEN r.published OR r.author_id=$1 THEN `+recipeJSON+` ELSE `+recipeTeaserJSON+` END,'plannedBy',`+addedByJSON("p")+`))
+   'recipe',CASE WHEN `+visibleRecipeSQL("r", "$1")+` THEN `+recipeJSON+` ELSE `+recipeTeaserJSON+` END,'plannedBy',`+addedByJSON("p")+`))
    FROM meal_plans p JOIN recipes r ON r.id=p.recipe_id JOIN users u ON u.id=r.author_id AND u.suspended_at IS NULL WHERE `+kitchenScope("p", 1)+window+`),'[]'),
  'groceries',COALESCE((SELECT jsonb_agg(jsonb_build_object('id',g.id,'name',g.name,'quantity',g.quantity,'category',g.category,'checked',g.checked,
    'addedBy',`+addedByJSON("g")+`) ORDER BY g.created_at,g.id)
@@ -193,13 +196,13 @@ func (a *App) plan(c fiber.Ctx) error {
 		return e
 	}
 	defer tx.Rollback(ctx)
-	// A published recipe, or one of the member's own. On a household's plan, another member's
-	// private recipe shows only as a teaser (recipeTeaserJSON).
+	// A recipe the member can open (visibleRecipeSQL). On a household's plan, another member's
+	// private recipe shows only as a teaser to those who can't open it (recipeTeaserJSON).
 	slot := `ON CONFLICT(user_id,day,meal) WHERE household_id IS NULL`
 	if household != "" {
 		slot = `ON CONFLICT(household_id,day,meal) WHERE household_id IS NOT NULL`
 	}
-	r, e := tx.Exec(ctx, `INSERT INTO meal_plans(id,user_id,household_id,recipe_id,day,meal,servings) SELECT $1,$2,NULLIF($7,''),id,$4,$5,$6 FROM recipes WHERE id=$3 AND (published OR author_id=$2)
+	r, e := tx.Exec(ctx, `INSERT INTO meal_plans(id,user_id,household_id,recipe_id,day,meal,servings) SELECT $1,$2,NULLIF($7,''),r.id,$4,$5,$6 FROM recipes r WHERE r.id=$3 AND `+visibleRecipeSQL("r", "$2")+`
  `+slot+` DO UPDATE SET recipe_id=excluded.recipe_id,servings=excluded.servings,user_id=excluded.user_id`, uuid.NewString(), me, in.RecipeID, in.Day, in.Meal, in.Servings, household)
 	if e != nil {
 		return e
@@ -353,7 +356,7 @@ func (a *App) recipeGroceries(c fiber.Ctx) error {
 	var language string
 	// Like planning: a published recipe or one of the member's own. Only the ingredients reach
 	// the list, so a household sees what to buy, not the private recipe.
-	if e := a.DB.QueryRow(c.Context(), `SELECT ingredients,servings,language FROM recipes WHERE id=$1 AND (published OR author_id=$2)`, c.Params("id"), userID(c)).Scan(&ingredients, &servings, &language); e != nil {
+	if e := a.DB.QueryRow(c.Context(), `SELECT r.ingredients,r.servings,r.language FROM recipes r WHERE r.id=$1 AND `+visibleRecipeSQL("r", "$2"), c.Params("id"), userID(c)).Scan(&ingredients, &servings, &language); e != nil {
 		return fiber.NewError(404, "Recipe not found.")
 	}
 	lines := scaledLines(ingredients, in.Servings, servings)
@@ -382,7 +385,7 @@ func (a *App) planGroceries(c fiber.Ctx) error {
 	// A household's plan shops every member's planned meals; a private recipe gives the list
 	// its ingredients only, as when its author shops it.
 	rows, e := a.DB.Query(c.Context(), `SELECT r.ingredients,r.servings,p.servings,r.language FROM meal_plans p JOIN recipes r ON r.id=p.recipe_id JOIN users u ON u.id=r.author_id AND u.suspended_at IS NULL
- WHERE `+kitchenScope("p", 1)+` AND p.day BETWEEN $2 AND $3 AND (r.published OR r.author_id=p.user_id) ORDER BY p.day,array_position(ARRAY['Breakfast','Lunch','Dinner'],p.meal)`, userID(c), from, to)
+ WHERE `+kitchenScope("p", 1)+` AND p.day BETWEEN $2 AND $3 AND `+visibleRecipeSQL("r", "p.user_id")+` ORDER BY p.day,array_position(ARRAY['Breakfast','Lunch','Dinner'],p.meal)`, userID(c), from, to)
 	if e != nil {
 		return e
 	}

@@ -52,15 +52,20 @@ import {
   Segmented,
   useChrome,
 } from '../components/ui';
-import { StepClip, VideoPlayer } from '../components/VideoPlayer';
+import { StepClip } from '../components/VideoPlayer';
+import { clipFor, stepsWithoutClips, useStepClips } from '../lib/stepClips';
+import { requestKey } from '../lib/utils';
 import { foodIcon } from '../lib/icons';
 import { LocalMedia, pickPhoto, preparePhoto, uploadMedia } from '../lib/photos';
 import { CuisineIcon } from '../components/CuisineIcon';
 import { CuisinePicker } from '../components/CuisinePicker';
 import { EquipmentEditor } from '../components/EquipmentEditor';
+import { fitTiming, StepTimingEditor } from '../components/StepTimingEditor';
 import { PhotoTouchUp } from '../components/PhotoTouchUp';
 import { postCreator, postPlatform } from '../lib/recipeImport';
 import { DangerButton, SignInKitchen } from './Kitchen';
+import { RecordingConsent } from '../components/RecordingConsent';
+import { agreeToRecordings, awaitingConsent } from '../lib/family';
 const tagOptions = [
   'Vegetarian',
   'Vegan',
@@ -236,12 +241,13 @@ const draftOf = (r: RecipeInput) =>
       unit,
       category,
     })),
-    steps: r.steps.map(({ title, text, seconds, image, video }) => ({
+    steps: r.steps.map(({ title, text, seconds, image, video, timing }) => ({
       title,
       text,
       seconds,
       ...(typeof image === 'string' ? { image } : {}),
       ...(typeof video === 'string' ? { video } : {}),
+      ...(timing !== undefined ? { timing } : {}),
     })),
     tags: r.tags || [],
     calories: r.calories || 0,
@@ -373,7 +379,7 @@ export function Editor(props: EditorProps) {
   return <EditorForm key={`${user?.id || 'guest'}.${id}`} {...props} />;
 }
 // A step's photo is `step n`, its clip `clip n`, n counting from 0.
-type UploadTarget = 'cover' | 'gallery' | 'video' | `step ${number}` | `clip ${number}`;
+type UploadTarget = 'cover' | 'gallery' | `step ${number}` | `clip ${number}`;
 function EditorForm({ initial, onPublished, onAI }: EditorProps) {
   const { t: tr, language: appLanguage } = useI18n();
   const app = useApp();
@@ -392,6 +398,12 @@ function EditorForm({ initial, onPublished, onAI }: EditorProps) {
   });
   const [r, setR] = useState<RecipeInput>(start);
   const [busy, setBusy] = useState(false);
+  // A family recipe plays someone's recorded voice: publishing it asks whether they agreed.
+  const [speakers] = useState(() => (initial && 'id' in initial ? awaitingConsent(initial) : []));
+  const [asking, setAsking] = useState(false);
+  const [agreed, setAgreed] = useState(false);
+  const [agreeing, setAgreeing] = useState(false);
+  const [consentError, setConsentError] = useState('');
   // The upload under way and where it shows: picking (no progress yet), then sending.
   const [upload, setUpload] = useState<{ target: UploadTarget; progress: number | null } | null>(
     null,
@@ -507,14 +519,6 @@ function EditorForm({ initial, onPublished, onAI }: EditorProps) {
     setStored(null);
     void AsyncStorage.removeItem(draftKey).catch(() => {});
   };
-  // What's typed as a video address; the recipe and its preview take it on blur or return, so a
-  // half-typed address never mounts a player.
-  const [videoEntry, setVideoEntry] = useState({ value: r.video, text: r.video });
-  if (videoEntry.value !== r.video) setVideoEntry({ value: r.video, text: r.video });
-  const commitVideo = () => {
-    const video = videoEntry.text.trim();
-    if (video !== r.video) setR((old) => ({ ...old, video }));
-  };
   const update = <K extends keyof RecipeInput>(key: K, value: RecipeInput[K]) =>
     setR((old) => ({ ...old, [key]: value }));
   const dish = r.title ? `Dish: ${r.title}. ${r.description}`.slice(0, 1500) : undefined;
@@ -589,41 +593,91 @@ function EditorForm({ initial, onPublished, onAI }: EditorProps) {
       ...old,
       steps: old.steps.map((x, k) => (k === n ? { ...x, video } : x)),
     }));
-  // A clip comes from the library, as the recipe's video does.
+  // A clip comes from the library.
   const addStepClip = (n: number) => {
     if (!uploading) void media('videos', `clip ${n}`, (url) => setStepClip(n, url));
   };
   // A step's photo or clip on its way lands by position, so the steps hold still meanwhile.
   const stepUpload = !!upload && /^(step|clip) /.test(upload.target);
-  const generate = (kind: 'image' | 'video') =>
+  const generateCover = () =>
     onAI({
-      kind,
-      title: kind === 'image' ? 'Create a cover photo' : 'Create a short clip',
+      kind: 'image',
+      title: 'Create a cover photo',
       context: dish,
-      placeholder:
-        kind === 'image'
-          ? 'Describe the plate, the light and the angle…'
-          : 'Describe one moment: steam rising, a sauce being poured…',
-      suggestions:
-        kind === 'image'
-          ? ['Natural light on a rustic table', 'Overhead editorial shot', 'Moody close-up']
-          : ['A slow cinematic reveal', 'Steam rising from the bowl', 'The final plating'],
-      onMedia: (url) =>
-        setR((old) => ({ ...old, [kind === 'image' ? 'image' : 'video']: url, aiGenerated: true })),
+      placeholder: 'Describe the plate, the light and the angle…',
+      suggestions: ['Natural light on a rustic table', 'Overhead editorial shot', 'Moody close-up'],
+      onMedia: (url) => setR((old) => ({ ...old, image: url, aiGenerated: true })),
     });
-  const submit = async (published: boolean) => {
+  // AI clips of the steps, made from the saved recipe when the cook asks. A clip that finishes
+  // while the editor is open goes on the step with its text that still has none, here as on the
+  // server, and the recipe says AI helped.
+  const clipsOffered = !!app.capabilities?.videoAI && !!app.user;
+  const stepClips = useStepClips(
+    id,
+    clipsOffered,
+    useCallback(
+      (text: string, url: string) =>
+        setR((old) => {
+          const n = old.steps.findIndex((x) => x.text.trim() === text && !x.video);
+          return n < 0
+            ? old
+            : {
+                ...old,
+                aiGenerated: true,
+                steps: old.steps.map((x, k) => (k === n ? { ...x, video: url } : x)),
+              };
+        }),
+      [],
+    ),
+  );
+  const clipless = stepsWithoutClips(r.steps, stepClips.clips);
+  // Clips are made from the saved steps, so changed steps are saved first.
+  const stepsChanged =
+    r.steps.map((x) => x.text.trim()).join('\n') !==
+    (initial?.steps || []).map((x) => x.text.trim()).join('\n');
+  const clipsHint = !id
+    ? 'Save the recipe to make AI clips of its steps.'
+    : stepsChanged
+      ? 'Save your changes to make AI clips of these steps.'
+      : stepClips.busy
+        ? 'Clips on their way appear on their steps in a few minutes.'
+        : clipless.length
+          ? 'A four-second AI clip of each step that has none.'
+          : 'Every step has a clip.';
+  // The confirmation holds one key, so a second tap can't order twice.
+  const [clipOrder, setClipOrder] = useState<string | null>(null);
+  const [orderingClips, setOrderingClips] = useState(false);
+  const orderClips = async () => {
+    if (!clipOrder || orderingClips) return;
+    setOrderingClips(true);
+    setError('');
+    try {
+      await stepClips.order(clipOrder);
+      setClipOrder(null);
+    } catch (e) {
+      setClipOrder(null);
+      setError((e as Error).message);
+    } finally {
+      setOrderingClips(false);
+    }
+  };
+  const submit = async (published: boolean, consented = agreed) => {
     if (busy || !app.requireUser()) return;
+    if (published && id && speakers.length && !consented) return setAsking(true);
     setBusy(true);
     setError('');
     try {
-      // A video address still being typed counts.
-      const video = videoEntry.text.trim();
       // Only a new adaptation names its original; an edit leaves the saved link as it is.
       const { derivedFrom, ...rest } = r;
       const credit = !id && typeof derivedFrom === 'string' && derivedFrom && !originGone;
+      // A step's timing goes as the server holds it; left out (an older draft), the server keeps
+      // the saved timing, and null clears it.
+      const steps = rest.steps.map((st) =>
+        st.timing === undefined ? st : { ...st, timing: fitTiming(st.timing) },
+      );
       const recipe = await api<Recipe>(id ? `/recipes/${id}` : '/recipes', {
         method: id ? 'PUT' : 'POST',
-        body: { ...rest, video, published, ...(credit ? { derivedFrom } : {}) },
+        body: { ...rest, steps, published, ...(credit ? { derivedFrom } : {}) },
       });
       saved.current = true;
       await AsyncStorage.removeItem(draftKey).catch(() => {});
@@ -635,10 +689,28 @@ function EditorForm({ initial, onPublished, onAI }: EditorProps) {
       );
       onPublished(recipe);
     } catch (e) {
-      setError((e as Error).message);
+      // Agreement given elsewhere, or not yet: the server says, and the question opens.
+      if (e instanceof ApiError && e.status === 409 && speakers.length) setAsking(true);
+      else setError((e as Error).message);
     } finally {
       setBusy(false);
     }
+  };
+  const agree = async () => {
+    if (!id) return;
+    setAgreeing(true);
+    setConsentError('');
+    try {
+      await agreeToRecordings(id);
+      setAgreed(true);
+      setAsking(false);
+    } catch (e) {
+      setConsentError((e as Error).message);
+      return;
+    } finally {
+      setAgreeing(false);
+    }
+    await submit(true, true);
   };
   const setIngredient = (n: number, patch: Partial<RecipeInput['ingredients'][number]>) =>
     update(
@@ -743,7 +815,7 @@ function EditorForm({ initial, onPublished, onAI }: EditorProps) {
           icon={Sparkles}
           variant="secondary"
           style={{ flex: 1 }}
-          onPress={() => generate('image')}
+          onPress={generateCover}
         />
       </View>
       {progressFor('cover')}
@@ -810,43 +882,6 @@ function EditorForm({ initial, onPublished, onAI }: EditorProps) {
           {progressFor('gallery')}
         </View>
       )}
-    </Section>
-  );
-  const video = (
-    <Section title={tr('Video')} hint="Optional. MP4 or WebM up to 50 MB, or a direct video link.">
-      {playable(r.video) && <VideoPlayer uri={r.video} />}
-      <View style={[s.row, { gap: 8 }]}>
-        <Button
-          title={tr('Upload')}
-          label={tr('Upload a recipe video')}
-          icon={Film}
-          variant="secondary"
-          busy={upload?.target === 'video'}
-          disabled={uploading}
-          style={{ flex: 1 }}
-          onPress={() => void media('videos', 'video', (url) => update('video', url))}
-        />
-        <Button
-          title={tr('Generate')}
-          label={tr('Generate a clip')}
-          icon={Sparkles}
-          variant="secondary"
-          style={{ flex: 1 }}
-          onPress={() => generate('video')}
-        />
-      </View>
-      {progressFor('video')}
-      <Field
-        label={tr('Or use a direct video URL')}
-        value={videoEntry.text}
-        onChangeText={(text) => setVideoEntry({ value: r.video, text })}
-        onBlur={commitVideo}
-        onSubmitEditing={commitVideo}
-        returnKeyType="done"
-        placeholder="https://…/video.mp4"
-        autoCapitalize="none"
-        style={inset}
-      />
     </Section>
   );
   return (
@@ -1081,178 +1116,225 @@ function EditorForm({ initial, onPublished, onAI }: EditorProps) {
                 title={tr('Method')}
                 hint="Each step can have a photo and a short clip of up to 30 seconds."
               >
-                {r.steps.map((step, n) => (
-                  <View
-                    key={n}
-                    style={[
-                      { gap: 10 },
-                      n > 0 && {
-                        paddingTop: 16,
-                        borderTopWidth: StyleSheet.hairlineWidth,
-                        borderColor: color.line,
-                      },
-                    ]}
-                  >
-                    <View style={s.between}>
-                      <View style={[s.row, { gap: 10 }]}>
-                        <View
-                          style={{
-                            width: 28,
-                            height: 28,
-                            borderRadius: 14,
-                            backgroundColor: color.ink,
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                          }}
-                        >
-                          <Text style={{ color: color.white, fontFamily: font.bold, fontSize: 12 }}>
-                            {n + 1}
-                          </Text>
-                        </View>
-                        <Text style={s.h3}>{tr('Step {{v0}}', { v0: n + 1 })}</Text>
-                      </View>
-                      <IconButton
-                        icon={Trash2}
-                        plain
-                        size={38}
-                        label={tr('Remove step {{v0}}', { v0: n + 1 })}
-                        disabled={stepUpload}
-                        onPress={() =>
-                          update(
-                            'steps',
-                            r.steps.filter((_, k) => k !== n),
-                          )
-                        }
-                      />
-                    </View>
-                    {/* The step's header names its boxes; screen readers still hear each name. */}
-                    <Field
-                      accessibilityLabel={tr('Step {{v0}} title', { v0: n + 1 })}
-                      placeholder={tr('A short, helpful title')}
-                      value={step.title}
-                      onChangeText={(v) => setStep(n, { title: v })}
-                      style={inset}
-                    />
-                    <Field
-                      accessibilityLabel={tr('Step {{v0}} instructions', { v0: n + 1 })}
-                      multiline
-                      placeholder={tr('Explain it like a friend is cooking alongside you…')}
-                      value={step.text}
-                      onChangeText={(v) => setStep(n, { text: v })}
-                      style={inset}
-                    />
-                    <View style={[s.wrap, { gap: 14 }]}>
-                      <View>
-                        {step.image ? (
-                          <View style={{ alignSelf: 'flex-start' }}>
-                            <FoodImage
-                              uri={step.image}
-                              label={tr('Photo for step {{v0}}', { v0: n + 1 })}
-                              style={styles.stepPhoto}
-                            />
-                            <View style={{ position: 'absolute', top: -6, right: -6 }}>
-                              <ThumbButton
-                                icon={X}
-                                label={tr('Remove the photo for step {{v0}}', { v0: n + 1 })}
-                                onPress={() => setStepPhoto(n, '')}
-                              />
-                            </View>
-                            <View style={{ position: 'absolute', bottom: -6, right: -6 }}>
-                              <ThumbButton
-                                icon={RefreshCw}
-                                label={tr('Replace the photo for step {{v0}}', { v0: n + 1 })}
-                                onPress={() => addStepPhoto(n)}
-                              />
-                            </View>
-                          </View>
-                        ) : (
-                          <Pressable
-                            accessibilityRole="button"
-                            accessibilityLabel={tr('Add a photo for step {{v0}}', { v0: n + 1 })}
-                            accessibilityState={{
-                              disabled: uploading,
-                              busy: upload?.target === `step ${n}`,
-                            }}
-                            disabled={uploading}
-                            onPress={() => addStepPhoto(n)}
-                            style={[
-                              styles.stepPhoto,
-                              styles.emptyPhoto,
-                              { opacity: uploading && upload?.target !== `step ${n}` ? 0.5 : 1 },
-                            ]}
-                          >
-                            {upload?.target === `step ${n}` ? (
-                              <ActivityIndicator color={color.ink} />
-                            ) : (
-                              <>
-                                <ImagePlus size={20} color={color.muted} strokeWidth={1.8} />
-                                <Text style={s.small}>{tr('Add a photo')}</Text>
-                              </>
-                            )}
-                          </Pressable>
-                        )}
-                      </View>
-                      <View>
-                        {step.video ? (
-                          <View style={{ alignSelf: 'flex-start' }}>
-                            <StepClip
-                              key={step.video}
-                              uri={step.video}
-                              step={n + 1}
-                              fit="cover"
-                              style={styles.stepPhoto}
-                            />
-                            <View style={{ position: 'absolute', top: -6, right: -6 }}>
-                              <ThumbButton
-                                icon={X}
-                                label={tr('Remove the clip for step {{v0}}', { v0: n + 1 })}
-                                onPress={() => setStepClip(n, '')}
-                              />
-                            </View>
-                            <View style={{ position: 'absolute', bottom: -6, right: -6 }}>
-                              <ThumbButton
-                                icon={RefreshCw}
-                                label={tr('Replace the clip for step {{v0}}', { v0: n + 1 })}
-                                onPress={() => addStepClip(n)}
-                              />
-                            </View>
-                          </View>
-                        ) : (
-                          <Pressable
-                            accessibilityRole="button"
-                            accessibilityLabel={tr('Add a clip to step {{v0}}', { v0: n + 1 })}
-                            accessibilityState={{
-                              disabled: uploading,
-                              busy: upload?.target === `clip ${n}`,
-                            }}
-                            disabled={uploading}
-                            onPress={() => addStepClip(n)}
-                            style={[
-                              styles.stepPhoto,
-                              styles.emptyPhoto,
-                              { opacity: uploading && upload?.target !== `clip ${n}` ? 0.5 : 1 },
-                            ]}
-                          >
-                            {upload?.target === `clip ${n}` ? (
-                              <ActivityIndicator color={color.ink} />
-                            ) : (
-                              <>
-                                <Film size={20} color={color.muted} strokeWidth={1.8} />
-                                <Text style={s.small}>{tr('Add a clip')}</Text>
-                              </>
-                            )}
-                          </Pressable>
-                        )}
-                      </View>
-                    </View>
-                    {progressFor(`step ${n}`)}
-                    {progressFor(`clip ${n}`)}
-                    <MinutesField
-                      seconds={step.seconds}
-                      onChange={(seconds) => setStep(n, { seconds })}
+                {clipsOffered && (
+                  <View style={[s.row, { gap: 12, flexWrap: 'wrap' }]}>
+                    <Text style={[s.small, { flex: 1, minWidth: 180 }]}>{tr(clipsHint)}</Text>
+                    <Button
+                      title={tr('Make step clips')}
+                      icon={Sparkles}
+                      variant="secondary"
+                      disabled={!id || stepsChanged || !clipless.length}
+                      onPress={() => setClipOrder(requestKey())}
                     />
                   </View>
-                ))}
+                )}
+                {r.steps.map((step, n) => {
+                  const making = !step.video && !!clipFor(step, stepClips.clips);
+                  const clipFailed = !step.video && stepClips.failed.includes(step.text.trim());
+                  return (
+                    <View
+                      key={n}
+                      style={[
+                        { gap: 10 },
+                        n > 0 && {
+                          paddingTop: 16,
+                          borderTopWidth: StyleSheet.hairlineWidth,
+                          borderColor: color.line,
+                        },
+                      ]}
+                    >
+                      <View style={s.between}>
+                        <View style={[s.row, { gap: 10 }]}>
+                          <View
+                            style={{
+                              width: 28,
+                              height: 28,
+                              borderRadius: 14,
+                              backgroundColor: color.ink,
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                            }}
+                          >
+                            <Text
+                              style={{ color: color.white, fontFamily: font.bold, fontSize: 12 }}
+                            >
+                              {n + 1}
+                            </Text>
+                          </View>
+                          <Text style={s.h3}>{tr('Step {{v0}}', { v0: n + 1 })}</Text>
+                        </View>
+                        <IconButton
+                          icon={Trash2}
+                          plain
+                          size={38}
+                          label={tr('Remove step {{v0}}', { v0: n + 1 })}
+                          disabled={stepUpload}
+                          onPress={() =>
+                            update(
+                              'steps',
+                              r.steps.filter((_, k) => k !== n),
+                            )
+                          }
+                        />
+                      </View>
+                      {/* The step's header names its boxes; screen readers still hear each name. */}
+                      <Field
+                        accessibilityLabel={tr('Step {{v0}} title', { v0: n + 1 })}
+                        placeholder={tr('A short, helpful title')}
+                        value={step.title}
+                        onChangeText={(v) => setStep(n, { title: v })}
+                        style={inset}
+                      />
+                      <Field
+                        accessibilityLabel={tr('Step {{v0}} instructions', { v0: n + 1 })}
+                        multiline
+                        placeholder={tr('Explain it like a friend is cooking alongside you…')}
+                        value={step.text}
+                        // An estimate was for the old words; the server estimates the new ones.
+                        onChangeText={(v) =>
+                          setStep(
+                            n,
+                            step.timing?.estimated ? { text: v, timing: null } : { text: v },
+                          )
+                        }
+                        style={inset}
+                      />
+                      <View style={[s.wrap, { gap: 14 }]}>
+                        <View>
+                          {step.image ? (
+                            <View style={{ alignSelf: 'flex-start' }}>
+                              <FoodImage
+                                uri={step.image}
+                                label={tr('Photo for step {{v0}}', { v0: n + 1 })}
+                                style={styles.stepPhoto}
+                              />
+                              <View style={{ position: 'absolute', top: -6, right: -6 }}>
+                                <ThumbButton
+                                  icon={X}
+                                  label={tr('Remove the photo for step {{v0}}', { v0: n + 1 })}
+                                  onPress={() => setStepPhoto(n, '')}
+                                />
+                              </View>
+                              <View style={{ position: 'absolute', bottom: -6, right: -6 }}>
+                                <ThumbButton
+                                  icon={RefreshCw}
+                                  label={tr('Replace the photo for step {{v0}}', { v0: n + 1 })}
+                                  onPress={() => addStepPhoto(n)}
+                                />
+                              </View>
+                            </View>
+                          ) : (
+                            <Pressable
+                              accessibilityRole="button"
+                              accessibilityLabel={tr('Add a photo for step {{v0}}', { v0: n + 1 })}
+                              accessibilityState={{
+                                disabled: uploading,
+                                busy: upload?.target === `step ${n}`,
+                              }}
+                              disabled={uploading}
+                              onPress={() => addStepPhoto(n)}
+                              style={[
+                                styles.stepPhoto,
+                                styles.emptyPhoto,
+                                { opacity: uploading && upload?.target !== `step ${n}` ? 0.5 : 1 },
+                              ]}
+                            >
+                              {upload?.target === `step ${n}` ? (
+                                <ActivityIndicator color={color.ink} />
+                              ) : (
+                                <>
+                                  <ImagePlus size={20} color={color.muted} strokeWidth={1.8} />
+                                  <Text style={s.small}>{tr('Add a photo')}</Text>
+                                </>
+                              )}
+                            </Pressable>
+                          )}
+                        </View>
+                        <View>
+                          {step.video ? (
+                            <View style={{ alignSelf: 'flex-start' }}>
+                              <StepClip
+                                key={step.video}
+                                uri={step.video}
+                                step={n + 1}
+                                fit="cover"
+                                style={styles.stepPhoto}
+                              />
+                              <View style={{ position: 'absolute', top: -6, right: -6 }}>
+                                <ThumbButton
+                                  icon={X}
+                                  label={tr('Remove the clip for step {{v0}}', { v0: n + 1 })}
+                                  onPress={() => setStepClip(n, '')}
+                                />
+                              </View>
+                              <View style={{ position: 'absolute', bottom: -6, right: -6 }}>
+                                <ThumbButton
+                                  icon={RefreshCw}
+                                  label={tr('Replace the clip for step {{v0}}', { v0: n + 1 })}
+                                  onPress={() => addStepClip(n)}
+                                />
+                              </View>
+                            </View>
+                          ) : making ? (
+                            <View
+                              accessibilityLabel={tr('Making an AI clip of step {{v0}}', {
+                                v0: n + 1,
+                              })}
+                              accessibilityState={{ busy: true }}
+                              style={[styles.stepPhoto, styles.emptyPhoto]}
+                            >
+                              <ActivityIndicator color={color.ink} />
+                              <Text style={s.small}>{tr('Making a clip…')}</Text>
+                            </View>
+                          ) : (
+                            <Pressable
+                              accessibilityRole="button"
+                              accessibilityLabel={tr('Add a clip to step {{v0}}', { v0: n + 1 })}
+                              accessibilityState={{
+                                disabled: uploading,
+                                busy: upload?.target === `clip ${n}`,
+                              }}
+                              disabled={uploading}
+                              onPress={() => addStepClip(n)}
+                              style={[
+                                styles.stepPhoto,
+                                styles.emptyPhoto,
+                                { opacity: uploading && upload?.target !== `clip ${n}` ? 0.5 : 1 },
+                              ]}
+                            >
+                              {upload?.target === `clip ${n}` ? (
+                                <ActivityIndicator color={color.ink} />
+                              ) : (
+                                <>
+                                  <Film size={20} color={color.muted} strokeWidth={1.8} />
+                                  <Text style={s.small}>{tr('Add a clip')}</Text>
+                                </>
+                              )}
+                            </Pressable>
+                          )}
+                        </View>
+                      </View>
+                      {progressFor(`step ${n}`)}
+                      {progressFor(`clip ${n}`)}
+                      {clipFailed && (
+                        <Text style={[s.small, { color: color.error }]}>
+                          {tr(
+                            'This step’s AI clip couldn’t be made. Make step clips to try again.',
+                          )}
+                        </Text>
+                      )}
+                      <MinutesField
+                        seconds={step.seconds}
+                        onChange={(seconds) => setStep(n, { seconds })}
+                      />
+                      <StepTimingEditor
+                        step={n + 1}
+                        timing={step.timing}
+                        onChange={(timing) => setStep(n, { timing })}
+                      />
+                    </View>
+                  );
+                })}
                 <Button
                   title={tr('Add a step')}
                   icon={Plus}
@@ -1273,7 +1355,6 @@ function EditorForm({ initial, onPublished, onAI }: EditorProps) {
             </View>
             <View style={{ flex: desktop ? 0.85 : undefined, gap: 18, alignSelf: 'stretch' }}>
               {desktop && photo}
-              {video}
               <Pressable
                 accessibilityRole="checkbox"
                 accessibilityState={{ checked: r.aiGenerated }}
@@ -1421,6 +1502,34 @@ function EditorForm({ initial, onPublished, onAI }: EditorProps) {
         uri={touching === null ? null : touching === 'cover' ? r.image : photos[touching] || null}
         onClose={() => setTouching(null)}
         onUse={touchedUp}
+      />
+      <Dialog
+        visible={!!clipOrder}
+        onClose={() => setClipOrder(null)}
+        title={tr('Make step clips')}
+      >
+        <Text style={s.body}>{tr('stepClipsToMake', { count: clipless.length })}</Text>
+        <Text style={s.muted}>
+          {tr(
+            'They take a few minutes and go on their steps, here and on the recipe page. You can remove any of them, or replace it with your own.',
+          )}
+        </Text>
+        {!!app.capabilities?.plans && (
+          <Text style={s.muted}>{tr('Each clip uses one of your plan’s AI step clips.')}</Text>
+        )}
+        <Button
+          title={tr('Make clips')}
+          icon={Sparkles}
+          busy={orderingClips}
+          onPress={() => void orderClips()}
+        />
+      </Dialog>
+      <RecordingConsent
+        speakers={asking ? speakers : []}
+        busy={agreeing || busy}
+        error={consentError}
+        onAgree={() => void agree()}
+        onClose={() => setAsking(false)}
       />
       <Dialog visible={remove} onClose={() => setRemove(false)} title={tr('Delete this recipe?')}>
         <Text style={s.body}>

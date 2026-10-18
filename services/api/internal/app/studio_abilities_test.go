@@ -53,7 +53,7 @@ func TestTheSousChefKnowsTheUsersWeek(t *testing.T) {
 	switch {
 	case input["units"] != "imperial" || input["appLanguage"] != "de":
 		t.Errorf("units %v, language %v", input["units"], input["appLanguage"])
-	case glance(input["allowances"]) != `{"photosLeft":10,"photosPerMonth":10,"plan":"pro","sousChefTurnsLeft":128,"videosLeft":1,"videosPerMonth":1,"voiceMinutesLeft":40}`:
+	case glance(input["allowances"]) != `{"photosLeft":10,"photosPerMonth":10,"plan":"pro","sousChefTurnsLeft":128,"stepClipsLeft":8,"stepClipsPerMonth":8,"voiceMinutesLeft":40}`:
 		t.Errorf("allowances %s", glance(input["allowances"]))
 	case glance(kitchen["planned"]) != `[{"day":"`+day(1)+`","meal":"Dinner","recipe":"Lemon toast","recipeId":"toast","servings":2}]`:
 		t.Errorf("planned %s", glance(kitchen["planned"]))

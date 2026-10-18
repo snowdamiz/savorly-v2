@@ -20,6 +20,8 @@ export const screens: readonly Screen[] = [
   'create',
   'community',
   'admin',
+  'mealime',
+  'own-site',
 ];
 
 // Recipe and cookbook ids: UUIDs, or slugs for the sample recipes (the Worker's recipeIdPattern).
@@ -40,15 +42,22 @@ export const linkHosts: readonly string[] = [
 ];
 
 export type Route =
-  /** A recipe page; `legacy` when the link was the older `/?recipe=<id>`. */
-  | { type: 'recipe'; id: string; legacy: boolean }
+  /**
+   * A recipe page; `legacy` when the link was the older `/?recipe=<id>`, and `cook` when it asks
+   * for cooking mode (`?cook=1`), as the links ChatGPT and Claude give do.
+   */
+  | { type: 'recipe'; id: string; legacy: boolean; cook?: true }
   /** A public cookbook's page. */
   | { type: 'cookbook'; id: string }
+  /** The page where an assistant asks to connect (`/oauth/authorize`), with its request as sent. */
+  | { type: 'authorize'; query: string }
   /** A screen (`/?page=<screen>`), or for `/` whichever screen is showing (null). */
   | { type: 'page'; screen: Screen | null };
 
 /** A recipe page's path, `/recipes/<id>`. */
 export const recipePath = (id: string) => `/recipes/${encodeURIComponent(id)}`;
+/** A link that opens a recipe straight in cooking mode. */
+export const cookPath = (id: string) => `${recipePath(id)}?cook=1`;
 /** A public cookbook's path, `/cookbooks/<id>`. */
 export const cookbookPath = (id: string) => `/cookbooks/${encodeURIComponent(id)}`;
 /** A screen's path, `/?page=<screen>`. */
@@ -128,10 +137,13 @@ export function parseRoute(address: string, hosts?: readonly string[]): Route | 
   if (parts.length === 2 && (parts[0] === 'recipes' || parts[0] === 'cookbooks')) {
     const id = decode(parts[1]);
     if (!id || !idPattern.test(id)) return null;
-    return parts[0] === 'recipes'
-      ? { type: 'recipe', id, legacy: false }
-      : { type: 'cookbook', id };
+    if (parts[0] === 'cookbooks') return { type: 'cookbook', id };
+    return query.get('cook') === '1'
+      ? { type: 'recipe', id, legacy: false, cook: true }
+      : { type: 'recipe', id, legacy: false };
   }
+  if (parts.length === 2 && parts[0] === 'oauth' && parts[1] === 'authorize')
+    return { type: 'authorize', query: mark < 0 ? '' : beforeHash.slice(mark + 1) };
   return null;
 }
 

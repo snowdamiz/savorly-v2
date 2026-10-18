@@ -267,6 +267,13 @@ func (a *App) studioMessage(c fiber.Ctx) error {
 	if e = tx.QueryRow(ctx, `INSERT INTO voice_events(project_id,session_id,event_id,role,content,images) VALUES($1,$2,$3,'user',$4,$5) RETURNING seq`, project, session, key, in.Text, normalizedJSON(in.Images)).Scan(&seq); e != nil {
 		return e
 	}
+	// A question asked in cooking mode joins the ones cooks ask at that step (cook_insights.go).
+	var cooking studioView
+	if in.Answer == "" && len(in.Images) == 0 && validText(in.Text, 2, 300) {
+		if e = tx.QueryRow(ctx, `SELECT context FROM voice_projects WHERE id=$1`, project).Scan(&cooking); e != nil {
+			return e
+		}
+	}
 	if e = a.enqueueVoiceAction(ctx, tx, owner, project, session, key, seq); e != nil {
 		return e
 	}
@@ -280,6 +287,10 @@ func (a *App) studioMessage(c fiber.Ctx) error {
 	}
 	if e = tx.Commit(ctx); e != nil {
 		return e
+	}
+	// Kept once the message is, so a question that can't be kept never fails it.
+	if cooking.RecipeID != "" && cooking.CookingStep > 0 {
+		recordCookQuestion(ctx, a.DB, owner, cooking.RecipeID, cooking.CookingStep, in.Text, "sous_chef")
 	}
 	a.wake("studio")
 	return c.Status(202).JSON(fiber.Map{"accepted": true})
@@ -818,8 +829,27 @@ func (a *App) agentInput(ctx context.Context, state studioState) (any, error) {
 			r["mine"] = author["id"] == state.Owner
 			slimRecipe(r, false)
 			screen["openRecipe"] = r
+			// The member's own version of someone else's recipe, which their screen shows.
+			if r["mine"] != true {
+				var steps []Step
+				var ingredients []Ingredient
+				rawSteps, _ := json.Marshal(r["steps"])
+				rawIngredients, _ := json.Marshal(r["ingredients"])
+				if json.Unmarshal(rawSteps, &steps) == nil && json.Unmarshal(rawIngredients, &ingredients) == nil {
+					if line := versionLine(ctx, a.DB, state.Owner, view.RecipeID, steps, ingredients); line != "" {
+						screen["yourVersion"] = line
+					}
+				}
+			}
 			if view.CookingStep > 0 {
 				screen["cookingStep"] = view.CookingStep
+				// What other cooks found at this step: how long it really took, what they ask.
+				var steps []Step
+				if raw, e := json.Marshal(r["steps"]); e == nil && json.Unmarshal(raw, &steps) == nil {
+					if line := stepInsightsFor(ctx, a.DB, view.RecipeID, steps)[view.CookingStep-1]; line != "" {
+						screen["cookingStepInsight"] = line
+					}
+				}
 			}
 		}
 	}
@@ -835,12 +865,20 @@ func (a *App) agentInput(ctx context.Context, state studioState) (any, error) {
 	if units != "" {
 		input["units"] = units
 	}
+	// What the member told Savorly about their kitchen and taste, for every recipe.
+	if notes, e := notesOf(ctx, a.DB, state.Owner); e == nil && len(notes) > 0 {
+		said := make([]string, len(notes))
+		for i, n := range notes {
+			said[i] = n.Note
+		}
+		input["kitchenNotes"] = said
+	}
 	// What the member's plan has left, so the assistant doesn't offer what would be refused.
 	if paidPlans() {
 		plan, e := planOf(ctx, a.DB, state.Owner)
 		used, e2 := usageOf(ctx, a.DB, state.Owner)
 		if e == nil && e2 == nil {
-			input["allowances"] = fiber.Map{"plan": plan.ID, "sousChefTurnsLeft": max(0, plan.Assistant-used.Assistant), "photosLeft": max(0, plan.Images-used.Images), "videosLeft": max(0, plan.Videos-used.Videos), "photosPerMonth": plan.Images, "videosPerMonth": plan.Videos, "voiceMinutesLeft": max(0, plan.VoiceMinutes*60-used.VoiceSeconds) / 60}
+			input["allowances"] = fiber.Map{"plan": plan.ID, "sousChefTurnsLeft": max(0, plan.Assistant-used.Assistant), "photosLeft": max(0, plan.Images-used.Images), "stepClipsLeft": max(0, plan.Videos-used.Videos), "photosPerMonth": plan.Images, "stepClipsPerMonth": plan.Videos, "voiceMinutesLeft": max(0, plan.VoiceMinutes*60-used.VoiceSeconds) / 60}
 		}
 	}
 	var kitchen, shown []byte
@@ -1005,7 +1043,7 @@ func (a *App) applyDraftAction(ctx context.Context, state studioState, action st
 				return "", e
 			}
 			if pending && id != "" {
-				return "", fiber.NewError(409, "The current draft's photo and video are still being made. Start the new recipe in a minute, or open a new chat.")
+				return "", fiber.NewError(409, "The current draft's cover photo is still being made. Start the new recipe in a minute, or open a new chat.")
 			}
 			id = uuid.NewString()
 		}
@@ -1039,6 +1077,12 @@ func (a *App) applyDraftAction(ctx context.Context, state studioState, action st
 			var held *fiber.Error
 			if e = moderationHold(ctx, tx, state.RecipeID, state.Owner, true); errors.As(e, &held) && held.Code == 403 {
 				return "This recipe can't be published: an admin took it out of public view, so it stays private until an admin restores it. Tell the user, and that they can contact Savorly support if they think this is a mistake. Edits to the private draft still work.", nil
+			} else if e != nil {
+				return "", e
+			}
+			// A family recording plays in it only once its author confirms the person agreed (family.go).
+			if e = recordingConsentHold(ctx, tx, state.RecipeID, state.Owner, true); errors.As(e, &held) && held.Code == 409 {
+				return "This recipe can't be published yet: its steps play a family recording, and the user hasn't confirmed that the person recorded agreed to share their voice. Tell the user to publish it from the recipe's page, which asks them. Edits to the private draft still work.", nil
 			} else if e != nil {
 				return "", e
 			}
@@ -1099,7 +1143,7 @@ func (a *App) applyDraftAction(ctx context.Context, state studioState, action st
 const draftNext = " The user can make changes, ask for a read-back, or publish."
 
 // draftMediaNote says which of a draft's media is on its way, from the jobs that actually
-// started for that revision: a plan without video, or a used-up allowance, gets no promise.
+// started for that revision: a plan without photos, or a used-up allowance, gets no promise.
 func (a *App) draftMediaNote(ctx context.Context, project string, revision int) (string, error) {
 	rows, e := a.DB.Query(ctx, `SELECT v.kind,j.status,j.error FROM voice_assets v JOIN ai_jobs j ON j.id=v.job_id WHERE v.project_id=$1 AND v.revision=$2 ORDER BY v.kind`, project, revision)
 	if e != nil {
@@ -1133,7 +1177,7 @@ func (a *App) draftMediaNote(ctx context.Context, project string, revision int) 
 		note += " " + strings.TrimSuffix(r, ".") + "."
 	}
 	if note == "" {
-		note = " No AI photo or video is being made for it."
+		note = " No AI photo is being made for it."
 	}
 	return note, nil
 }

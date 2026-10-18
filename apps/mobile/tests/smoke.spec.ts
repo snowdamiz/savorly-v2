@@ -140,10 +140,14 @@ test('register, save, groceries, plan and publish a recipe', async ({ page }) =>
     await page.getByRole('button', { name: 'Add another photo', exact: true }).click();
     await (await extraChooser).setFiles('tests/fixtures/sample.png');
     await expect(page.getByRole('button', { name: 'Remove photo 2', exact: true })).toBeVisible();
-    const videoChooser = page.waitForEvent('filechooser');
-    await page.getByRole('button', { name: 'Upload a recipe video', exact: true }).click();
-    await (await videoChooser).setFiles('tests/fixtures/sample.mp4');
-    await stored('Or use a direct video URL', /^video\//);
+    const clipChooser = page.waitForEvent('filechooser');
+    await page.getByRole('button', { name: 'Add a clip to step 1', exact: true }).click();
+    await (await clipChooser).setFiles('tests/fixtures/sample.mp4');
+    const clip = page.locator('video[src^="http"]').first();
+    await expect(clip).toBeAttached({ timeout: 30_000 });
+    const file = await page.request.get((await clip.getAttribute('src'))!);
+    expect(file.ok(), 'storage serves the clip').toBe(true);
+    expect(file.headers()['content-type']).toMatch(/^video\//);
     await page.waitForFunction(() =>
       Array.from(document.querySelectorAll('video')).some((video) => video.readyState >= 2),
     );

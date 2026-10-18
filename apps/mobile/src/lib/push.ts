@@ -7,7 +7,8 @@ import { api } from './api';
 import './notificationHandler';
 
 /** Where a tapped notification leads. */
-export type PushTarget = { type: 'recipe'; recipeId: string } | { type: 'pantry' };
+export type PushTarget =
+  { type: 'recipe'; recipeId: string } | { type: 'pantry' } | { type: 'plan' };
 /** Whether this device shows Savorly's notifications: not asked yet, allowed, refused, or can't. */
 export type PushPermission = 'undetermined' | 'granted' | 'denied' | 'unavailable';
 
@@ -124,12 +125,15 @@ export async function unregisterPush() {
   } catch {}
 }
 
-/** Where a notification's data leads: `{type: 'recipe', recipeId}` or `{type: 'pantry'}`. */
+/**
+ * Where a notification's data leads: `{type: 'recipe', recipeId}`, `{type: 'pantry'}`, or
+ * `{type: 'plan'}` for a renewal reminder.
+ */
 export function pushTarget(data: unknown): PushTarget | null {
   if (!data || typeof data !== 'object') return null;
   const { type, recipeId } = data as Record<string, unknown>;
   if (type === 'recipe' && typeof recipeId === 'string' && recipeId) return { type, recipeId };
-  if (type === 'pantry') return { type };
+  if (type === 'pantry' || type === 'plan') return { type };
   return null;
 }
 

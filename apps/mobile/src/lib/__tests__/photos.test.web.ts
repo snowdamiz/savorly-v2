@@ -34,11 +34,14 @@ class FakeXHR {
 }
 
 const photo = new Blob([new Uint8Array(2048)], { type: 'image/jpeg' });
+// What the browser hands each blob: address back as; a photo unless a test says otherwise.
+const blobs: Record<string, Blob> = {};
 const calls: { path: string; init?: RequestInit }[] = [];
 let routes: Record<string, { status: number; body: unknown }> = {};
 const fetchMock = jest.fn((url: string, init?: RequestInit) => {
   // The picked or prepared photo, as a blob: address.
-  if (url.startsWith('blob:')) return Promise.resolve({ blob: () => Promise.resolve(photo) });
+  if (url.startsWith('blob:'))
+    return Promise.resolve({ blob: () => Promise.resolve(blobs[url] ?? photo) });
   const path = url.replace(`${API_URL}/v1`, '');
   calls.push({ path, init });
   const { status, body } = routes[path] ?? { status: 404, body: { error: 'Not found.' } };
@@ -97,4 +100,43 @@ test('a bucket without CORS for this site still takes uploads, through the API',
   const form = calls.find((call) => call.path === '/media')?.init?.body as FormData;
   expect(form).toBeInstanceOf(FormData);
   expect((form.get('file') as File).size).toBe(2048);
+});
+
+test('a family recording goes straight to storage, as a recording, or not at all', async () => {
+  // What a browser records: WebM, with its codec in the type.
+  blobs['blob:http://localhost/voice'] = new Blob([new Uint8Array(4096)], {
+    type: 'audio/webm;codecs=opus',
+  });
+  blobs['blob:http://localhost/wave'] = new Blob([new Uint8Array(4096)], { type: 'audio/wav' });
+  const recording = {
+    ...presigned,
+    url: 'https://media.test/uploads/cook/r.weba',
+    key: 'uploads/cook/r.weba',
+  };
+  routes = {
+    '/media/uploads': { status: 200, body: recording },
+    '/media/uploads/complete': { status: 200, body: { url: recording.url } },
+  };
+  FakeXHR.answer = (xhr) => {
+    xhr.status = 200;
+    xhr.onload?.();
+  };
+  await expect(uploadMedia('blob:http://localhost/voice', 'audio')).resolves.toBe(recording.url);
+  expect(JSON.parse(String(calls[0].init?.body))).toEqual({
+    kind: 'audio',
+    contentType: 'audio/webm',
+    size: 4096,
+  });
+  // A kind of recording speech-to-text doesn't take never leaves the device.
+  calls.length = 0;
+  await expect(uploadMedia('blob:http://localhost/wave', 'audio')).rejects.toThrow(
+    'Use an M4A, WebM or MP3 recording.',
+  );
+  expect(calls).toEqual([]);
+  // Nor does a recording go the classic way, which takes photos and videos only.
+  routes = {};
+  await expect(uploadMedia('blob:http://localhost/voice', 'audio')).rejects.toThrow(
+    'Recordings can’t be uploaded here right now. Please try again later.',
+  );
+  expect(calls.map((call) => call.path)).toEqual(['/media/uploads']);
 });

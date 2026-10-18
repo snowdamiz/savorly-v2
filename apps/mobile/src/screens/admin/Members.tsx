@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Text, View } from 'react-native';
 import {
+  Award,
   Ban,
   Crown,
   LogOut,
@@ -49,6 +50,7 @@ const filters = [
   { value: 'paid', label: 'Paid plans' },
   { value: 'reported', label: 'Reported' },
   { value: 'samples', label: 'Sample cooks' },
+  { value: 'founding', label: 'Founding creators' },
 ] as const;
 const sorts = [
   { value: 'newest', label: 'Newest' },
@@ -67,6 +69,7 @@ export function MemberBadges({ m }: { m: AdminMember }) {
       {m.admin && !m.owner && <Badge title="Admin" tone="dark" icon={ShieldCheck} />}
       {m.suspendedAt && <Badge title="Suspended" tone="error" icon={Ban} />}
       {m.sample && <Badge title="Sample" />}
+      {!!m.foundingCreatorAt && <Badge title="Founding creator" tone="dark" icon={Award} />}
       {!m.emailVerified && !m.sample && <Badge title="Unverified" tone="warning" />}
       {m.plan !== 'free' && (
         <Badge title={`${planNames[m.plan]}${m.comped ? ' · comp' : ''}`} tone="success" />
@@ -128,7 +131,8 @@ export function Members() {
   );
 }
 
-type Pending = 'suspend' | 'unsuspend' | 'signout' | 'verify' | 'admin' | 'setup' | 'delete' | null;
+type Pending =
+  'suspend' | 'unsuspend' | 'signout' | 'verify' | 'admin' | 'setup' | 'founding' | 'delete' | null;
 
 export function MemberDialog({ id, onClose }: { id: string; onClose: () => void }) {
   const app = useApp();
@@ -208,6 +212,19 @@ export function MemberDialog({ id, onClose }: { id: string; onClose: () => void 
                   'Plan',
                   `${planNames[m.plan]}${m.comped ? ' (complimentary)' : ''}${m.planStatus ? ` · ${m.planStatus}` : ''}${m.planInterval ? ` · ${m.planInterval}` : ''}${m.planRenewsAt ? ` · ${m.planCancels ? 'ends' : 'renews'} ${f.date(m.planRenewsAt)}` : ''}`,
                 ],
+                ...(m.planRefunds?.length
+                  ? [
+                      [
+                        'Refunds',
+                        m.planRefunds
+                          .map(
+                            (r) =>
+                              `${r.currency === 'usd' ? f.money(r.amountCents / 100) : `${(r.amountCents / 100).toFixed(2)} ${r.currency.toUpperCase()}`} ${r.completedAt ? `refunded ${f.date(r.completedAt)}` : `under way since ${f.dateTime(r.createdAt)} (finished when the member asks again)`}`,
+                          )
+                          .join('; '),
+                      ] as [string, string],
+                    ]
+                  : []),
                 ...(m.stripeCustomerId
                   ? [['Stripe customer', m.stripeCustomerId] as [string, string]]
                   : []),
@@ -250,7 +267,7 @@ export function MemberDialog({ id, onClose }: { id: string; onClose: () => void 
                   display={`${m.usage.images} of ${m.limits.images}`}
                 />
                 <Meter
-                  label="AI videos"
+                  label="AI step clips"
                   used={m.usage.videos}
                   limit={m.limits.videos}
                   display={`${m.usage.videos} of ${m.limits.videos}`}
@@ -274,7 +291,7 @@ export function MemberDialog({ id, onClose }: { id: string; onClose: () => void 
                   ['Sous-chef turns', f.number(m.usage.assistant)],
                   ['Voice minutes', f.number(Math.ceil(m.usage.voiceSeconds / 60))],
                   ['AI photos', f.number(m.usage.images)],
-                  ['AI videos', f.number(m.usage.videos)],
+                  ['AI step clips', f.number(m.usage.videos)],
                   ['Read-alouds', f.number(m.usage.narration)],
                   ['Spend', `${f.money(m.spend30d)} (no plan limits while paid plans are off)`],
                 ]}
@@ -462,6 +479,15 @@ export function MemberDialog({ id, onClose }: { id: string; onClose: () => void 
                       />
                     )}
                     <Button
+                      title={
+                        m.foundingCreatorAt ? 'Remove founding creator' : 'Make founding creator'
+                      }
+                      icon={Award}
+                      variant="secondary"
+                      small
+                      onPress={() => setConfirm('founding')}
+                    />
+                    <Button
                       title="Sign out everywhere"
                       icon={LogOut}
                       variant="secondary"
@@ -593,6 +619,36 @@ export function MemberDialog({ id, onClose }: { id: string; onClose: () => void 
                     await app.refreshUser();
                   }
                 })
+            }
+            onClose={() => setConfirm(null)}
+          />
+          <Confirm
+            visible={confirm === 'founding'}
+            title={
+              m.foundingCreatorAt
+                ? `Remove ${m.name} as a founding creator?`
+                : `Make ${m.name} a founding creator?`
+            }
+            text={
+              m.foundingCreatorAt
+                ? 'The “Founding creator” mark leaves their profile and recipes, and they leave the cook-along’s rotation. Weeks already scheduled stay as they are.'
+                : 'Their profile and recipes say “Founding creator”, and they join the cook-along’s rotation: a week nobody schedules can go to their most saved recipe.'
+            }
+            action={m.foundingCreatorAt ? 'Remove the mark' : 'Make founding creator'}
+            busy={action.busy === 'founding'}
+            result={action.result}
+            onConfirm={() =>
+              void done(
+                'founding',
+                () =>
+                  api(`${path}/founding`, {
+                    method: 'PUT',
+                    body: { founding: !m.foundingCreatorAt },
+                  }),
+                m.foundingCreatorAt
+                  ? `${m.name} is no longer a founding creator.`
+                  : `${m.name} is a founding creator.`,
+              )
             }
             onClose={() => setConfirm(null)}
           />

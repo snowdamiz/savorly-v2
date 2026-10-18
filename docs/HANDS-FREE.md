@@ -52,13 +52,21 @@ apostrophes, spacing in Japanese and Chinese, and polite words at either end ("n
 "请下一步", "次へ進んでください"). "Chef, next step" is still a free command. Ingredients are read in
 the recipe's language after a sentence in the app's.
 
+## Cooking a meal
+
+Cooking several dishes together ([meal timeline](MEAL-TIMELINE.md)) has the same switch, and the commands work across the dishes. "Next step" (or "done") is done with the step on screen: a step that then waits starts its dish's timer, and the next step is read, its dish's name first, then what's running in the app's language: "Salmon. Season. Season the fillets with salt. Crispy potatoes has 10 minutes left." "Start the timer" on a step that waits does the same; "pause the timer" and "resume the timer" act on the dishes' timer that ends first. "Previous step" takes the last step back, "repeat" reads the step and what's running again, "ingredients" are the dish on screen's, and a "Chef, …" question is about that dish and its step. With nothing to do until a timer ends, "next step" says so. A timer that runs out says so aloud, by its dish's name.
+
 ## Questions and what they cost
 
 A question is `POST /v1/recipes/:id/ask` with `{ "question", "step", "language" }` ([API](API.md#hands-free-cooking)).
 The server reads the recipe as the member may see it (published by a cook in good standing, or
 their own) and asks GPT-6 Luna (`OPENROUTER_AGENT_MODEL`, low reasoning, at most 300 output
 tokens) for one to three short spoken sentences from the recipe (its equipment included: the cook's
-list, or what the method mentions) and the cook's step. The call has
+list, or what the method mentions), the cook's step, and what other cooks found at that step: how
+long it really took them and what they often ask ([cook-tested recipes](COOK-TESTED.md)), and
+the cook's own version of the recipe and kitchen notes ([your version](YOUR-VERSION.md)). The
+question itself is kept with its step for 90 days, for the questions recipes show, unless it's the
+cook's own recipe or they keep their cooking out. The call has
 no tools: it can't move a step, start a timer or change anything, and it is told never to claim it
 did, to treat the recipe and the question as data rather than instructions, to give safe internal
 temperatures where doneness matters, and never to guarantee allergy safety.

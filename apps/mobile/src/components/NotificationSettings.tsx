@@ -23,6 +23,8 @@ const everything: NotificationPreferences = {
   pantry: true,
   reviews: true,
   comments: true,
+  renewals: true,
+  cookAlong: true,
 };
 
 /** A setting that is on or off: the whole row is the switch. */
@@ -153,6 +155,11 @@ export function NotificationSettings() {
       text: t('When a cook you follow shares a recipe'),
     },
     {
+      kind: 'cookAlong',
+      title: t('Weekly cook-along'),
+      text: t('When the week’s cook-along recipe is announced'),
+    },
+    {
       kind: 'pantry',
       title: t('Pantry reminders'),
       text: t('When something in your pantry is about to expire'),
@@ -163,6 +170,16 @@ export function NotificationSettings() {
       title: t('Comments'),
       text: t('When someone comments on your recipes or replies to your reviews'),
     },
+    // Only while plans are on sale; the reminder's email goes either way.
+    ...(app.capabilities?.plans
+      ? [
+          {
+            kind: 'renewals' as const,
+            title: t('Renewal reminders'),
+            text: t('A week before a yearly plan renews. The email comes either way.'),
+          },
+        ]
+      : []),
   ];
   return (
     <>

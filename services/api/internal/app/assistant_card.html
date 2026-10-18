@@ -1,0 +1,429 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Savorly</title>
+    <!--
+      Savorly's recipe card, an MCP App (mcp.go): the assistant shows it in the chat for
+      search_recipes and show_recipe and hands it their structured results. One recipe is a photo,
+      its title, one line of facts and "Cook it in Savorly", which opens it in Savorly's cooking
+      mode; several are quiet rows that open the same way. The host's theme and colors come in
+      as CSS variables; these are the fallbacks.
+    -->
+    <style>
+      :root {
+        --ink: var(--color-text-primary, #0d0d0d);
+        --muted: var(--color-text-secondary, #6b6b6b);
+        --line: var(--color-border-tertiary, #e6e6e6);
+        --tile: var(--color-background-secondary, #f4f4f4);
+        --tested: var(--color-text-success, #1e8a4c);
+        --action: #0d0d0d;
+        --on-action: #ffffff;
+        --font: var(--font-sans, Manrope, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif);
+        color-scheme: light;
+      }
+      :root[data-theme='dark'] {
+        --ink: var(--color-text-primary, #f4f4f4);
+        --muted: var(--color-text-secondary, #a3a3a3);
+        --line: var(--color-border-tertiary, #2e2e2e);
+        --tile: var(--color-background-secondary, #1f1f1f);
+        --tested: var(--color-text-success, #5cc489);
+        --action: #f4f4f4;
+        --on-action: #0d0d0d;
+        color-scheme: dark;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root:not([data-theme='light']) {
+          --ink: var(--color-text-primary, #f4f4f4);
+          --muted: var(--color-text-secondary, #a3a3a3);
+          --line: var(--color-border-tertiary, #2e2e2e);
+          --tile: var(--color-background-secondary, #1f1f1f);
+          --tested: var(--color-text-success, #5cc489);
+          --action: #f4f4f4;
+          --on-action: #0d0d0d;
+          color-scheme: dark;
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        background: transparent;
+        color: var(--ink);
+        font-family: var(--font);
+        -webkit-font-smoothing: antialiased;
+      }
+      main {
+        padding: 12px;
+      }
+      a {
+        color: inherit;
+        text-decoration: none;
+      }
+      .photo {
+        display: block;
+        width: 100%;
+        aspect-ratio: 16 / 9;
+        object-fit: cover;
+        border-radius: var(--border-radius-lg, 16px);
+        background: var(--tile);
+      }
+      h1 {
+        margin: 14px 2px 4px;
+        font-size: 18px;
+        line-height: 1.3;
+        font-weight: 700;
+        letter-spacing: -0.2px;
+      }
+      .facts {
+        margin: 0 2px;
+        font-size: 13px;
+        line-height: 1.45;
+        color: var(--muted);
+      }
+      .tested {
+        color: var(--tested);
+        font-weight: 600;
+      }
+      .tested svg {
+        vertical-align: -2px;
+        margin-right: 4px;
+      }
+      .cook {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 44px;
+        margin-top: 14px;
+        border-radius: var(--border-radius-full, 999px);
+        background: var(--action);
+        color: var(--on-action);
+        font-size: 15px;
+        font-weight: 700;
+      }
+      .cook:focus-visible,
+      .row:focus-visible {
+        outline: 2px solid var(--ink);
+        outline-offset: 2px;
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 10px 2px;
+        border-radius: 12px;
+      }
+      .row + .row {
+        border-top: 1px solid var(--line);
+      }
+      .row .photo,
+      .row .blank {
+        flex: none;
+        width: 56px;
+        height: 56px;
+        aspect-ratio: auto;
+        border-radius: 12px;
+        background: var(--tile);
+      }
+      .row .text {
+        flex: 1;
+        min-width: 0;
+      }
+      .row h2 {
+        margin: 0 0 2px;
+        font-size: 15px;
+        line-height: 1.3;
+        font-weight: 600;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .row .facts {
+        margin: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .go {
+        flex: none;
+        color: var(--muted);
+      }
+      .empty {
+        margin: 4px 2px;
+        font-size: 14px;
+        color: var(--muted);
+      }
+    </style>
+  </head>
+  <body>
+    <main id="card" aria-live="polite"></main>
+    <script>
+      (function () {
+        'use strict';
+        // The card's few words, in the nine languages Savorly speaks. cooks takes Intl's plural
+        // categories; {n} and {title} are filled in.
+        var words = {
+          en: { cook: 'Cook it in Savorly', cookTitle: 'Cook {title} in Savorly', minutes: '{n} min', tested: 'Cook-tested', usually: 'usually {n} min', cooks: { one: '{n} cook', other: '{n} cooks' }, none: 'No recipes found.' },
+          fr: { cook: 'Cuisiner dans Savorly', cookTitle: 'Cuisiner {title} dans Savorly', minutes: '{n} min', tested: 'Testée en cuisine', usually: 'en général {n} min', cooks: { one: '{n} personne', other: '{n} personnes' }, none: 'Aucune recette trouvée.' },
+          de: { cook: 'In Savorly kochen', cookTitle: '{title} in Savorly kochen', minutes: '{n} Min.', tested: 'Nachgekocht', usually: 'meist {n} Min.', cooks: { one: '{n} Person', other: '{n} Personen' }, none: 'Keine Rezepte gefunden.' },
+          es: { cook: 'Cocinar en Savorly', cookTitle: 'Cocinar {title} en Savorly', minutes: '{n} min', tested: 'Probada en cocina', usually: 'normalmente {n} min', cooks: { one: '{n} persona', other: '{n} personas' }, none: 'No se encontraron recetas.' },
+          it: { cook: 'Cucina con Savorly', cookTitle: 'Cucina {title} con Savorly', minutes: '{n} min', tested: 'Provata in cucina', usually: 'di solito {n} min', cooks: { one: '{n} persona', other: '{n} persone' }, none: 'Nessuna ricetta trovata.' },
+          pt: { cook: 'Cozinhar no Savorly', cookTitle: 'Cozinhar {title} no Savorly', minutes: '{n} min', tested: 'Testada na cozinha', usually: 'geralmente {n} min', cooks: { one: '{n} pessoa', other: '{n} pessoas' }, none: 'Nenhuma receita encontrada.' },
+          ru: { cook: 'Готовить в Savorly', cookTitle: 'Готовить «{title}» в Savorly', minutes: '{n} мин', tested: 'Проверено на кухне', usually: 'обычно {n} мин', cooks: { one: '{n} повар', few: '{n} повара', many: '{n} поваров', other: '{n} повара' }, none: 'Рецепты не найдены.' },
+          zh: { cook: '在 Savorly 中烹饪', cookTitle: '在 Savorly 中烹饪{title}', minutes: '{n} 分钟', tested: '已实测', usually: '通常 {n} 分钟', cooks: { other: '{n} 人做过' }, none: '未找到食谱。' },
+          ja: { cook: 'Savorlyで作る', cookTitle: '{title}をSavorlyで作る', minutes: '{n}分', tested: '調理テスト済み', usually: 'ふつう{n}分', cooks: { other: '{n}人が調理' }, none: 'レシピが見つかりません。' },
+        };
+        var locale = navigator.language || 'en';
+        var shown = null;
+        var root = document.documentElement;
+        var card = document.getElementById('card');
+
+        function language() {
+          var code = String(locale).slice(0, 2).toLowerCase();
+          return words[code] ? code : 'en';
+        }
+        function say(key, values) {
+          var text = words[language()][key];
+          if (key === 'cooks') {
+            var forms = text;
+            var form = 'other';
+            try {
+              form = new Intl.PluralRules(locale).select(values.n);
+            } catch (e) {}
+            text = forms[form] || forms.other;
+          }
+          return text.replace(/\{(\w+)\}/g, function (_, name) {
+            return values && values[name] !== undefined ? String(values[name]) : '';
+          });
+        }
+        function el(tag, className, text) {
+          var node = document.createElement(tag);
+          if (className) node.className = className;
+          if (text !== undefined) node.textContent = text;
+          return node;
+        }
+        function safeUrl(value) {
+          return typeof value === 'string' && /^https?:\/\//i.test(value) ? value : '';
+        }
+        function check() {
+          var ns = 'http://www.w3.org/2000/svg';
+          var svg = document.createElementNS(ns, 'svg');
+          svg.setAttribute('width', '14');
+          svg.setAttribute('height', '14');
+          svg.setAttribute('viewBox', '0 0 24 24');
+          svg.setAttribute('aria-hidden', 'true');
+          var path = document.createElementNS(ns, 'path');
+          path.setAttribute('d', 'M20 6 9 17l-5-5');
+          path.setAttribute('fill', 'none');
+          path.setAttribute('stroke', 'currentColor');
+          path.setAttribute('stroke-width', '3');
+          path.setAttribute('stroke-linecap', 'round');
+          path.setAttribute('stroke-linejoin', 'round');
+          svg.appendChild(path);
+          return svg;
+        }
+        function chevron() {
+          var ns = 'http://www.w3.org/2000/svg';
+          var svg = document.createElementNS(ns, 'svg');
+          svg.setAttribute('class', 'go');
+          svg.setAttribute('width', '18');
+          svg.setAttribute('height', '18');
+          svg.setAttribute('viewBox', '0 0 24 24');
+          svg.setAttribute('aria-hidden', 'true');
+          var path = document.createElementNS(ns, 'path');
+          path.setAttribute('d', 'm9 18 6-6-6-6');
+          path.setAttribute('fill', 'none');
+          path.setAttribute('stroke', 'currentColor');
+          path.setAttribute('stroke-width', '2');
+          path.setAttribute('stroke-linecap', 'round');
+          path.setAttribute('stroke-linejoin', 'round');
+          svg.appendChild(path);
+          return svg;
+        }
+        // One line of facts: what cooking it in Savorly showed when it's cook-tested, otherwise
+        // its time and cuisine. A row leaves out how many cooked it, to stay on one line.
+        function facts(recipe, short) {
+          var line = el('p', 'facts');
+          if (recipe.cookTested) {
+            var tested = el('span', 'tested');
+            tested.appendChild(check());
+            tested.appendChild(document.createTextNode(say('tested')));
+            line.appendChild(tested);
+            var rest = short ? [] : [say('cooks', { n: recipe.verifiedCooks })];
+            rest.push(recipe.cookedMinutes ? say('usually', { n: recipe.cookedMinutes }) : say('minutes', { n: recipe.minutes }));
+            line.appendChild(document.createTextNode(' · ' + rest.join(' · ')));
+          } else {
+            var parts = [say('minutes', { n: recipe.minutes })];
+            if (recipe.cuisine && recipe.cuisine !== 'Other') parts.push(recipe.cuisine);
+            line.textContent = parts.join(' · ');
+          }
+          return line;
+        }
+        function photo(recipe, className) {
+          var src = safeUrl(recipe.image);
+          if (!src) return el('div', className === 'photo' ? '' : 'blank');
+          var img = el('img', 'photo');
+          img.alt = '';
+          img.src = src;
+          img.loading = 'lazy';
+          img.referrerPolicy = 'no-referrer';
+          img.onerror = function () {
+            img.replaceWith(el('div', className === 'photo' ? '' : 'blank'));
+            measure();
+          };
+          img.onload = measure;
+          return img;
+        }
+        function cookLink(recipe, className, label) {
+          var a = el('a', className);
+          a.href = safeUrl(recipe.cookUrl) || safeUrl(recipe.url) || '#';
+          a.target = '_blank';
+          a.rel = 'noopener';
+          if (label) a.setAttribute('aria-label', label);
+          a.addEventListener('click', function (event) {
+            event.preventDefault();
+            open(a.href);
+          });
+          return a;
+        }
+        function one(recipe) {
+          var frame = el('div');
+          frame.appendChild(photo(recipe, 'photo'));
+          frame.appendChild(el('h1', '', recipe.title));
+          frame.appendChild(facts(recipe));
+          var cook = cookLink(recipe, 'cook');
+          cook.textContent = say('cook');
+          frame.appendChild(cook);
+          return frame;
+        }
+        function row(recipe) {
+          var a = cookLink(recipe, 'row', say('cookTitle', { title: recipe.title }));
+          a.appendChild(photo(recipe, 'row'));
+          var text = el('div', 'text');
+          text.appendChild(el('h2', '', recipe.title));
+          text.appendChild(facts(recipe, true));
+          a.appendChild(text);
+          a.appendChild(chevron());
+          return a;
+        }
+        function render() {
+          card.textContent = '';
+          if (!shown) return;
+          var list = Array.isArray(shown.recipes) ? shown.recipes : shown.recipe ? [shown.recipe] : [];
+          if (!list.length) card.appendChild(el('p', 'empty', say('none')));
+          else if (shown.recipe || list.length === 1) card.appendChild(one(list[0]));
+          else list.forEach(function (recipe) { card.appendChild(row(recipe)); });
+          measure();
+        }
+        function show(structured) {
+          if (!structured || typeof structured !== 'object') return;
+          shown = structured;
+          render();
+        }
+
+        // The MCP Apps bridge: JSON-RPC with the host over postMessage.
+        var next = 1;
+        var waiting = {};
+        function post(message) {
+          window.parent.postMessage(message, '*');
+        }
+        function request(method, params) {
+          var id = next++;
+          post({ jsonrpc: '2.0', id: id, method: method, params: params });
+          return new Promise(function (resolve, reject) {
+            waiting[id] = { resolve: resolve, reject: reject };
+            setTimeout(function () {
+              if (waiting[id]) {
+                delete waiting[id];
+                reject(new Error('timeout'));
+              }
+            }, 5000);
+          });
+        }
+        function notify(method, params) {
+          post({ jsonrpc: '2.0', method: method, params: params || {} });
+        }
+        function applyContext(context) {
+          if (!context) return;
+          if (context.theme === 'light' || context.theme === 'dark') root.setAttribute('data-theme', context.theme);
+          var variables = context.styles && context.styles.variables;
+          if (variables)
+            Object.keys(variables).forEach(function (name) {
+              if (/^--[\w-]+$/.test(name) && variables[name]) root.style.setProperty(name, variables[name]);
+            });
+          if (context.locale && context.locale !== locale) {
+            locale = context.locale;
+            root.lang = locale;
+            render();
+          }
+        }
+        // ChatGPT opens its vetted links itself; other hosts through ui/open-link.
+        function open(url) {
+          if (!url || url === '#') return;
+          if (window.openai && typeof window.openai.openExternal === 'function') {
+            window.openai.openExternal({ href: url });
+            return;
+          }
+          request('ui/open-link', { url: url }).catch(function () {
+            window.open(url, '_blank', 'noopener');
+          });
+        }
+        var size = '';
+        function measure() {
+          requestAnimationFrame(function () {
+            var box = document.body.getBoundingClientRect();
+            var width = Math.ceil(box.width);
+            var height = Math.ceil(box.height);
+            if (width + 'x' + height === size) return;
+            size = width + 'x' + height;
+            notify('ui/notifications/size-changed', { width: width, height: height });
+          });
+        }
+        window.addEventListener('message', function (event) {
+          if (event.source !== window.parent) return;
+          var message = event.data;
+          if (!message || message.jsonrpc !== '2.0') return;
+          if (!message.method && message.id !== undefined && waiting[message.id]) {
+            var pending = waiting[message.id];
+            delete waiting[message.id];
+            if (message.error) pending.reject(message.error);
+            else pending.resolve(message.result);
+            return;
+          }
+          switch (message.method) {
+            case 'ui/notifications/tool-result':
+              show(message.params && message.params.structuredContent);
+              break;
+            case 'ui/notifications/host-context-changed':
+              applyContext(message.params);
+              break;
+            case 'ui/resource-teardown':
+            case 'ping':
+              if (message.id !== undefined) post({ jsonrpc: '2.0', id: message.id, result: {} });
+              break;
+          }
+        });
+        if ('ResizeObserver' in window) new ResizeObserver(measure).observe(document.body);
+        request('ui/initialize', {
+          appInfo: { name: 'Savorly recipe card', version: '1.0.0' },
+          appCapabilities: { availableDisplayModes: ['inline'] },
+          protocolVersion: '2026-01-26',
+        })
+          .then(function (result) {
+            applyContext(result && result.hostContext);
+            notify('ui/notifications/initialized');
+          })
+          .catch(function () {});
+        // ChatGPT's own bridge has the result too, and says when it changes.
+        if (window.openai && window.openai.toolOutput) show(window.openai.toolOutput);
+        window.addEventListener('openai:set_globals', function () {
+          if (window.openai && window.openai.toolOutput) show(window.openai.toolOutput);
+        });
+      })();
+    </script>
+  </body>
+</html>

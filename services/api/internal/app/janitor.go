@@ -24,8 +24,25 @@ var janitorTasks = []struct{ name, sql string }{
  AND NOT EXISTS(SELECT 1 FROM voice_assets v WHERE v.job_id=j.id) LIMIT 500)`},
 	{"narration_usage", `DELETE FROM narration_usage WHERE id IN (SELECT id FROM narration_usage WHERE created_at<now()-interval '35 days' LIMIT 500)`},
 	{"ai_usage", `DELETE FROM ai_usage WHERE id IN (SELECT id FROM ai_usage WHERE created_at<now()-interval '35 days' LIMIT 500)`},
-	// Cooking sessions that didn't become verified cooks count for nothing once their day is over.
-	{"cook_sessions", `DELETE FROM cook_sessions WHERE id IN (SELECT id FROM cook_sessions WHERE NOT verified AND started_at<now()-interval '2 days' LIMIT 500)`},
+	// Cooking sessions that didn't become verified cooks count only toward the console's 30-day
+	// finish rate and who started the week's cook-along (metrics.go, cook_along.go), and toward
+	// recipes' insights (cook_insights.go): those with step events stay for the insights window,
+	// since where cooks stop is part of what a recipe shows its author.
+	{"cook_sessions", `DELETE FROM cook_sessions WHERE id IN (SELECT id FROM cook_sessions WHERE NOT verified AND started_at<now()-interval '35 days'
+ AND (events=0 OR started_at<now()-interval '180 days') LIMIT 500)`},
+	// Step events of verified cooks outlive the window too; the cooks themselves stay.
+	{"cook_step_events", `DELETE FROM cook_step_events WHERE (session_id,seq) IN (SELECT session_id,seq FROM cook_step_events WHERE created_at<now()-interval '180 days' LIMIT 500)`},
+	// What cooks asked is kept 90 days; questions it was grouped into go once nobody asked them in
+	// that time, unless their author answered them.
+	{"cook_questions", `DELETE FROM cook_questions WHERE id IN (SELECT id FROM cook_questions WHERE created_at<now()-interval '90 days' LIMIT 500)`},
+	{"recipe_step_questions", `DELETE FROM recipe_step_questions WHERE id IN (SELECT q.id FROM recipe_step_questions q WHERE q.answered_by='ai' AND q.updated_at<now()-interval '90 days'
+ AND NOT EXISTS(SELECT 1 FROM cook_questions c WHERE c.cluster_id=q.id) LIMIT 500)`},
+	// Suggestions their recipe's author never answered show as notes after 30 days (recipe_fixes.go),
+	// and those declined or withdrawn go after a year.
+	{"recipe_suggestions_stale", `UPDATE recipe_suggestions SET status='stale' WHERE id IN (SELECT id FROM recipe_suggestions WHERE status='open' AND created_at<now()-interval '30 days' LIMIT 500)`},
+	{"recipe_suggestions", `DELETE FROM recipe_suggestions WHERE id IN (SELECT id FROM recipe_suggestions WHERE status IN ('declined','withdrawn') AND decided_at<now()-interval '1 year' LIMIT 500)`},
+	// A pass a day: a year of them is plenty to look back on.
+	{"cook_insight_runs", `DELETE FROM cook_insight_runs WHERE day IN (SELECT day FROM cook_insight_runs WHERE day<now()-interval '1 year' LIMIT 500)`},
 	// Deleting a session cascades to its events and actions, the conversation the member still
 	// sees, so only sessions that left neither go.
 	{"voice_sessions", `DELETE FROM voice_sessions WHERE id IN (SELECT s.id FROM voice_sessions s WHERE s.finalized AND s.status NOT IN ('connecting','active') AND s.created_at<now()-interval '35 days'
@@ -41,12 +58,24 @@ var janitorTasks = []struct{ name, sql string }{
 	// notices; deleting one deletes its messages.
 	{"push_messages", `DELETE FROM push_messages WHERE id IN (SELECT id FROM push_messages WHERE created_at<now()-interval '7 days' LIMIT 500)`},
 	{"notification_outbox", `DELETE FROM notification_outbox WHERE id IN (SELECT id FROM notification_outbox WHERE created_at<now()-interval '7 days' LIMIT 500)`},
+	// Bulk imports are kept 90 days after they finish (import_batches.go), except a creator's own
+	// site's, which record their permission to import.
+	{"import_batches", `DELETE FROM import_batches WHERE id IN (SELECT id FROM import_batches WHERE purpose<>'own_site' AND finished_at<now()-interval '90 days' LIMIT 500)`},
 	{"household_invites", `DELETE FROM household_invites WHERE code_hash IN (SELECT code_hash FROM household_invites WHERE expires_at<now() LIMIT 500)`},
 	// The leaving trigger keeps households whole; these repair one that two members left at the
 	// same moment, so neither saw the other go.
 	{"households", `DELETE FROM households WHERE id IN (SELECT h.id FROM households h WHERE NOT EXISTS (SELECT 1 FROM household_members m WHERE m.household_id=h.id) LIMIT 500)`},
 	{"household_owners", `UPDATE household_members SET role='owner' WHERE user_id IN (SELECT DISTINCT ON (m.household_id) m.user_id FROM household_members m
  WHERE NOT EXISTS (SELECT 1 FROM household_members o WHERE o.household_id=m.household_id AND o.role='owner') ORDER BY m.household_id,m.joined_at,m.user_id LIMIT 500)`},
+	// Assistants (oauth_server.go, mcp.go): spent codes and tokens, links whose refresh token can
+	// no longer be used, apps nobody linked in 30 days, and sessions idle as long.
+	{"oauth_codes", `DELETE FROM oauth_codes WHERE code_hash IN (SELECT code_hash FROM oauth_codes WHERE expires_at<now() LIMIT 500)`},
+	{"oauth_tokens", `DELETE FROM oauth_tokens WHERE token_hash IN (SELECT token_hash FROM oauth_tokens WHERE expires_at<now() LIMIT 500)`},
+	{"oauth_grants", `DELETE FROM oauth_grants WHERE id IN (SELECT g.id FROM oauth_grants g WHERE g.created_at<now()-interval '1 day'
+ AND NOT EXISTS(SELECT 1 FROM oauth_tokens t WHERE t.grant_id=g.id AND t.kind='refresh' AND t.used_at IS NULL AND t.expires_at>now()) LIMIT 500)`},
+	{"oauth_clients", `DELETE FROM oauth_clients WHERE id IN (SELECT o.id FROM oauth_clients o WHERE COALESCE(o.last_used_at,o.created_at)<now()-interval '30 days'
+ AND NOT EXISTS(SELECT 1 FROM oauth_grants g WHERE g.client_id=o.id) LIMIT 500)`},
+	{"mcp_sessions", `DELETE FROM mcp_sessions WHERE id_hash IN (SELECT id_hash FROM mcp_sessions WHERE last_used_at<now()-interval '30 days' LIMIT 500)`},
 }
 
 // RunJanitor purges what nobody can see any more: soon after start, since a container may
