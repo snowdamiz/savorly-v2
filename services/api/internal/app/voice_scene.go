@@ -36,8 +36,10 @@ type sceneRecipe struct {
 	servings, minutes int
 	ingredients       []Ingredient
 	steps             []Step
-	// equipment is the cook's list, detected what the method mentions (equipment.go).
+	// equipment is the cook's list, detected what the method mentions (equipment.go), and guess
+	// what it likely uses, by step, when the cook lists nothing (equipment_guess.go).
 	equipment, detected []string
+	guess               []equipmentUse
 	// insights is what other cooks found at each step, by 0-based step (cook_insights.go).
 	insights map[int]string
 }
@@ -72,8 +74,8 @@ func (a *App) voiceScene(ctx context.Context, project, owner string) (voiceScene
 		return s, nil
 	}
 	r := &sceneRecipe{id: s.view.RecipeID}
-	var ingredients, steps []byte
-	e = a.DB.QueryRow(ctx, `SELECT r.title,u.name,r.author_id=$2,r.servings,r.minutes,r.ingredients,r.steps,r.equipment,r.equipment_detected`+recipeFrom+`WHERE r.id=$1 AND (r.published OR r.author_id=$2)`, s.view.RecipeID, owner).Scan(&r.title, &r.author, &r.mine, &r.servings, &r.minutes, &ingredients, &steps, &r.equipment, &r.detected)
+	var ingredients, steps, guess []byte
+	e = a.DB.QueryRow(ctx, `SELECT r.title,u.name,r.author_id=$2,r.servings,r.minutes,r.ingredients,r.steps,r.equipment,r.equipment_detected,`+equipmentGuessSQL+recipeFrom+`WHERE r.id=$1 AND (r.published OR r.author_id=$2)`, s.view.RecipeID, owner).Scan(&r.title, &r.author, &r.mine, &r.servings, &r.minutes, &ingredients, &steps, &r.equipment, &r.detected, &guess)
 	if errors.Is(e, pgx.ErrNoRows) {
 		return s, nil // Gone, or not the member's to see: the scene leaves it out.
 	}
@@ -82,6 +84,7 @@ func (a *App) voiceScene(ctx context.Context, project, owner string) (voiceScene
 	}
 	_ = json.Unmarshal(ingredients, &r.ingredients)
 	_ = json.Unmarshal(steps, &r.steps)
+	_ = json.Unmarshal(guess, &r.guess)
 	r.insights = stepInsightsFor(ctx, a.DB, r.id, r.steps)
 	s.recipe = r
 	return s, nil
@@ -180,6 +183,9 @@ func (r *sceneRecipe) text() string {
 func (r *sceneRecipe) equipmentLine() string {
 	if len(r.equipment) > 0 {
 		return "Equipment the cook lists: " + clip(strings.Join(r.equipment, "; "), 300) + "."
+	}
+	if len(r.guess) > 0 {
+		return "Equipment the method likely uses, guessed from it, with the steps that use it: " + equipmentGuessLine(r.guess) + "."
 	}
 	if len(r.detected) > 0 {
 		return "Equipment the method mentions: " + strings.Join(r.detected, "; ") + "."

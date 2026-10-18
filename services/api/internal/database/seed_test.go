@@ -50,7 +50,7 @@ func seedSchema(t *testing.T) *pgxpool.Pool {
 	return db
 }
 
-func TestSeedIsIdempotentAndRestoresMissingGalleries(t *testing.T) {
+func TestSeedIsIdempotentAndRestoresMissingGalleriesAndEquipment(t *testing.T) {
 	db := seedSchema(t)
 	ctx := context.Background()
 	count := func(sql string) int {
@@ -71,11 +71,19 @@ func TestSeedIsIdempotentAndRestoresMissingGalleries(t *testing.T) {
 	if n := count(`SELECT count(*) FROM users WHERE password_hash<>'!disabled'`); n != 0 {
 		t.Fatalf("%d seeded users have a usable password", n)
 	}
-	// A gallery that went missing comes back; one the cook changed stays theirs.
-	if _, e := db.Exec(ctx, `UPDATE recipes SET photos='[]' WHERE id='lemon-ricotta-pasta'`); e != nil {
+	// Every fixture says what it needs besides its ingredients.
+	if n := count(`SELECT count(*) FROM recipes WHERE equipment='{}'`); n != 0 {
+		t.Fatalf("%d seeded recipes list no equipment", n)
+	}
+	// A gallery or an equipment list that went missing comes back (a database seeded before the
+	// fixtures had lists); one the cook changed stays theirs.
+	if _, e := db.Exec(ctx, `UPDATE recipes SET photos='[]', equipment='{}' WHERE id='lemon-ricotta-pasta'`); e != nil {
 		t.Fatal(e)
 	}
-	if _, e := db.Exec(ctx, `UPDATE recipes SET photos='["https://example.com/mine.jpg"]', title='My version' WHERE id='miso-salmon-bowl'`); e != nil {
+	if _, e := db.Exec(ctx, `UPDATE recipes SET equipment='{}' WHERE id='shakshuka'`); e != nil {
+		t.Fatal(e)
+	}
+	if _, e := db.Exec(ctx, `UPDATE recipes SET photos='["https://example.com/mine.jpg"]', title='My version', equipment='{"My wok"}' WHERE id='miso-salmon-bowl'`); e != nil {
 		t.Fatal(e)
 	}
 	if e := Seed(ctx, db); e != nil {
@@ -87,11 +95,14 @@ func TestSeedIsIdempotentAndRestoresMissingGalleries(t *testing.T) {
 	if n := count(`SELECT jsonb_array_length(photos) FROM recipes WHERE id='lemon-ricotta-pasta'`); n == 0 {
 		t.Fatal("an emptied gallery was not restored")
 	}
-	var photos, title string
-	if e := db.QueryRow(ctx, `SELECT photos::text,title FROM recipes WHERE id='miso-salmon-bowl'`).Scan(&photos, &title); e != nil {
+	if n := count(`SELECT count(*) FROM recipes WHERE id IN ('lemon-ricotta-pasta','shakshuka') AND equipment<>'{}'`); n != 2 {
+		t.Fatalf("%d of 2 emptied equipment lists were restored", n)
+	}
+	var photos, title, equipment string
+	if e := db.QueryRow(ctx, `SELECT photos::text,title,equipment::text FROM recipes WHERE id='miso-salmon-bowl'`).Scan(&photos, &title, &equipment); e != nil {
 		t.Fatal(e)
 	}
-	if !strings.Contains(photos, "mine.jpg") || title != "My version" {
-		t.Fatalf("seed overwrote a cook's own changes: %s / %s", photos, title)
+	if !strings.Contains(photos, "mine.jpg") || title != "My version" || equipment != `{"My wok"}` {
+		t.Fatalf("seed overwrote a cook's own changes: %s / %s / %s", photos, title, equipment)
 	}
 }

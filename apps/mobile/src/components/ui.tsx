@@ -1435,8 +1435,11 @@ export function SheetHost() {
             ...leave,
           }),
           Animated.timing(backdrop, { toValue: 0, ...leave }),
-        ]).start(({ finished }) => {
-          if (!finished || st.phase !== 'closing') return;
+        ]).start(() => {
+          // Stopped early too: crossing the phone breakpoint remounts the sheet (the drag wraps
+          // it), which stops its animations, and a sheet left closing would stay over the page
+          // with nothing to close. Only another sheet arriving, which reopens it, keeps it.
+          if (st.phase !== 'closing') return;
           st.phase = 'closed';
           st.page = st.pending = undefined;
           setOpen(false);
@@ -1451,6 +1454,14 @@ export function SheetHost() {
   useEffect(() => {
     transition(topPage);
   }, [topPage]);
+  // The same remount stops an opening sheet's spring or fade partway: an open sheet settles in
+  // place. One closing finishes in the callback above.
+  useLayoutEffect(() => {
+    if (m.current.phase !== 'open') return;
+    y.setValue(0);
+    backdrop.setValue(1);
+    fade.setValue(1);
+  }, [compact, y, backdrop, fade]);
   const measure = (part: 'header' | 'content' | 'footer', size: number) => {
     sizes.current[part] = size;
     const { header, content, footer } = sizes.current;

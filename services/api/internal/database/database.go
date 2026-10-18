@@ -110,14 +110,18 @@ func Seed(ctx context.Context, db *pgxpool.Pool) error {
 			AuthorID                                              string `json:"authorId"`
 			Title, Description, Cuisine, Difficulty, Image, Video string
 			Minutes, Servings, Calories                           int
-			Tags                                                  []string
+			Tags, Equipment                                       []string
 			Ingredients, Steps, Photos                            json.RawMessage
 		}
 		if err = json.Unmarshal(raw, &r); err != nil {
 			return err
 		}
-		// Seed recipes already in the database only pick up a gallery they don't have yet.
-		_, err = tx.Exec(ctx, `INSERT INTO recipes(id,author_id,title,description,cuisine,minutes,servings,difficulty,image,video,ingredients,steps,tags,calories,photos) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,COALESCE($15::jsonb,'[]')) ON CONFLICT (id) DO UPDATE SET photos=excluded.photos WHERE recipes.photos='[]' AND excluded.photos<>'[]'`, r.ID, r.AuthorID, r.Title, r.Description, r.Cuisine, r.Minutes, r.Servings, r.Difficulty, r.Image, r.Video, r.Ingredients, r.Steps, r.Tags, r.Calories, r.Photos)
+		// Seed recipes already in the database only pick up a gallery or an equipment list they
+		// don't have yet.
+		_, err = tx.Exec(ctx, `INSERT INTO recipes(id,author_id,title,description,cuisine,minutes,servings,difficulty,image,video,ingredients,steps,tags,calories,photos,equipment) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,COALESCE($15::jsonb,'[]'),COALESCE($16::text[],'{}'))
+ ON CONFLICT (id) DO UPDATE SET photos=CASE WHEN recipes.photos='[]' THEN excluded.photos ELSE recipes.photos END,
+  equipment=CASE WHEN recipes.equipment='{}' THEN excluded.equipment ELSE recipes.equipment END
+ WHERE (recipes.photos='[]' AND excluded.photos<>'[]') OR (recipes.equipment='{}' AND excluded.equipment<>'{}')`, r.ID, r.AuthorID, r.Title, r.Description, r.Cuisine, r.Minutes, r.Servings, r.Difficulty, r.Image, r.Video, r.Ingredients, r.Steps, r.Tags, r.Calories, r.Photos, r.Equipment)
 		if err != nil {
 			return err
 		}

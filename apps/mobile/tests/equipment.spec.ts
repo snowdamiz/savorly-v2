@@ -23,10 +23,26 @@ const frittata = recipe({
   equipment: [],
   equipmentDetected: ['frying pan', 'oven', 'sous vide circulator'],
 });
+// No list either, and the sous-chef has guessed what each step uses.
+const pesto = recipe({
+  id: 'pesto',
+  title: 'Pesto linguine',
+  steps: [
+    { title: 'Pesto', text: 'Blend the basil with oil.', seconds: 0 },
+    { title: 'Pasta', text: 'Cook the linguine in salted boiling water, then drain.', seconds: 0 },
+  ],
+  equipment: [],
+  equipmentDetected: [],
+  equipmentGuess: [
+    { key: 'blender', steps: [1] },
+    { key: 'pot', steps: [2] },
+    { key: 'colander', steps: [2] },
+  ],
+});
 const needs = (page: Page) => page.getByRole('heading', { name: 'You’ll need', exact: true });
 const item = (page: Page, name: string) => page.getByRole('listitem').filter({ hasText: name });
 
-test('a recipe page lists the cook’s equipment with the ingredients', async ({ page }) => {
+test('a recipe page lists the cook’s equipment before the method', async ({ page }) => {
   await mockApi(page, { recipes: [pasta] });
   await page.goto('/recipes/pasta');
   await expect(needs(page)).toBeVisible();
@@ -54,13 +70,18 @@ test('without a list, the page shows what the method mentions, and says so', asy
 
 test.describe('on a phone', () => {
   test.use({ viewport: { width: 390, height: 844 } });
-  test('the ingredients tab ends with what you’ll need', async ({ page }) => {
+  test('the method tab starts with what you’ll need', async ({ page }) => {
     await mockApi(page, { recipes: [pasta] });
     await page.goto('/recipes/pasta');
+    await expect(page.getByRole('heading', { name: 'Ingredients', exact: true })).toBeVisible();
+    await expect(needs(page)).toHaveCount(0);
+    await page.getByRole('tab', { name: 'Method', exact: true }).click();
     await expect(needs(page)).toBeVisible();
     await expect(item(page, 'Large pot')).toBeVisible();
-    await page.getByRole('tab', { name: 'Method', exact: true }).click();
-    await expect(needs(page)).toHaveCount(0);
+    // Above the first step, so it's read before cooking starts.
+    const top = async (name: string) =>
+      (await page.getByRole('heading', { name, exact: true }).boundingBox())!.y;
+    expect(await top('You’ll need')).toBeLessThan(await top('Boil'));
   });
 });
 
@@ -125,6 +146,36 @@ test('cooking mode names what the method mentions when the cook lists nothing', 
   await page.getByRole('button', { name: 'Start cooking', exact: true }).click();
   await expect(page.getByText('You’ll need: Frying pan, Oven', { exact: true })).toBeVisible();
   await expect(page.getByText('From the method', { exact: true })).toBeVisible();
+});
+
+test('without a list, the page and cooking mode show the sous-chef’s guess, step by step', async ({
+  page,
+}) => {
+  await mockApi(page, { recipes: [pesto] });
+  await page.goto('/recipes/pesto');
+  await expect(needs(page)).toBeVisible();
+  await expect(page.getByText('· Sous-chef’s guess', { exact: true })).toBeVisible();
+  await expect(page.getByRole('listitem')).toHaveCount(3);
+  await expect(item(page, 'Blender')).toBeVisible();
+  await page.getByRole('button', { name: 'Start cooking', exact: true }).click();
+  await expect(
+    page.getByText('You’ll need: Blender, Pot, Colander', { exact: true }),
+  ).toBeVisible();
+  // Each step says what it uses, when it uses it.
+  const step = page.getByLabel(/^Equipment for this step: /);
+  await expect(step).toHaveAccessibleName('Equipment for this step: Blender');
+  await page.getByRole('button', { name: 'Next step', exact: true }).click();
+  await expect(step).toHaveAccessibleName('Equipment for this step: Pot, Colander');
+});
+
+test('the cook’s list says nothing of steps', async ({ page }) => {
+  await mockApi(page, { recipes: [{ ...pesto, equipment: ['Food processor'] }] });
+  await page.goto('/recipes/pesto');
+  await expect(item(page, 'Food processor')).toBeVisible();
+  await expect(page.getByText('· Sous-chef’s guess', { exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Start cooking', exact: true }).click();
+  await expect(page.getByText('You’ll need: Food processor', { exact: true })).toBeVisible();
+  await expect(page.getByLabel(/^Equipment for this step: /)).toHaveCount(0);
 });
 
 test('the editor keeps a list, fills it from the method, and saves it', async ({ page }) => {

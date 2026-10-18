@@ -1586,6 +1586,8 @@
   "sharedPlanCount_other": "你的方案也覆盖家庭中另外 {{count}} 人；你们共用额度，按最近 30 天计算。",
   "You’ll need": "所需厨具",
   "From the method": "根据做法",
+  "Sous-chef’s guess": "厨师助手的推测",
+  "Equipment for this step: {{v0}}": "此步骤所需厨具：{{v0}}",
   "You’ll need: {{v0}}": "所需厨具：{{v0}}",
   "Before you start": "开始之前",
   "Equipment": "厨具",

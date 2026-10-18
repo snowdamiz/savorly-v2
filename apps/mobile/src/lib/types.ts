@@ -90,6 +90,9 @@ export type RecipeOrigin = {
   title: string;
   author: { id: string; name: string; handle: string };
 };
+/** A piece of equipment a recipe's method likely uses, and the 1-based steps that use it. */
+export type EquipmentUse = { key: string; steps: number[] };
+
 export type Recipe = Omit<RecipeInput, 'derivedFrom'> & {
   id: string;
   author: Creator;
@@ -125,6 +128,12 @@ export type Recipe = Omit<RecipeInput, 'derivedFrom'> & {
    * pan', 'oven') the app names in the reader's language (equipmentName). Missing on older servers.
    */
   equipmentDetected?: string[];
+  /**
+   * When its cook lists no equipment, what the sous-chef's model guesses its method uses, keys as
+   * equipmentDetected has them, each with the 1-based steps that use it; [] until it has guessed.
+   * Missing on older servers.
+   */
+  equipmentGuess?: EquipmentUse[];
   /** The family recordings its steps play, in a relative's own voice. Missing on older servers. */
   recordings?: RecipeRecording[];
 };

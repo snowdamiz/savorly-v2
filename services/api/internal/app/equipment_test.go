@@ -77,6 +77,15 @@ func TestEquipmentInMethods(t *testing.T) {
 		{"Whisk with the whisk attachment.", "en", []string{"whisk", "stand mixer"}},
 		{"Cook in the slow cooker on low.", "en", []string{"slow cooker"}},
 		{"Heat the pan.", "en", nil},
+		// A pan the method says more about is one piece; a bare pan, or a verb that may be done by
+		// hand, is left to the model's guess.
+		{"Toast the pine nuts in a dry pan until fragrant.", "en", []string{"frying pan"}},
+		{"Bring a large pan of salted water to the boil.", "en", []string{"saucepan"}},
+		{"Pan-fry the gnocchi, then pan-sear the scallops.", "en", []string{"frying pan"}},
+		{"Keep the stock warm in a second pan.", "en", nil},
+		{"Grease and line the pan, then deglaze with the pan juices.", "en", nil},
+		{"Blend until smooth. Drain the pasta and toast the bread.", "en", nil},
+		{"Cook the linguine in salted boiling water.", "en", nil},
 		// A sentence ends an alias: the oven is still an oven here.
 		{"Put it in the oven. Safe travels.", "en", []string{"oven"}},
 		// Words that are equipment only in their own language.

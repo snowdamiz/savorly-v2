@@ -1,10 +1,11 @@
 import type { Recipe } from './types';
 
 // What a recipe needs besides its ingredients. The cook's own list (`equipment`) comes first. A
-// recipe without one shows what its method mentions (`equipmentDetected`), which the server reads
-// with its equipment lexicon as English keys that the app names in the reader's language, and
-// says that's where it came from. The two never mix: the list is the cook's words, the keys the
-// app's. The editor asks the server what a method mentions too (POST /recipes/equipment), so the
+// recipe without one shows what the sous-chef's model guesses its method uses (`equipmentGuess`,
+// with the steps that use each piece), or, until it has guessed, what its method mentions
+// (`equipmentDetected`, read by the server's equipment lexicon). Both are English keys that the
+// app names in the reader's language, and say where they came from. They never mix with the
+// cook's list: the list is the cook's words, the keys the app's. The editor asks the server what a method mentions too (POST /recipes/equipment), so the
 // lexicon lives in one place.
 
 /** The most a list holds, as the API allows (services/api/internal/app/models.go). */
@@ -27,18 +28,33 @@ export function cleanEquipment(names: readonly string[]): string[] {
   return out.slice(0, EQUIPMENT_MAX);
 }
 
+type Shown = Pick<Recipe, 'equipment' | 'equipmentDetected' | 'equipmentGuess'>;
+
 /**
- * What a recipe shows as what you'll need: the cook's list, or else what its method mentions,
- * named by `name` ('' for a key this version of the app doesn't know, which is left out).
+ * What a recipe shows as what you'll need: the cook's list, or else the sous-chef's guess, or else
+ * what its method mentions, named by `name` ('' for a key this version of the app doesn't know,
+ * which is left out). `detected` is anything but the cook's list, and `guessed` the guess.
  */
 export function shownEquipment(
-  recipe: Pick<Recipe, 'equipment' | 'equipmentDetected'>,
+  recipe: Shown,
   name: (key: string) => string,
-): { names: string[]; detected: boolean } {
+): { names: string[]; detected: boolean; guessed: boolean } {
   const own = cleanEquipment(recipe.equipment ?? []);
-  if (own.length) return { names: own, detected: false };
+  if (own.length) return { names: own, detected: false, guessed: false };
+  const guess = cleanEquipment((recipe.equipmentGuess ?? []).map((use) => name(use.key)));
+  if (guess.length) return { names: guess, detected: true, guessed: true };
   const names = cleanEquipment((recipe.equipmentDetected ?? []).map(name));
-  return { names, detected: names.length > 0 };
+  return { names, detected: names.length > 0, guessed: false };
+}
+
+/**
+ * What the sous-chef guesses step `index` (0-based) uses, named by `name`; nothing when the cook
+ * lists equipment, since their list doesn't say when.
+ */
+export function stepEquipment(recipe: Shown, index: number, name: (key: string) => string) {
+  if (cleanEquipment(recipe.equipment ?? []).length) return [];
+  const uses = (recipe.equipmentGuess ?? []).filter((use) => use.steps.includes(index + 1));
+  return cleanEquipment(uses.map((use) => name(use.key)));
 }
 
 /**
