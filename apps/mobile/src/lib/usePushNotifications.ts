@@ -8,7 +8,8 @@ import { AppAction } from './types';
 /**
  * Notifications for the app shell, mounted once:
  * - a tapped notification becomes an app action: a recipe opens, a pantry reminder goes to the
- *   pantry (`onAction` is the shell's own handler, as for the sous-chef's actions);
+ *   pantry and a renewal reminder to My kitchen, where the plan is (`onAction` is the shell's own
+ *   handler, as for the sous-chef's actions);
  * - while someone is signed in, this phone registers its push token again whenever notifications
  *   are already allowed, since the token can change (asking happens only in NotificationSettings);
  * - the account's language follows the app's, since notifications are written in it: a change made
@@ -30,7 +31,7 @@ export function usePushNotifications(onAction: (action: AppAction) => void) {
         follow(
           target.type === 'recipe'
             ? { type: 'open_recipe', recipeId: target.recipeId }
-            : { type: 'go_to', page: 'pantry' },
+            : { type: 'go_to', page: target.type === 'plan' ? 'profile' : 'pantry' },
         ),
       ),
     [],

@@ -63,6 +63,8 @@ import { EquipmentEditor } from '../components/EquipmentEditor';
 import { PhotoTouchUp } from '../components/PhotoTouchUp';
 import { postCreator, postPlatform } from '../lib/recipeImport';
 import { DangerButton, SignInKitchen } from './Kitchen';
+import { RecordingConsent } from '../components/RecordingConsent';
+import { agreeToRecordings, awaitingConsent } from '../lib/family';
 const tagOptions = [
   'Vegetarian',
   'Vegan',
@@ -394,6 +396,12 @@ function EditorForm({ initial, onPublished, onAI }: EditorProps) {
   });
   const [r, setR] = useState<RecipeInput>(start);
   const [busy, setBusy] = useState(false);
+  // A family recipe plays someone's recorded voice: publishing it asks whether they agreed.
+  const [speakers] = useState(() => (initial && 'id' in initial ? awaitingConsent(initial) : []));
+  const [asking, setAsking] = useState(false);
+  const [agreed, setAgreed] = useState(false);
+  const [agreeing, setAgreeing] = useState(false);
+  const [consentError, setConsentError] = useState('');
   // The upload under way and where it shows: picking (no progress yet), then sending.
   const [upload, setUpload] = useState<{ target: UploadTarget; progress: number | null } | null>(
     null,
@@ -651,8 +659,9 @@ function EditorForm({ initial, onPublished, onAI }: EditorProps) {
       setOrderingClips(false);
     }
   };
-  const submit = async (published: boolean) => {
+  const submit = async (published: boolean, consented = agreed) => {
     if (busy || !app.requireUser()) return;
+    if (published && id && speakers.length && !consented) return setAsking(true);
     setBusy(true);
     setError('');
     try {
@@ -673,10 +682,28 @@ function EditorForm({ initial, onPublished, onAI }: EditorProps) {
       );
       onPublished(recipe);
     } catch (e) {
-      setError((e as Error).message);
+      // Agreement given elsewhere, or not yet: the server says, and the question opens.
+      if (e instanceof ApiError && e.status === 409 && speakers.length) setAsking(true);
+      else setError((e as Error).message);
     } finally {
       setBusy(false);
     }
+  };
+  const agree = async () => {
+    if (!id) return;
+    setAgreeing(true);
+    setConsentError('');
+    try {
+      await agreeToRecordings(id);
+      setAgreed(true);
+      setAsking(false);
+    } catch (e) {
+      setConsentError((e as Error).message);
+      return;
+    } finally {
+      setAgreeing(false);
+    }
+    await submit(true, true);
   };
   const setIngredient = (n: number, patch: Partial<RecipeInput['ingredients'][number]>) =>
     update(
@@ -1479,6 +1506,13 @@ function EditorForm({ initial, onPublished, onAI }: EditorProps) {
           onPress={() => void orderClips()}
         />
       </Dialog>
+      <RecordingConsent
+        speakers={asking ? speakers : []}
+        busy={agreeing || busy}
+        error={consentError}
+        onAgree={() => void agree()}
+        onClose={() => setAsking(false)}
+      />
       <Dialog visible={remove} onClose={() => setRemove(false)} title={tr('Delete this recipe?')}>
         <Text style={s.body}>
           {tr(

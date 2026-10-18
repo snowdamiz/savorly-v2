@@ -3,6 +3,7 @@ import { Platform } from 'react-native';
 import {
   cookbookPath,
   cookbookUrl,
+  cookPath,
   linkHosts,
   linkTo,
   pagePath,
@@ -41,6 +42,27 @@ describe('parseRoute', () => {
     expect(parseRoute('/?recipe=../admin')).toEqual({ type: 'page', screen: null });
   });
 
+  test('a recipe link can open cooking mode', () => {
+    expect(parseRoute('https://savorly.cooking/recipes/abc?cook=1')).toEqual({
+      type: 'recipe',
+      id: 'abc',
+      legacy: false,
+      cook: true,
+    });
+    expect(parseRoute('/recipes/abc?cook=0')).toEqual(recipe('abc'));
+    expect(cookPath('a b')).toBe('/recipes/a%20b?cook=1');
+  });
+
+  test('the page where an assistant asks to connect keeps its request as sent', () => {
+    expect(
+      parseRoute(
+        'https://savorly.cooking/oauth/authorize?client_id=https%3A%2F%2Fchatgpt.com&state=a+b',
+      ),
+    ).toEqual({ type: 'authorize', query: 'client_id=https%3A%2F%2Fchatgpt.com&state=a+b' });
+    expect(parseRoute('/oauth/authorize')).toEqual({ type: 'authorize', query: '' });
+    expect(parseRoute('/oauth/token')).toBeNull();
+  });
+
   test('cookbooks', () => {
     expect(parseRoute('https://savorly.cooking/cookbooks/c-123')).toEqual({
       type: 'cookbook',
@@ -62,6 +84,12 @@ describe('parseRoute', () => {
     expect(parseRoute('/?page=nowhere')).toEqual({ type: 'page', screen: null });
     expect(parseRoute('savorly://?page=pantry')).toEqual({ type: 'page', screen: 'pantry' });
     expect(parseRoute('savorly://')).toEqual({ type: 'page', screen: null });
+    // The pages for switching to Savorly: Mealime's members, and creators' own sites.
+    expect(parseRoute('https://savorly.cooking/?page=mealime')).toEqual({
+      type: 'page',
+      screen: 'mealime',
+    });
+    expect(parseRoute('/?page=own-site')).toEqual({ type: 'page', screen: 'own-site' });
   });
 
   test('the app scheme, in each way it is written', () => {

@@ -5,6 +5,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import {
   ArrowRight,
   ArrowUp,
+  BadgeCheck,
   Bell,
   CalendarDays,
   Carrot,
@@ -126,17 +127,20 @@ export function Discover({
     !!user?.avoid && Object.keys({ ...user.avoid.groups, ...user.avoid.terms }).length > 0;
   const [fitsChoice, setFits] = useState(false);
   const fits = avoids && fitsChoice;
+  // Only recipes enough cooks really made in Savorly (docs/COOK-TESTED.md).
+  const [tested, setTested] = useState(false);
   const listing = !!query || !!explore;
   // Filtering belongs to Explore. Home only searches, so returning to it never leaves the feed
   // stuck as a filtered list, while Explore keeps its filters for the next visit.
   const search = useRecipeSearch(
     explore
-      ? { query, category, cuisine, quick, sort, fits }
+      ? { query, category, cuisine, quick, sort, fits, tested }
       : { query, category: 'All recipes', cuisine: allCuisines, quick: false, sort: 'For you' },
     listing,
   );
   const filtered = search.recipes;
-  const refined = !!explore && (cuisine !== allCuisines || quick || sort !== 'For you' || fits);
+  const refined =
+    !!explore && (cuisine !== allCuisines || quick || sort !== 'For you' || fits || tested);
   // What people search for, and what finds nothing: each search once, when the typing has paused
   // and its first results have arrived (Show more isn't another search).
   const searched = query.trim();
@@ -155,6 +159,7 @@ export function Discover({
   const shelfSize = compact ? 6 : width > 1430 ? 4 : 3;
   const { feed, library } = app;
   const {
+    cookAlong,
     hero,
     trending,
     quick: weeknight,
@@ -168,6 +173,8 @@ export function Discover({
       }),
     [feed, recipes, user, library.followingIds, shelfSize],
   );
+  // Everyone who finished the cook-along started it too, unless they started late last Sunday.
+  const cooking = cookAlong ? Math.max(cookAlong.started, cookAlong.cooks) : 0;
   const hello = `${tr(greeting())}${user ? `, ${user.name.split(' ')[0]}` : ''}`;
   const reset = () => {
     setCategory('All recipes');
@@ -175,6 +182,7 @@ export function Discover({
     setSort('For you');
     setQuick(false);
     setFits(false);
+    setTested(false);
   };
   const tileWidth = Math.min(250, Math.round(width * 0.6));
   // On phones the feed is a light sheet that rises over the black header on rounded top corners.
@@ -421,6 +429,21 @@ export function Discover({
                 <Hero recipe={hero} onOpen={onOpen} />
               </FadeIn>
             )}
+            {cookAlong && (
+              <FadeIn delay={45}>
+                <SectionTitle
+                  title={tr('This week’s cook-along')}
+                  subtitle={
+                    cooking > 0
+                      ? tr('cookingAlong', { count: cooking })
+                      : tr('Be the first to cook it this week.')
+                  }
+                />
+                <View style={desktop && { maxWidth: 620 }}>
+                  <RecipeRow recipe={cookAlong.recipe} onOpen={onOpen} />
+                </View>
+              </FadeIn>
+            )}
             <FadeIn delay={90}>
               <SectionTitle title={tr('Trending now')} action={() => navigate('explore')} />
               {compact ? (
@@ -644,6 +667,18 @@ export function Discover({
               icon={Zap}
               active={quick}
               onPress={() => setQuick(true)}
+            />
+          </View>
+        </View>
+        <View style={{ gap: 12 }}>
+          <Text style={s.label}>{tr('Tested by cooks')}</Text>
+          <View style={[s.wrap, { gap: 8 }]}>
+            <Chip title={tr('Any recipe')} active={!tested} onPress={() => setTested(false)} />
+            <Chip
+              title={tr('Cook-tested only')}
+              icon={BadgeCheck}
+              active={tested}
+              onPress={() => setTested(true)}
             />
           </View>
         </View>

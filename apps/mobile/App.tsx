@@ -111,8 +111,15 @@ const Admin = lazy(chunk(() => import('./src/screens/admin').then((m) => ({ defa
 const Editor = lazy(
   chunk(() => import('./src/screens/Editor').then((m) => ({ default: m.Editor }))),
 );
+// The pages for switching to Savorly: Mealime's members, and creators importing their own site.
+const switching = chunk(() => import('./src/screens/Switching'));
+const MealimePage = lazy(() => switching().then((m) => ({ default: m.MealimePage })));
+const OwnSitePage = lazy(() => switching().then((m) => ({ default: m.OwnSitePage })));
 const RecipeStudio = lazy(
   chunk(() => import('./src/components/RecipeStudio').then((m) => ({ default: m.RecipeStudio }))),
+);
+const ConnectApp = lazy(
+  chunk(() => import('./src/components/ConnectApp').then((m) => ({ default: m.ConnectApp }))),
 );
 const onboarding = chunk(() => import('./src/components/Onboarding'));
 const Welcome = lazy(() => onboarding().then((m) => ({ default: m.Welcome })));
@@ -144,6 +151,8 @@ const screenNames: Record<Screen, string> = {
   create: 'Share a recipe',
   community: 'Community',
   admin: 'Admin console',
+  mealime: 'Moving from Mealime',
+  'own-site': 'Bring your recipes from your own site',
 };
 const tabScreens: Screen[] = ['discover', 'explore', 'create', 'saved', 'profile'];
 const DESKTOP_HEADER = 84;
@@ -204,6 +213,8 @@ function Shell({ onReady }: { onReady: (ready: boolean) => void }) {
   const [studioLive, setStudioLive] = useState(false);
   const [cookingStep, setCookingStep] = useState<number | null>(null);
   const [cookCommand, setCookCommand] = useState<CookCommand | null>(null);
+  // An assistant's request to connect (/oauth/authorize), shown over the app until answered.
+  const [authorizing, setAuthorizing] = useState<string | null>(null);
   const [pendingStudio, setPendingStudio] = useState<({ mode: StudioMode } & StudioStart) | null>(
     null,
   );
@@ -365,10 +376,16 @@ function Shell({ onReady }: { onReady: (ready: boolean) => void }) {
       const route = parseRoute(url, Platform.OS === 'web' ? undefined : linkHosts);
       if (!route) return;
       if (route.type === 'recipe') {
-        // Older links take the recipe's own address, in place of theirs.
-        if (route.legacy) replacePage(recipePath(route.id));
-        void openById(route.id, visit ? 'link' : null, false);
+        // Older links take the recipe's own address, in place of theirs, and so do links that
+        // start cooking (?cook=1, which the MCP server gives ChatGPT and Claude), which Back
+        // shouldn't start again. Those count as opened from an assistant.
+        if (route.legacy || route.cook) replacePage(recipePath(route.id));
+        const from = route.cook ? 'assistant' : 'link';
+        void openById(route.id, visit ? from : null, false).then((opened) => {
+          if (opened && route.cook) setCookCommand({ step: 1, n: Date.now() });
+        });
       } else if (route.type === 'cookbook') openCookbook(route.id, false);
+      else if (route.type === 'authorize') setAuthorizing(route.query);
       else {
         // Another page (not just a recipe closing over the same one) starts at the top.
         const was = place.current;
@@ -440,6 +457,7 @@ function Shell({ onReady }: { onReady: (ready: boolean) => void }) {
     pushPage(pagePath('create'));
   };
   const account = () => (app.user ? navigate('profile') : app.setAuthOpen(true));
+  const switchingPage = screen === 'mealime' || screen === 'own-site';
   const activeTab = tabScreens.includes(screen) ? screen : origin;
   const tabIndex = tabs.findIndex((t) => t.key === activeTab);
   const tabSlide = useState(() => new Animated.Value(tabIndex))[0];
@@ -477,7 +495,9 @@ function Shell({ onReady }: { onReady: (ready: boolean) => void }) {
           onHeader={setHeaderHeight}
         />
       )}
-      {screen === 'saved' && <Cookbooks onOpen={open} navigate={navigate} />}
+      {screen === 'saved' && (
+        <Cookbooks onOpen={open} navigate={navigate} onOpenCookbook={openCookbook} />
+      )}
       {screen === 'planner' && <Planner onOpen={open} onAsk={askSousChef} />}
       {screen === 'pantry' && <Pantry onOpen={open} onAsk={askSousChef} />}
       {screen === 'create' && (
@@ -495,6 +515,11 @@ function Shell({ onReady }: { onReady: (ready: boolean) => void }) {
       )}
       {screen === 'profile' && <Profile onOpen={open} navigate={navigate} onRecipe={edit} />}
       {screen === 'community' && <Community onCreator={setCreator} />}
+      {switchingPage && (
+        <Suspense fallback={<PageLoading />}>
+          {screen === 'mealime' ? <MealimePage onOpen={open} /> : <OwnSitePage onOpen={open} />}
+        </Suspense>
+      )}
       {screen === 'admin' && (
         <Suspense fallback={<PageLoading />}>
           <Admin onOpen={open} />
@@ -553,6 +578,11 @@ function Shell({ onReady }: { onReady: (ready: boolean) => void }) {
       onAsk={askSousChef}
       onCooking={setCookingStep}
       cookCommand={cookCommand}
+      onReload={() =>
+        void recipeAt(selected.id)
+          .then((r) => setSelected((s) => (s?.id === r.id ? r : s)))
+          .catch(() => {})
+      }
     />
   );
   return (
@@ -958,6 +988,9 @@ function Shell({ onReady }: { onReady: (ready: boolean) => void }) {
         onClose={() => setCreating(false)}
         onStart={create}
         onImported={edit}
+        onOpenRecipe={(id) => void openById(id, 'import')}
+        onPage={go}
+        onOpen={(id) => void openById(id, 'family')}
       />
       {!webPage && recipePage}
       {studio && app.user && (
@@ -995,14 +1028,32 @@ function Shell({ onReady }: { onReady: (ready: boolean) => void }) {
         />
       )}
       {ask && <SousChef key={askKey} request={ask} onClose={() => setAsk(null)} onRecipe={edit} />}
-      {welcoming && !app.loading && !app.error && !app.user && !selected && (
-        <Suspense fallback={<Cover />}>
-          <Welcome onDone={finishWelcome} />
-        </Suspense>
-      )}
-      {app.user?.onboarded === false && (
+      {/* A link to a page for switching to Savorly opens it, not the first-launch welcome. */}
+      {welcoming &&
+        !app.loading &&
+        !app.error &&
+        !app.user &&
+        !selected &&
+        !authorizing &&
+        !switchingPage && (
+          <Suspense fallback={<Cover />}>
+            <Welcome onDone={finishWelcome} />
+          </Suspense>
+        )}
+      {app.user?.onboarded === false && !authorizing && (
         <Suspense fallback={<Cover />}>
           <KitchenSetup />
+        </Suspense>
+      )}
+      {authorizing !== null && !app.loading && (
+        <Suspense fallback={null}>
+          <ConnectApp
+            query={authorizing}
+            onDone={() => {
+              setAuthorizing(null);
+              replacePage(pagePath(screen));
+            }}
+          />
         </Suspense>
       )}
       <Dialog

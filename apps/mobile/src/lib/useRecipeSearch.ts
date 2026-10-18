@@ -12,6 +12,8 @@ export function useRecipeSearch(
     sort: string;
     /** Only recipes without what the signed-in member avoids. */
     fits?: boolean;
+    /** Only cook-tested recipes. */
+    tested?: boolean;
   },
   enabled = true,
 ) {
@@ -29,6 +31,7 @@ export function useRecipeSearch(
         sort: params.sort,
         limit: String(PAGE_SIZE),
         ...(params.fits ? { fits: 'me' } : {}),
+        ...(params.tested ? { cookTested: 'true' } : {}),
       }).toString()
     : null;
   const [previousParameters, setPreviousParameters] = useState(parameters);

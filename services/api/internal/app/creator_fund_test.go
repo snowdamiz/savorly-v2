@@ -307,11 +307,12 @@ func (f *fakeConnect) count(request string) int {
 	return n
 }
 
-// earning records a closed month's earnings for a creator.
+// earning records a closed month's earnings for a creator. The month closed long enough ago that
+// a first payout needn't wait (fund_signals_test.go tests the wait).
 func earning(t *testing.T, db *pgxpool.Pool, creator string, month time.Time, cents int) {
 	t.Helper()
 	ctx := context.Background()
-	if _, e := db.Exec(ctx, `INSERT INTO creator_fund_months(month,share_bp) VALUES($1,2000) ON CONFLICT DO NOTHING`, month); e != nil {
+	if _, e := db.Exec(ctx, `INSERT INTO creator_fund_months(month,share_bp,computed_at) VALUES($1,2000,now()-interval '1 year') ON CONFLICT DO NOTHING`, month); e != nil {
 		t.Fatal(e)
 	}
 	if _, e := db.Exec(ctx, `INSERT INTO creator_earnings(creator_id,month,amount_cents,cooks) VALUES($1,$2,$3,1)`, creator, month, cents); e != nil {

@@ -349,7 +349,7 @@ test('Download my data saves the export as a dated JSON file', async ({ page }) 
   const sheet = page.getByRole('dialog');
   await expect(sheet.getByRole('heading', { name: 'Download my data' })).toBeVisible();
   const download = page.waitForEvent('download');
-  await sheet.getByRole('button', { name: 'Download my data', exact: true }).click();
+  await sheet.getByRole('button', { name: 'Download as JSON', exact: true }).click();
   const file = await download;
   expect(file.suggestedFilename()).toMatch(/^savorly-export-\d{4}-\d{2}-\d{2}\.json$/);
   expect(JSON.parse(readFileSync(await file.path(), 'utf8'))).toEqual(exported);

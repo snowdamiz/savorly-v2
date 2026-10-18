@@ -6,7 +6,8 @@
 //
 // Besides the app and /api, the Worker answers /robots.txt, /sitemap.xml, recipe pages with
 // preview tags (/recipes/<id>), /csp-report, and the app-link files under /.well-known
-// (worker.ts, docs/DEPLOYMENT.md#web-pages-and-app-links).
+// (worker.ts, docs/DEPLOYMENT.md#web-pages-and-app-links), and sends the MCP server for ChatGPT
+// and Claude (/mcp, /oauth/*, the OAuth files under /.well-known) to the API (docs/ASSISTANTS.md).
 {
   "name": "savorly",
   "main": "worker.ts",

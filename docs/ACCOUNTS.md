@@ -360,7 +360,8 @@ What members find in My kitchen once these services are set up:
 
 - **Account and security:** the email address, changed with a 6-digit code sent to the new address (the change happens when the code is entered, and the old address is told); the password, changed with the current one or, for a kitchen made with Apple or Google, set after signing in once more with that account (either way the other devices are signed out); and the signed-in devices, this one first, each of the others with **Sign out**, plus **Sign out everywhere else**. Email changes need the email setup in section 1.
 - **Confirm your email address:** while a new kitchen's address is unconfirmed (and email is set up), a banner asks for the code sign-up sent, and can send a new one.
-- **Download my data:** everything the account holds as one JSON file. The web saves it directly; the apps open a single-use link, valid for ten minutes, in the browser.
+- **Download my data:** everything the account holds, as files (a ZIP with a folder for each recipe to read or print, its photos and clips, and the lists as spreadsheets) or as one JSON file. The web saves the JSON file directly; the files, and both from the apps, come through a single-use link, valid for ten minutes, that the browser opens ([switching](SWITCHING.md#the-export-as-files)).
+- **Import from my site:** a creator's import of the recipes on their own site, with their photos and their permission ([switching](SWITCHING.md#a-creators-own-site)).
 - **Measurements** (as written, metric or imperial), **Notifications** (new recipes, pantry reminders, reviews, comments) and the **Language**, which notifications are written in, are saved with the account.
 - The **Privacy policy**, **Terms of use** and **Delete your account** pages (the static pages the Worker serves at `/privacy`, `/terms` and `/account-deletion`) are linked at the foot of My kitchen, and the sign-up form links the terms and the privacy policy.
 

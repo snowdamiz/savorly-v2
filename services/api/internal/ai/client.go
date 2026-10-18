@@ -23,6 +23,8 @@ type Client struct {
 	ImageEditModel string
 	// Translates recipes for readers in other languages (translate.go).
 	TranslationModel string
+	// Transcribes family recordings, with timestamps (family.go).
+	TranscriptionModel string
 }
 
 func env(k, d string) string {
@@ -44,6 +46,8 @@ func New() *Client {
 		VideoModel:     env("REAPI_VIDEO_MODEL", DefaultVideoModel),
 		// Its own setting, so translations can move to a cheaper model than the agent's.
 		TranslationModel: env("OPENROUTER_TRANSLATION_MODEL", DefaultTranslationModel),
+		// Speech-to-text, its own kind of model: it hears a recording and nothing else.
+		TranscriptionModel: env("OPENROUTER_TRANSCRIPTION_MODEL", DefaultTranscriptionModel),
 	}
 }
 func (c *Client) TextEnabled() bool  { return c.OpenRouterKey != "" }

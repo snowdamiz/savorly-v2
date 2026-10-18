@@ -15,6 +15,9 @@ const (
 	// Step clips are short, silent and one to a step: Seedance 2.0 Mini's Eco tier at 720p is
 	// $0.036 a second (reapi.ai/models/seedance-2-0-mini, October 18, 2026).
 	DefaultVideoModel = "doubao-seedance-2.0-eco-mini"
+	// Family recordings are transcribed by Whisper large v3, which answers with timed segments.
+	// Checked on 2026-10-17: $0.0075 to $0.031 per 1,000 seconds of audio, by provider.
+	DefaultTranscriptionModel = "openai/whisper-large-v3"
 )
 
 // GenerationEstimate is a reservation, not a provider invoice. Keep both manual

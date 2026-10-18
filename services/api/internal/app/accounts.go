@@ -31,6 +31,7 @@ func (a *App) accountRoutes(v fiber.Router) {
 	v.Delete("/me/sessions/:id", a.requireAuth, a.revokeSession)
 	v.Post("/me/sessions/revoke-others", a.requireAuth, a.revokeOtherSessions)
 	v.Get("/me/export", a.requireAuth, perUser(10, time.Hour), a.exportMe)
+	v.Get("/me/export/files", a.requireAuth, perUser(5, time.Hour), a.exportFilesMe)
 	v.Post("/me/export-link", a.requireAuth, perUser(10, time.Hour), a.exportLink)
 	v.Get("/export/:token", rateLimit(20, time.Hour), a.exportByToken)
 	v.Post("/client-errors", rateLimit(30, time.Minute), a.clientError)

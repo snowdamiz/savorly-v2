@@ -244,6 +244,13 @@ const storedMessages = [
   'Stopped. Your conversation is saved.',
   'Savorly is starting up. Please try again in a moment.',
   'Savorly is restarting. Please try again in a moment.',
+  // Why an item of a bulk import brought no recipe (import_batches.go, import_pasted.go).
+  'This is one of Mealime’s own recipes, which stay with Mealime. Look for a similar Savorly recipe instead.',
+  'You stopped the import before this one was read.',
+  'We couldn’t save this recipe. Try importing it again.',
+  'We couldn’t finish reading this one. Try importing it again.',
+  'We couldn’t find a recipe in that text.',
+  'We couldn’t find a recipe in that text. Put the ingredients under a line that says “Ingredients” and the steps under one that says “Method”.',
 ];
 
 test('Russian plural forms, interpolation and English fallback', () => {

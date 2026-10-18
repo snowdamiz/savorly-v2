@@ -15,7 +15,7 @@ import (
 // through NOTIFY on workChannel for the loops of other replicas.
 const workChannel = "savorly_work"
 
-type wakeups struct{ studio, jobs chan struct{} }
+type wakeups struct{ studio, jobs, imports chan struct{} }
 
 // The API and the worker run as separate Apps over one pool, so wakeups belong to the pool.
 var wakeRegistry sync.Map
@@ -24,7 +24,7 @@ func (a *App) wakeups() *wakeups {
 	if w, ok := wakeRegistry.Load(a.DB); ok {
 		return w.(*wakeups)
 	}
-	w, _ := wakeRegistry.LoadOrStore(a.DB, &wakeups{studio: make(chan struct{}, 1), jobs: make(chan struct{}, 1)})
+	w, _ := wakeRegistry.LoadOrStore(a.DB, &wakeups{studio: make(chan struct{}, 1), jobs: make(chan struct{}, 1), imports: make(chan struct{}, 1)})
 	return w.(*wakeups)
 }
 
@@ -35,8 +35,8 @@ func poke(c chan struct{}) {
 	}
 }
 
-// announce tells every replica's "studio" or "jobs" loop about work tx enqueues; Postgres
-// delivers it on commit. wake does the same for this process once the commit succeeded.
+// announce tells every replica's "studio", "jobs" or "imports" loop about work tx enqueues;
+// Postgres delivers it on commit. wake does the same for this process once the commit succeeded.
 func announce(ctx context.Context, tx pgx.Tx, loop string) error {
 	_, e := tx.Exec(ctx, `SELECT pg_notify($1,$2)`, workChannel, loop)
 	return e
@@ -44,9 +44,12 @@ func announce(ctx context.Context, tx pgx.Tx, loop string) error {
 
 func (a *App) wake(loop string) {
 	w := a.wakeups()
-	if loop == "studio" {
+	switch loop {
+	case "studio":
 		poke(w.studio)
-	} else {
+	case "imports":
+		poke(w.imports)
+	default:
 		poke(w.jobs)
 	}
 }
@@ -96,6 +99,7 @@ type pacing struct{ base, idle time.Duration }
 var (
 	studioPace = pacing{base: time.Second, idle: 30 * time.Second}
 	jobPace    = pacing{base: 2 * time.Second, idle: 30 * time.Second}
+	importPace = pacing{base: time.Second, idle: 30 * time.Second}
 	sweepEvery = time.Minute
 )
 
@@ -175,6 +179,7 @@ func (a *App) listen(ctx context.Context, w *wakeups) error {
 	// Whatever was enqueued while nothing listened.
 	poke(w.studio)
 	poke(w.jobs)
+	poke(w.imports)
 	for {
 		n, e := conn.Conn().WaitForNotification(ctx)
 		if e != nil {
@@ -185,6 +190,8 @@ func (a *App) listen(ctx context.Context, w *wakeups) error {
 			poke(w.studio)
 		case "jobs":
 			poke(w.jobs)
+		case "imports":
+			poke(w.imports)
 		default:
 			if project, ok := strings.CutPrefix(n.Payload, replyPrefix); ok {
 				repliesReady(project)

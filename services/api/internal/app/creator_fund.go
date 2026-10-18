@@ -52,7 +52,19 @@ const (
 	maxFundShare = 0.20
 	// Payouts wait until a creator's unpaid earnings reach $10, so transfer fees stay small.
 	payoutMinimumCents = 1000
+	// A creator's first payout waits this many days after the first month they earned in closes,
+	// so a subscription paid with a stolen card is disputed before any of its money leaves.
+	firstPayoutDays = 60
 )
+
+// firstPayoutSQL is when the creator whose id is the SQL expression creator may first be paid:
+// firstPayoutDays after the first month they earned in closed (creator_fund_months.computed_at);
+// NULL before they've earned anything. Later payouts don't wait, since by then it has passed. An
+// admin's release of a hold doesn't change it.
+func firstPayoutSQL(creator string) string {
+	return `(SELECT m.computed_at+make_interval(days=>` + strconv.Itoa(firstPayoutDays) + `) FROM creator_earnings f JOIN creator_fund_months m ON m.month=f.month
+ WHERE f.creator_id=` + creator + ` ORDER BY f.month LIMIT 1)`
+}
 
 // fundShareBP is CREATOR_FUND_SHARE (default 0.20, at most maxFundShare) in basis points.
 func fundShareBP() int {
@@ -235,10 +247,10 @@ func runCreatorFund(ctx context.Context, db *pgxpool.Pool, now time.Time) error 
 	return e
 }
 
-// runPayouts sends every creator whose payouts are on, who isn't held or suspended, and whose
-// unpaid earnings reach payoutMinimumCents, one transfer of all of it. One replica runs at a
-// time. A creator whose transfer failed waits a day before the next try. It reports how many
-// payouts were paid.
+// runPayouts sends every creator whose payouts are on, who isn't held or suspended, whose first
+// payout is due (firstPayoutSQL), and whose unpaid earnings reach payoutMinimumCents, one transfer
+// of all of it. One replica runs at a time. A creator whose transfer failed waits a day before the
+// next try. It reports how many payouts were paid.
 func runPayouts(ctx context.Context, db *pgxpool.Pool) (int, error) {
 	conn, e := db.Acquire(ctx)
 	if e != nil {
@@ -270,7 +282,7 @@ func runPayouts(ctx context.Context, db *pgxpool.Pool) (int, error) {
 	}
 	due, e := collectIDs(ctx, conn, `SELECT a.user_id FROM creator_accounts a JOIN users u ON u.id=a.user_id AND u.suspended_at IS NULL
  JOIN creator_earnings e ON e.creator_id=a.user_id AND e.status='pending' AND e.payout_id IS NULL
- WHERE a.payouts_enabled AND a.held_at IS NULL AND a.stripe_account_id IS NOT NULL
+ WHERE a.payouts_enabled AND a.held_at IS NULL AND a.stripe_account_id IS NOT NULL AND `+firstPayoutSQL("a.user_id")+`<=now()
  AND NOT EXISTS(SELECT 1 FROM creator_payouts p WHERE p.creator_id=a.user_id AND (p.status='sending' OR (p.status='failed' AND p.created_at>now()-interval '1 day')))
  GROUP BY a.user_id HAVING sum(e.amount_cents)>=$1 ORDER BY a.user_id`, payoutMinimumCents)
 	if e != nil {
@@ -378,8 +390,8 @@ const payoutAccountSQL = `(SELECT jsonb_build_object('connected',a.stripe_accoun
  FROM (SELECT $1::text AS id) m LEFT JOIN creator_accounts a ON a.user_id=m.id)`
 
 // myEarnings is a creator's side of the fund: this month's verified cooks of their recipes and
-// the estimate the same rule gives so far, what's unpaid and paid, each closed month, and their
-// payout setup. ?refresh=true re-reads the payout account from Stripe first, for an app coming
+// the estimate the same rule gives so far, what's unpaid and paid, each closed month, when their
+// first payout may go while it's still ahead (firstPayoutAt), and their payout setup. ?refresh=true re-reads the payout account from Stripe first, for an app coming
 // back from onboarding before the webhook arrives.
 func (a *App) myEarnings(c fiber.Ctx) error {
 	if !creatorFundEnabled() {
@@ -410,6 +422,7 @@ func (a *App) myEarnings(c fiber.Ctx) error {
  'cooks',(SELECT count(*) FROM cook_sessions k JOIN recipes r ON r.id=k.recipe_id WHERE r.author_id=$1 AND k.verified AND k.user_id<>$1 AND k.finished_at>=$2 AND k.finished_at<$3),
  'balanceCents',(SELECT COALESCE(sum(amount_cents),0) FROM creator_earnings WHERE creator_id=$1 AND status='pending'),
  'paidCents',(SELECT COALESCE(sum(amount_cents),0) FROM creator_earnings WHERE creator_id=$1 AND status='paid'),
+ 'firstPayoutAt',(SELECT t FROM (SELECT `+firstPayoutSQL("$1")+` AS t) w WHERE t>now()),
  'history',COALESCE((SELECT jsonb_agg(jsonb_build_object('month',e.month,'amountCents',e.amount_cents,'cooks',e.cooks,'status',e.status,'paidAt',e.paid_at) ORDER BY e.month DESC)
    FROM (SELECT * FROM creator_earnings WHERE creator_id=$1 ORDER BY month DESC LIMIT 24) e),'[]'),
  'payouts',`+payoutAccountSQL+`)`, me, from, to).Scan(&b)
