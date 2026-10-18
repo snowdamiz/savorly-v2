@@ -126,7 +126,8 @@ Run typecheck, lint and the tests that cover your change before calling a task d
   `smoke.spec.ts` uses the real API and the local S3 storage.
 - CI doesn't run them. `git push` does, through the pre-push hook, when the push changes the app:
   `node scripts/browser-tests.mjs` starts Expo from this checkout on a free port and runs every
-  spec but `smoke.spec.ts`. It takes a while, so run `git push` in the background, and don't skip
+  spec but `smoke.spec.ts`, with spec files side by side on half the cores (`TEST_WORKERS` sets
+  another number). It takes a few minutes, so run `git push` in the background, and don't skip
   the hook with `--no-verify` unless asked. Run one spec the same way:
   `node scripts/browser-tests.mjs tests/<name>.spec.ts`.
 - Playwright uses its own pinned Chromium once it's installed

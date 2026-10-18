@@ -1,7 +1,8 @@
 #!/bin/sh
 # The browser tests run here, before a push, rather than in CI: only when the commits the remote
 # doesn't have yet change the app, against Expo started from this checkout
-# (scripts/browser-tests.mjs). `git push --no-verify` or SKIP_BROWSER_TESTS=1 skips them.
+# (scripts/browser-tests.mjs). `git push --no-verify` or SKIP_BROWSER_TESTS=1 skips them;
+# TEST_WORKERS sets how many spec files run at once (half the cores by default).
 # `make hooks` (part of `make setup`) turns this hook on.
 remote="$1"
 if [ -n "$SKIP_BROWSER_TESTS" ]; then

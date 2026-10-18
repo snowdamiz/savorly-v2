@@ -39,7 +39,8 @@ npm --prefix infra/cloudflare run build  # Worker and API image dry run; needs D
   neither (README).
 - The browser tests run before a push instead of in CI: the pre-push hook (`make hooks`) runs
   `node scripts/browser-tests.mjs` when the push changes `apps/mobile`, against Expo started from
-  the checkout. `git push --no-verify` or `SKIP_BROWSER_TESTS=1` skips it.
+  the checkout, with spec files side by side on half the cores (`TEST_WORKERS` sets another
+  number). `git push --no-verify` or `SKIP_BROWSER_TESTS=1` skips it.
 - CI also runs `govulncheck` and `staticcheck` (versions pinned in ci.yml; run them in
   `services/api` with `go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...` and
   `go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 ./...`) and an informational `npm audit`.
