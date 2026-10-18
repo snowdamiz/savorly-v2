@@ -35,7 +35,7 @@ import { color, font, radius, s } from '../lib/theme';
 import { Button, FoodImage, IconButton, useChrome, useSlideOver, webPosition } from './ui';
 import { StepClip } from './VideoPlayer';
 import { HandsFree } from './HandsFree';
-import { CookEquipment } from './Equipment';
+import { CookEquipment, StepEquipment } from './Equipment';
 import { StepQuestions, StepUsual, TimerNote } from './CookInsights';
 import { cooksNeed, RecipeInsights, stepInsight } from '../lib/cookInsights';
 import { FixDraft } from '../lib/recipeFixes';
@@ -411,6 +411,7 @@ export function CookMode({
                 >
                   {current.text}
                 </Text>
+                <StepEquipment recipe={recipe} step={step} />
                 <StepUsual insight={found} dark />
                 <StepQuestions key={step} insight={found} dark />
                 {/* One picture a step keeps the timer in view: a clip shows how, so it takes the

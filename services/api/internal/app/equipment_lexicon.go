@@ -19,13 +19,17 @@ import (
 // language carries the language it is read in ("fr:four", four in English), and is read only in
 // recipes written in it; recipes that don't say their language read the English ones. The key "-"
 // lists phrases that begin with an alias but name no equipment ("oven-safe", "pot roast"), which
-// the longest match then swallows, as "Dutch oven" is never an oven. Change equipmentVersion with
-// the lexicon, so recipes are read again.
+// the longest match then swallows, as "Dutch oven" is never an oven. A bare English "pan" names
+// nothing, since it may be any of the pans; one the method says more about does ("a dry pan" is a
+// frying pan, "a pan of water" a saucepan, "pan-fry"). Verbs that also mean mixing by hand
+// ("blend") or other things ("drain", "toast") name nothing either: the model's guess
+// (equipment_guess.go) reads what a method takes for granted. Change equipmentVersion with the
+// lexicon, so recipes are read again.
 const equipmentLexicon = `
 # Pots and pans
 pot|stockpot; stock pot; soup pot; pasta pot; cooking pot; clay pot; faitout; fait-tout; grande casserole; fr:marmite; Topf; Töpfe; Kochtopf; Suppentopf; olla; olla grande; cazuela; pentola; pentole; pentolone; pt:panela; pt:panela grande; caldeirão; кастрюля; кастрюлю; кастрюле; кастрюли; кастрюлей; кастрюлька; кастрюльку; кастрюльке; 汤锅; 煮锅; 深锅; 鍋; 深鍋; 土鍋; 両手鍋; 寸胴鍋
-saucepan|sauce pan; en:saucier; milk pan; fr:casserole; petite casserole; Stieltopf; Kasserolle; Milchtopf; cazo; cacerola; casseruola; casseruole; pentolino; caçarola; leiteira; ковш; ковше; ковшик; ковшике; ковшом; 奶锅; 小锅; 小鍋; 片手鍋; ミルクパン
-frying pan|fry pan; frypan; skillet; sauté pan; nonstick pan; non-stick pan; cast-iron pan; omelette pan; crepe pan; poêle; poêle à frire; poêlez; sauteuse; Pfanne; Pfannen; Bratpfanne; sartén; sartenes; padella; padelle; tegame; saltapasta; frigideira; сковорода; сковороду; сковороде; сковороды; сковородой; сковородка; сковородку; сковородке; сковородки; сковородкой; сотейник; сотейнике; сотейника; сотейником; 平底锅; 煎锅; 不粘锅; フライパン
+saucepan|sauce pan; en:saucier; milk pan; pan of water; pan of boiling water; pan of salted water; pan of boiling salted water; pan of salted boiling water; pan of simmering water; pan of hot water; fr:casserole; petite casserole; Stieltopf; Kasserolle; Milchtopf; cazo; cacerola; casseruola; casseruole; pentolino; caçarola; leiteira; ковш; ковше; ковшик; ковшике; ковшом; 奶锅; 小锅; 小鍋; 片手鍋; ミルクパン
+frying pan|fry pan; frypan; skillet; sauté pan; nonstick pan; non-stick pan; cast-iron pan; omelette pan; omelet pan; crepe pan; dry pan; pan fry; pan sear; poêle; poêle à frire; poêlez; sauteuse; Pfanne; Pfannen; Bratpfanne; sartén; sartenes; padella; padelle; tegame; saltapasta; frigideira; сковорода; сковороду; сковороде; сковороды; сковородой; сковородка; сковородку; сковородке; сковородки; сковородкой; сотейник; сотейнике; сотейника; сотейником; 平底锅; 煎锅; 不粘锅; フライパン
 griddle|griddle pan; grill pan; plancha; poêle grill; Grillpfanne; comal; chapa; piastra; bistecchiera; bifeteira; сковорода гриль; сковороду гриль; сковороде гриль; 铁板; 鉄板; ホットプレート
 wok|Wokpfanne; вок; воке; 炒锅; 中華鍋
 dutch oven|french oven; casserole pot; cast-iron pot; en:braiser; cocotte; cocotte en fonte; Bräter; Schmortopf; olla de hierro; olla de hierro fundido; casseruola di ghisa; pentola di ghisa; pentola in ghisa; panela de ferro; panela de ferro fundido; казан; казане; казана; казаном; утятница; утятнице; утятницу; гусятница; гусятнице; чугунная кастрюля; чугунной кастрюле; чугунную кастрюлю; 铸铁锅; 珐琅锅; ダッチオーブン; 鋳物ホーロー鍋

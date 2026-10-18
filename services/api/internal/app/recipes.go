@@ -21,7 +21,9 @@ import (
 // cookedMinutes, the real cook time (cook_sessions.go), is kept up to date in recipe_cook_times
 // and shows once 3 verified cooks agree; null until then. author.founding marks a founding
 // creator (founding.go), and recordings are the family recordings its steps play (family.go).
-// jsonb_build_object takes at most 100 arguments, two a field: this one has 35 fields.
+// equipmentGuess is the model's guess at what a recipe without a list uses (equipment_guess.go),
+// only while it is about the recipe's current steps.
+// jsonb_build_object takes at most 100 arguments, two a field: this one has 36 fields.
 const recipeJSON = `jsonb_build_object(
  'id',r.id,'title',r.title,'description',r.description,'cuisine',r.cuisine,
  'minutes',r.minutes,'servings',r.servings,'difficulty',r.difficulty,'image',r.image,'photos',r.photos,'video',r.video,
@@ -29,6 +31,7 @@ const recipeJSON = `jsonb_build_object(
  'published',r.published,'createdAt',r.created_at,'language',r.language,'sourceUrl',r.source_url,
  'allergens',r.allergens,'ingredientFood',r.ingredient_food,
  'equipment',r.equipment,'equipmentDetected',r.equipment_detected,
+ 'equipmentGuess',` + equipmentGuessSQL + `,
  'derivedFrom',(SELECT jsonb_build_object('id',d.id,'title',d.title,'author',jsonb_build_object('id',du.id,'name',du.name,'handle',du.handle))
    FROM recipes d JOIN users du ON du.id=d.author_id AND du.suspended_at IS NULL WHERE d.id=r.derived_from AND d.published),
  'rating',COALESCE((SELECT round(avg(rating),1) FROM reviews WHERE recipe_id=r.id),0),

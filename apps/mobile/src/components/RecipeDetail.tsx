@@ -351,8 +351,8 @@ export function RecipeDetail({
       image: recipe.image,
       ingredientsTitle: tr('Ingredients'),
       ingredients: reading.ingredients.map((i) => ({ name: i.name, amount: amountOf(i) })),
-      equipmentTitle: equipment.detected
-        ? `${tr('You’ll need')} · ${tr('From the method')}`
+      equipmentTitle: equipment.note
+        ? `${tr('You’ll need')} · ${equipment.note}`
         : tr('You’ll need'),
       equipment: equipment.names,
       methodTitle: tr('Method'),

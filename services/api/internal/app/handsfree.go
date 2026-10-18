@@ -86,9 +86,9 @@ func (a *App) askCook(c fiber.Ctx) error {
 // who isn't suspended, their own, or their household's (family.go).
 func (a *App) cookRecipe(ctx context.Context, id, owner string) (*sceneRecipe, error) {
 	r := &sceneRecipe{id: id}
-	var ingredients, steps []byte
-	e := a.DB.QueryRow(ctx, `SELECT r.title,u.name,r.author_id=$2,r.servings,r.minutes,r.ingredients,r.steps,r.equipment,r.equipment_detected`+recipeFrom+`WHERE r.id=$1 AND `+visibleRecipeSQL("r", "$2"), id, owner).
-		Scan(&r.title, &r.author, &r.mine, &r.servings, &r.minutes, &ingredients, &steps, &r.equipment, &r.detected)
+	var ingredients, steps, guess []byte
+	e := a.DB.QueryRow(ctx, `SELECT r.title,u.name,r.author_id=$2,r.servings,r.minutes,r.ingredients,r.steps,r.equipment,r.equipment_detected,`+equipmentGuessSQL+recipeFrom+`WHERE r.id=$1 AND `+visibleRecipeSQL("r", "$2"), id, owner).
+		Scan(&r.title, &r.author, &r.mine, &r.servings, &r.minutes, &ingredients, &steps, &r.equipment, &r.detected, &guess)
 	if errors.Is(e, pgx.ErrNoRows) {
 		return nil, fiber.NewError(404, "Recipe not found.")
 	}
@@ -97,6 +97,7 @@ func (a *App) cookRecipe(ctx context.Context, id, owner string) (*sceneRecipe, e
 	}
 	_ = json.Unmarshal(ingredients, &r.ingredients)
 	_ = json.Unmarshal(steps, &r.steps)
+	_ = json.Unmarshal(guess, &r.guess)
 	r.insights = stepInsightsFor(ctx, a.DB, id, r.steps)
 	return r, nil
 }
