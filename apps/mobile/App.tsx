@@ -114,6 +114,9 @@ const Editor = lazy(
 const RecipeStudio = lazy(
   chunk(() => import('./src/components/RecipeStudio').then((m) => ({ default: m.RecipeStudio }))),
 );
+const ConnectApp = lazy(
+  chunk(() => import('./src/components/ConnectApp').then((m) => ({ default: m.ConnectApp }))),
+);
 const onboarding = chunk(() => import('./src/components/Onboarding'));
 const Welcome = lazy(() => onboarding().then((m) => ({ default: m.Welcome })));
 const KitchenSetup = lazy(() => onboarding().then((m) => ({ default: m.KitchenSetup })));
@@ -204,6 +207,8 @@ function Shell({ onReady }: { onReady: (ready: boolean) => void }) {
   const [studioLive, setStudioLive] = useState(false);
   const [cookingStep, setCookingStep] = useState<number | null>(null);
   const [cookCommand, setCookCommand] = useState<CookCommand | null>(null);
+  // An assistant's request to connect (/oauth/authorize), shown over the app until answered.
+  const [authorizing, setAuthorizing] = useState<string | null>(null);
   const [pendingStudio, setPendingStudio] = useState<({ mode: StudioMode } & StudioStart) | null>(
     null,
   );
@@ -365,10 +370,16 @@ function Shell({ onReady }: { onReady: (ready: boolean) => void }) {
       const route = parseRoute(url, Platform.OS === 'web' ? undefined : linkHosts);
       if (!route) return;
       if (route.type === 'recipe') {
-        // Older links take the recipe's own address, in place of theirs.
-        if (route.legacy) replacePage(recipePath(route.id));
-        void openById(route.id, visit ? 'link' : null, false);
+        // Older links take the recipe's own address, in place of theirs, and so do links that
+        // start cooking (?cook=1, which the MCP server gives ChatGPT and Claude), which Back
+        // shouldn't start again. Those count as opened from an assistant.
+        if (route.legacy || route.cook) replacePage(recipePath(route.id));
+        const from = route.cook ? 'assistant' : 'link';
+        void openById(route.id, visit ? from : null, false).then((opened) => {
+          if (opened && route.cook) setCookCommand({ step: 1, n: Date.now() });
+        });
       } else if (route.type === 'cookbook') openCookbook(route.id, false);
+      else if (route.type === 'authorize') setAuthorizing(route.query);
       else {
         // Another page (not just a recipe closing over the same one) starts at the top.
         const was = place.current;
@@ -1001,14 +1012,25 @@ function Shell({ onReady }: { onReady: (ready: boolean) => void }) {
         />
       )}
       {ask && <SousChef key={askKey} request={ask} onClose={() => setAsk(null)} onRecipe={edit} />}
-      {welcoming && !app.loading && !app.error && !app.user && !selected && (
+      {welcoming && !app.loading && !app.error && !app.user && !selected && !authorizing && (
         <Suspense fallback={<Cover />}>
           <Welcome onDone={finishWelcome} />
         </Suspense>
       )}
-      {app.user?.onboarded === false && (
+      {app.user?.onboarded === false && !authorizing && (
         <Suspense fallback={<Cover />}>
           <KitchenSetup />
+        </Suspense>
+      )}
+      {authorizing !== null && !app.loading && (
+        <Suspense fallback={null}>
+          <ConnectApp
+            query={authorizing}
+            onDone={() => {
+              setAuthorizing(null);
+              replacePage(pagePath(screen));
+            }}
+          />
         </Suspense>
       )}
       <Dialog

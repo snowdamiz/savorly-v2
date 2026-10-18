@@ -559,6 +559,34 @@ export type DeviceSession = {
   system: string;
   current: boolean;
 };
+/** What an assistant linked to Savorly may do (docs/ASSISTANTS.md). */
+export type AssistantScope = 'cookbooks' | 'planner' | 'groceries';
+/** An assistant asking to connect, as the consent page shows it. */
+export type AssistantApp = {
+  id: string;
+  name: string;
+  /** The site that vouches for it, or else where it sends the member back. */
+  host: string;
+  /** One of the assistants Savorly lists itself in, such as ChatGPT or Claude. */
+  verified: boolean;
+};
+/** GET /oauth/authorize: the request to show, or where to send the member back when it's wrong. */
+export type ConnectRequest =
+  | {
+      client: AssistantApp;
+      redirectHost: string;
+      /** It returns to this device, which any program on it could claim to be. */
+      localhost: boolean;
+      scopes: AssistantScope[];
+      redirect?: undefined;
+    }
+  | { redirect: string; client?: undefined };
+/** A linked assistant, as GET /me/connected-apps lists it (newest first). */
+export type ConnectedApp = AssistantApp & {
+  scopes: AssistantScope[];
+  connectedAt: string;
+  lastUsedAt: string;
+};
 /**
  * A recipe's text in another language, GET /recipes/:id/translation: ingredients and steps in the
  * recipe's order, amounts, units, tags and cuisine left out (they stay as written).

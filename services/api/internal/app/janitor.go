@@ -64,6 +64,15 @@ var janitorTasks = []struct{ name, sql string }{
 	{"households", `DELETE FROM households WHERE id IN (SELECT h.id FROM households h WHERE NOT EXISTS (SELECT 1 FROM household_members m WHERE m.household_id=h.id) LIMIT 500)`},
 	{"household_owners", `UPDATE household_members SET role='owner' WHERE user_id IN (SELECT DISTINCT ON (m.household_id) m.user_id FROM household_members m
  WHERE NOT EXISTS (SELECT 1 FROM household_members o WHERE o.household_id=m.household_id AND o.role='owner') ORDER BY m.household_id,m.joined_at,m.user_id LIMIT 500)`},
+	// Assistants (oauth_server.go, mcp.go): spent codes and tokens, links whose refresh token can
+	// no longer be used, apps nobody linked in 30 days, and sessions idle as long.
+	{"oauth_codes", `DELETE FROM oauth_codes WHERE code_hash IN (SELECT code_hash FROM oauth_codes WHERE expires_at<now() LIMIT 500)`},
+	{"oauth_tokens", `DELETE FROM oauth_tokens WHERE token_hash IN (SELECT token_hash FROM oauth_tokens WHERE expires_at<now() LIMIT 500)`},
+	{"oauth_grants", `DELETE FROM oauth_grants WHERE id IN (SELECT g.id FROM oauth_grants g WHERE g.created_at<now()-interval '1 day'
+ AND NOT EXISTS(SELECT 1 FROM oauth_tokens t WHERE t.grant_id=g.id AND t.kind='refresh' AND t.used_at IS NULL AND t.expires_at>now()) LIMIT 500)`},
+	{"oauth_clients", `DELETE FROM oauth_clients WHERE id IN (SELECT o.id FROM oauth_clients o WHERE COALESCE(o.last_used_at,o.created_at)<now()-interval '30 days'
+ AND NOT EXISTS(SELECT 1 FROM oauth_grants g WHERE g.client_id=o.id) LIMIT 500)`},
+	{"mcp_sessions", `DELETE FROM mcp_sessions WHERE id_hash IN (SELECT id_hash FROM mcp_sessions WHERE last_used_at<now()-interval '30 days' LIMIT 500)`},
 }
 
 // RunJanitor purges what nobody can see any more: soon after start, since a container may

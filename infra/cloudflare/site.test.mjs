@@ -14,6 +14,7 @@ import {
   invalidFingerprints,
   isExportFile,
   isHashedAsset,
+  isRootApiPath,
   isoDuration,
   jsonForScript,
   originOf,
@@ -363,6 +364,28 @@ test('missing export files are told apart from the app’s own pages', () => {
   assert.ok(!isExportFile('/cookbooks/weeknights'));
   assert.ok(!isExportFile('/assetsx/logo.png'));
   assert.ok(!isExportFile('/privacy.html'));
+});
+
+test('the assistants’ paths go to the API, and the consent page stays the app’s', () => {
+  for (const path of [
+    '/mcp',
+    '/oauth/token',
+    '/oauth/register',
+    '/oauth/revoke',
+    '/.well-known/oauth-authorization-server',
+    '/.well-known/oauth-protected-resource',
+    '/.well-known/oauth-protected-resource/mcp',
+  ])
+    assert.ok(isRootApiPath(path), path);
+  for (const path of [
+    '/oauth/authorize',
+    '/mcp/',
+    '/MCP',
+    '/.well-known/openid-configuration',
+    '/.well-known/apple-app-site-association',
+    '/recipes/mcp',
+  ])
+    assert.ok(!isRootApiPath(path), path);
 });
 
 test('media origins come from S3_PUBLIC_URL', () => {

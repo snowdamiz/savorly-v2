@@ -45,6 +45,7 @@ To run the API in Docker: `docker compose --profile full up --build`. Run Expo s
 - A sous-chef built into the places you cook (home, recipe pages, cooking mode, the editor, pantry and planner) rather than a separate AI page: recipe drafts, one-tap adaptations, ingredient swaps, nutrition estimates, meal plans, cooking questions, cover photos, and Seedance video clips. Durable jobs, visible status/errors, editable results, idempotency, user quotas, and global spend reservations.
 - A general sous-chef one tap away on every screen, by text, live voice, or photo: it knows the recipe and cooking step on screen, finds recipes and cooks, manages cookbooks, the planner, groceries, pantry, reviews and profile diets, creates, edits, publishes and deletes recipes (consequential actions need a yes), and drives the app itself: opening recipes, cooking steps, timers, pages and language. See [sous-chef setup and architecture](docs/RECIPE-STUDIO.md).
 - Cloudflare Worker serving the web app with the Go API as a Container, R2 storage adapter, Cloudflare Email Service password resets, Neon-compatible migrations, Docker development database/object storage and API build, EAS build profiles, over-the-air app updates through EAS Update, and CI that deploys staging and ships the Android staging app from the `staging` branch.
+- Savorly in ChatGPT and Claude: one MCP server searches and shows recipes as cards for anyone, and with a linked account (OAuth 2.1, with Connected apps in My kitchen) saves recipes, plans meals and fills the grocery list. Cooking stays in Savorly: every recipe links to its cooking mode. See [assistants](docs/ASSISTANTS.md).
 - Recipe pages with link previews and schema.org data, a sitemap and `robots.txt`, links that open the iOS and Android apps, an installable web app (manifest and icons), privacy, terms and account-deletion pages, a report-only Content-Security-Policy, and optional Cloudflare Web Analytics. See [web pages and app links](docs/DEPLOYMENT.md#web-pages-and-app-links).
 
 Staging runs at [staging.savorly.cooking](https://staging.savorly.cooking) on Cloudflare and Neon, with paid plans off and unlimited free use for testers ([staging](docs/STAGING.md)). Production runs at [savorly.cooking](https://savorly.cooking), deployed from the `release` branch ([production](docs/PRODUCTION.md)). There is no app-store release yet; the remaining launch work is in [PRODUCTION.md](docs/PRODUCTION.md#before-a-public-launch).
@@ -123,6 +124,7 @@ The [verification record](docs/VERIFICATION.md) has the latest results and the r
 - [Cook-tested recipes: step timing, questions and privacy](docs/COOK-TESTED.md)
 - [Recipe fixes from cooks](docs/RECIPE-FIXES.md)
 - [Admin console and who can open it](docs/ADMIN.md)
+- [Savorly in ChatGPT and Claude](docs/ASSISTANTS.md)
 - [Push notifications](docs/NOTIFICATIONS.md)
 - [Sign in with Apple and Google](docs/SIGN-IN.md)
 - [Deployment and current launch limits](docs/DEPLOYMENT.md)

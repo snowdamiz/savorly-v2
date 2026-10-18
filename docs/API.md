@@ -33,6 +33,7 @@ Every route allows 300 requests a minute per visitor address ([deployment](DEPLO
 | Cook sessions and the creator fund | `POST /recipes/:id/cook-sessions`, `PATCH /cook-sessions/:id`, `GET /me/earnings`, `POST /me/payouts/onboarding`, `POST /payouts/webhook` (Stripe Connect only); see [cook sessions](#cook-sessions-and-the-creator-fund) |
 | Cook-tested recipes | `POST /cook-sessions/:id/events`, `GET /recipes/:id/insights`, `GET /recipes/:id/insights/author`, `PATCH /recipes/:id/insights/questions/:question`; see [cook-tested recipes](#cook-tested-recipes) |
 | Recipe fixes | `GET` or `POST /recipes/:id/suggestions`, `PUT` or `DELETE /suggestions/:id/vote`, `PATCH` or `DELETE /suggestions/:id`, `GET /recipes/:id/history`, `POST /recipes/:id/history/:version/undo`; see [recipe fixes](#recipe-fixes) |
+| Assistants | [`GET` or `POST /oauth/authorize`, `GET /me/connected-apps`, `DELETE /me/connected-apps/:id`](#assistants); the MCP server and its OAuth endpoints at the root, outside `/v1` |
 | Admin | `/admin/*` for admins only, the cook-along and founding creators included; see [admin console](ADMIN.md#api) |
 
 ## Usernames
@@ -65,7 +66,7 @@ When `TURNSTILE_SECRET_KEY` is set, `POST /auth/register` and `POST /auth/forgot
 
 `POST /me/email` takes `{ "email", "password" }` (or `{ "email", "provider", "token" }`), mails a six-digit code to the new address and answers `{ "ok": true, "email" }`; `POST /me/email/confirm` takes `{ "code" }` and answers like `GET /me` with the new, verified address. Registration mails a welcome with a 24-hour code: `POST /me/verify-email` takes `{ "code" }` and `POST /me/verify-email/resend` sends another. `GET /me` reports `emailVerified`. Codes last 15 minutes (24 hours for the welcome) and allow 5 tries; a wrong or expired code is `400`, a taken address `409`, a server without email `503`, and a failed delivery `502`. These routes work exactly when `/capabilities` reports `passwordRecovery`. With email configured, the account also gets a note when its password or email changes (to the old address), when a new device signs in, and when it is deleted.
 
-`GET /me/export` downloads everything the account holds as JSON (`Content-Disposition: attachment`): `profile`, `preferences`, `plan`, `connectedProviders`, `recipes` (drafts included, with their `equipment`), `reviews`, `cookbooks`, `saves`, `following`, `mealPlans`, `groceries`, `pantry`, `studioConversations[].messages` and `aiJobs`, then `cookSessions` (each with its `stepEvents`), `cookQuestions`, `recipeSuggestions`, `creatorEarnings`, `creatorPayouts` and `payoutAccount` ([creator fund](#cook-sessions-and-the-creator-fund), [cook-tested recipes](#cook-tested-recipes)); never password hashes, provider tokens or billing ids (Stripe customer, subscription, account or transfer ids). A native app, which can't add its bearer token to a browser download, calls `POST /me/export-link` for `{ "url": "/v1/export/<token>", "expiresAt" }` and opens the API's base URL plus `url`; the link works once, for 10 minutes.
+`GET /me/export` downloads everything the account holds as JSON (`Content-Disposition: attachment`): `profile`, `preferences`, `plan`, `connectedProviders`, `recipes` (drafts included, with their `equipment`), `reviews`, `cookbooks`, `saves`, `following`, `mealPlans`, `groceries`, `pantry`, `studioConversations[].messages` and `aiJobs`, then `cookSessions` (each with its `stepEvents`), `cookQuestions`, `connectedApps` ([assistants](#assistants)), `recipeSuggestions`, `creatorEarnings`, `creatorPayouts` and `payoutAccount` ([creator fund](#cook-sessions-and-the-creator-fund), [cook-tested recipes](#cook-tested-recipes)); never password hashes, provider tokens or billing ids (Stripe customer, subscription, account or transfer ids). A native app, which can't add its bearer token to a browser download, calls `POST /me/export-link` for `{ "url": "/v1/export/<token>", "expiresAt" }` and opens the API's base URL plus `url`; the link works once, for 10 minutes.
 
 `POST /client-errors` (no session needed, 30 a minute per visitor, up to 16 KB) takes `{ "message", "stack", "componentStack", "platform", "appVersion", "url", "release" }` from the app's error handlers, writes one line to the API's log and answers `204`.
 
@@ -296,6 +297,27 @@ A member can share their diets and allergies with their household (`PATCH /me/pr
 `PUT /me/push-token` takes `{ "token", "platform": "ios" | "android" }`, where `token` is the device's Expo push token (`ExponentPushToken[…]`), and answers `204`. The token belongs to the session that registered it: signing out, or the session ending or being revoked, stops that device's notifications, and a token registered by another account moves to it. A member keeps their ten most recently registered devices. `DELETE /me/push-token` takes `{ "token" }` and answers `204`.
 
 Notifications go to the author's followers when a recipe is first published, to a recipe's author for a new review or comment (never their own), to a member whose pantry items expire within two days (once per item, from a daily pass), to a member whose yearly plan renews within the week (once per renewal; an email goes too, whatever the switch says), and to every member once a week for the week's cook-along (never its author). Their text is in the recipient's `preferences.language`, and their `data` is `{ "type": "recipe", "recipeId" }`, `{ "type": "pantry" }` or, for a renewal, `{ "type": "plan" }`. Each kind has a switch in `preferences.notifications`. Sending, limits and setup: [push notifications](NOTIFICATIONS.md).
+
+## Assistants
+
+ChatGPT, Claude and other assistants reach Savorly through the MCP server at `POST /mcp` and link a
+member's account through Savorly's OAuth 2.1 endpoints, all at the site's root rather than under
+`/v1`: `/.well-known/oauth-protected-resource`, `/.well-known/oauth-authorization-server`,
+`POST /oauth/register`, `POST /oauth/token` and `POST /oauth/revoke`. Their requests, answers,
+tokens and limits are in [Savorly in ChatGPT and Claude](ASSISTANTS.md). Their access tokens only
+open `/mcp`; `/v1` takes sessions, as always.
+
+`GET /oauth/authorize?<an authorization request>` (no session needed) describes a request for the
+consent page: `{ "client": { "id", "name", "host", "verified" }, "redirectHost", "localhost",
+"scopes" }`, or `{ "redirect" }` when the request can only go back to the app with an OAuth error.
+An unknown app, a return address it didn't register, or a link that can't be read is `400` with a
+message to show. `POST /oauth/authorize` takes `{ "request": the same query, "approve" }` from the
+signed-in member and answers `{ "redirect" }`: the app's return address with a `code` (or
+`error=access_denied`), its `state` and `iss`.
+
+`GET /me/connected-apps` lists the member's links, newest first: `[{ "id", "name", "host",
+"verified", "scopes", "connectedAt", "lastUsedAt" }]`. `DELETE /me/connected-apps/:id` ends one at
+once (`204`), or is `404` when it's already gone.
 
 ## Analytics
 

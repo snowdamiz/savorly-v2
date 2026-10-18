@@ -14,9 +14,10 @@ import (
 // comments, cooked recipes, cookbook sharing, recipe sources, the household, signed-in and
 // notification devices (never their tokens) and the usage events kept for 90 days; cooking
 // sessions and creator earnings, payouts and payout account (never its Stripe id) came after, as
-// new keys, then each session's step events, the questions asked while cooking and the fixes
-// suggested to recipes. json, not jsonb, keeps keys in the order written. The password hash,
-// provider tokens and billing IDs stay out; studio conversations keep only their text.
+// new keys, then each session's step events, the questions asked while cooking, the assistants
+// linked to the account (never their tokens) and the fixes suggested to recipes. json, not jsonb,
+// keeps keys in the order written. The password hash, provider tokens and billing IDs stay out;
+// studio conversations keep only their text.
 const exportSQL = `SELECT json_build_object(
  'format','savorly-export','version',2,'exportedAt',now(),
  'profile',json_build_object('id',u.id,'name',u.name,'email',u.email,'emailVerified',u.email_verified,'handle',u.handle,'bio',u.bio,'avatar',u.avatar,
@@ -60,6 +61,8 @@ const exportSQL = `SELECT json_build_object(
    ORDER BY k.started_at) FROM cook_sessions k JOIN recipes r ON r.id=k.recipe_id WHERE k.user_id=u.id),'[]'),
  'cookQuestions',COALESCE((SELECT json_agg(json_build_object('recipeId',q.recipe_id,'recipeTitle',r.title,'step',q.step,'question',q.question,'askedAt',q.created_at) ORDER BY q.created_at)
    FROM cook_questions q JOIN recipes r ON r.id=q.recipe_id WHERE q.user_id=u.id),'[]'),
+ 'connectedApps',COALESCE((SELECT json_agg(json_build_object('app',c.name,'scopes',g.scopes,'linkedAt',g.created_at,'lastUsedAt',g.last_used_at) ORDER BY g.created_at)
+   FROM oauth_grants g JOIN oauth_clients c ON c.id=g.client_id WHERE g.user_id=u.id),'[]'),
  'recipeSuggestions',COALESCE((SELECT json_agg(json_build_object('recipeId',x.recipe_id,'recipeTitle',r.title,'kind',x.kind,'before',x.before,'after',x.after,'reason',x.reason,
    'status',x.status,'response',x.response,'createdAt',x.created_at,'decidedAt',x.decided_at) ORDER BY x.created_at) FROM recipe_suggestions x JOIN recipes r ON r.id=x.recipe_id WHERE x.user_id=u.id),'[]'),
  'creatorEarnings',COALESCE((SELECT json_agg(json_build_object('month',e.month,'amountCents',e.amount_cents,'cooks',e.cooks,'status',e.status,'paidAt',e.paid_at) ORDER BY e.month)

@@ -53,6 +53,20 @@ var publicRoutes = map[string]bool{
 	// says whether the viewer may suggest, agree or undo (recipe_fixes.go).
 	"GET /v1/recipes/:id/suggestions": true,
 	"GET /v1/recipes/:id/history":     true,
+
+	// Assistants (oauth_server.go, mcp.go): discovery, the OAuth endpoints, which check the app
+	// themselves, the consent page's description of a request while the member signs in, and
+	// /mcp, which takes an assistant's access token, never a session.
+	"GET /.well-known/oauth-protected-resource":     true,
+	"GET /.well-known/oauth-protected-resource/mcp": true,
+	"GET /.well-known/oauth-authorization-server":   true,
+	"POST /oauth/register":                          true,
+	"POST /oauth/token":                             true,
+	"POST /oauth/revoke":                            true,
+	"GET /v1/oauth/authorize":                       true,
+	"POST /mcp":                                     true,
+	"GET /mcp":                                      true,
+	"DELETE /mcp":                                   true,
 }
 
 // Rejections the middleware makes before a handler runs.

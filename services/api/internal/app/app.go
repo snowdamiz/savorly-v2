@@ -125,6 +125,8 @@ func NewWithContext(ctx context.Context, db *pgxpool.Pool, config Config) *fiber
 		}
 		return c.Next()
 	})
+	// The MCP server and its OAuth endpoints come first, with limits of their own (oauth_server.go).
+	a.assistantServer(f)
 	f.Use(rateLimit(300, time.Minute))
 	f.Get("/health", func(c fiber.Ctx) error {
 		ctx, cancel := context.WithTimeout(c.Context(), 2*time.Second)
@@ -244,5 +246,6 @@ func NewWithContext(ctx context.Context, db *pgxpool.Pool, config Config) *fiber
 	a.recipeFixRoutes(v)
 	a.cancellationRoutes(v)
 	a.growthRoutes(v)
+	a.assistantRoutes(v)
 	return f
 }
