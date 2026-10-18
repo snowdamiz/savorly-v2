@@ -19,12 +19,25 @@ if (!existsSync(bin('playwright'))) {
   process.exit(1);
 }
 
-const free = (port) =>
+const answers = (host, port) =>
+  new Promise((resolve) => {
+    const socket = net.connect({ host, port });
+    socket.once('connect', () => {
+      socket.destroy();
+      resolve(true);
+    });
+    socket.once('error', () => resolve(false));
+  });
+const listens = (port) =>
   new Promise((resolve) => {
     const server = net.createServer();
     server.once('error', () => resolve(false));
     server.listen(port, () => server.close(() => resolve(true)));
   });
+// macOS lets a server listen on every address while another holds the port on 127.0.0.1 alone,
+// so a free port also has nothing answering on either loopback address.
+const free = async (port) =>
+  !(await answers('127.0.0.1', port)) && !(await answers('::1', port)) && (await listens(port));
 // From 8090, clear of the API (8080), Expo (8081) and serve-dist (8082).
 let port = 8090;
 while (!(await free(port))) port++;
