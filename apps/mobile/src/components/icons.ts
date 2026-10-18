@@ -12,6 +12,7 @@ export { default as ArrowRight } from 'lucide-react-native/icons/arrow-right';
 export { default as ArrowUp } from 'lucide-react-native/icons/arrow-up';
 export { default as AtSign } from 'lucide-react-native/icons/at-sign';
 export { default as AudioLines } from 'lucide-react-native/icons/audio-lines';
+export { default as Award } from 'lucide-react-native/icons/award';
 export { default as BadgeCheck } from 'lucide-react-native/icons/badge-check';
 export { default as Ban } from 'lucide-react-native/icons/ban';
 export { default as Bell } from 'lucide-react-native/icons/bell';

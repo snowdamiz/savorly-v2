@@ -27,7 +27,7 @@ var memberJSON = `jsonb_build_object('id',u.id,'name',u.name,'email',u.email,'ha
  'emailVerified',u.email_verified,'onboarded',u.onboarded_at IS NOT NULL,'hasPassword',NOT starts_with(u.password_hash,'!'),'sample',u.password_hash='!disabled',
  'identities',COALESCE((SELECT jsonb_agg(provider ORDER BY provider) FROM identities WHERE user_id=u.id),'[]'),
  'admin',` + adminSQL(2, 3) + `,'owner',` + ownerSQL(2, 3) + `,'ownerEmail',u.email=ANY($2::text[]),
- 'suspendedAt',u.suspended_at,'suspendedReason',u.suspended_reason,
+ 'suspendedAt',u.suspended_at,'suspendedReason',u.suspended_reason,'foundingCreatorAt',u.founding_creator_at,
  'recipeCount',m.recipes,'publishedCount',m.published,'openReports',m.reports,'spend30d',round(m.spend::numeric,4),'lastSignInAt',m.seen)`
 
 var memberFilters = map[string]string{
@@ -37,6 +37,7 @@ var memberFilters = map[string]string{
 	"paid":       effectivePlanSQL + `<>'free'`,
 	"reported":   `m.reports>0`,
 	"samples":    `u.password_hash='!disabled'`,
+	"founding":   `u.founding_creator_at IS NOT NULL`,
 }
 var memberOrders = map[string]string{
 	"newest":  `u.created_at DESC`,

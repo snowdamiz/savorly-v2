@@ -999,9 +999,14 @@ export function RecipeDetail({
             {recipe.author.name}
           </Text>
           <Text numberOfLines={1} style={s.small}>
-            {recipe.author.followerCount
-              ? tr('followerCount', { count: recipe.author.followerCount })
-              : `@${recipe.author.handle}`}
+            {[
+              recipe.author.founding && tr('Founding creator'),
+              recipe.author.followerCount
+                ? tr('followerCount', { count: recipe.author.followerCount })
+                : `@${recipe.author.handle}`,
+            ]
+              .filter(Boolean)
+              .join(' · ')}
           </Text>
         </View>
       </Pressable>

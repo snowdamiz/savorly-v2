@@ -266,7 +266,12 @@ export const RecipeRow = memo(function RecipeRow({
             {recipe.title}
           </Text>
           <Text numberOfLines={1} style={[s.small, { fontFamily: font.medium }]}>
-            {tr('by {{v0}}', { v0: recipe.author.name })}
+            {[
+              tr('by {{v0}}', { v0: recipe.author.name }),
+              recipe.author.founding && tr('Founding creator'),
+            ]
+              .filter(Boolean)
+              .join(' · ')}
           </Text>
           <View style={[s.row, { gap: 6 }]}>
             <Clock3 size={12} color={color.muted} strokeWidth={2} />

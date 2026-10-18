@@ -24,10 +24,11 @@ var janitorTasks = []struct{ name, sql string }{
  AND NOT EXISTS(SELECT 1 FROM voice_assets v WHERE v.job_id=j.id) LIMIT 500)`},
 	{"narration_usage", `DELETE FROM narration_usage WHERE id IN (SELECT id FROM narration_usage WHERE created_at<now()-interval '35 days' LIMIT 500)`},
 	{"ai_usage", `DELETE FROM ai_usage WHERE id IN (SELECT id FROM ai_usage WHERE created_at<now()-interval '35 days' LIMIT 500)`},
-	// Cooking sessions that didn't become verified cooks count for nothing once their day is over,
-	// except toward recipes' insights (cook_insights.go): those with step events stay for the
-	// insights window, since where cooks stop is part of what a recipe shows its author.
-	{"cook_sessions", `DELETE FROM cook_sessions WHERE id IN (SELECT id FROM cook_sessions WHERE NOT verified AND started_at<now()-interval '2 days'
+	// Cooking sessions that didn't become verified cooks count only toward the console's 30-day
+	// finish rate and who started the week's cook-along (metrics.go, cook_along.go), and toward
+	// recipes' insights (cook_insights.go): those with step events stay for the insights window,
+	// since where cooks stop is part of what a recipe shows its author.
+	{"cook_sessions", `DELETE FROM cook_sessions WHERE id IN (SELECT id FROM cook_sessions WHERE NOT verified AND started_at<now()-interval '35 days'
  AND (events=0 OR started_at<now()-interval '180 days') LIMIT 500)`},
 	// Step events of verified cooks outlive the window too; the cooks themselves stay.
 	{"cook_step_events", `DELETE FROM cook_step_events WHERE (session_id,seq) IN (SELECT session_id,seq FROM cook_step_events WHERE created_at<now()-interval '180 days' LIMIT 500)`},

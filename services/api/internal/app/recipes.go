@@ -19,8 +19,9 @@ import (
 // index lookups, like the reviews and saves ones. derivedFrom names the original only while
 // it's public, so a variation never shows the title of a draft, its own author's included.
 // cookedMinutes, the real cook time (cook_sessions.go), is kept up to date in recipe_cook_times
-// and shows once 3 verified cooks agree; null until then. jsonb_build_object takes at most 100
-// arguments, two a field: this one has 33 fields.
+// and shows once 3 verified cooks agree; null until then. author.founding marks a founding
+// creator (founding.go). jsonb_build_object takes at most 100 arguments, two a field: this one
+// has 33 fields.
 const recipeJSON = `jsonb_build_object(
  'id',r.id,'title',r.title,'description',r.description,'cuisine',r.cuisine,
  'minutes',r.minutes,'servings',r.servings,'difficulty',r.difficulty,'image',r.image,'photos',r.photos,'video',r.video,
@@ -39,7 +40,7 @@ const recipeJSON = `jsonb_build_object(
  'verifiedCooks',COALESCE((SELECT t.cooks FROM recipe_cook_times t WHERE t.recipe_id=r.id),0),
  'cookedMinutes',(SELECT t.minutes FROM recipe_cook_times t WHERE t.recipe_id=r.id AND t.cooks>=3),
  'improvedBy',(SELECT count(DISTINCT s.user_id) FROM recipe_suggestions s WHERE s.recipe_id=r.id AND s.status='accepted'),
- 'author',jsonb_build_object('id',u.id,'name',u.name,'handle',u.handle,'avatar',u.avatar,'bio',u.bio))`
+ 'author',jsonb_build_object('id',u.id,'name',u.name,'handle',u.handle,'avatar',u.avatar,'bio',u.bio,'founding',u.founding_creator_at IS NOT NULL))`
 
 // Suspended members' recipes leave every public and sous-chef view; admin views join directly.
 const recipeFrom = ` FROM recipes r JOIN users u ON u.id=r.author_id AND u.suspended_at IS NULL `
@@ -244,7 +245,7 @@ func (a *App) deleteOwned(c fiber.Ctx, table, column string) error {
 	return c.SendStatus(204)
 }
 
-const creatorJSON = `jsonb_build_object('id',u.id,'name',u.name,'handle',u.handle,'bio',u.bio,'avatar',u.avatar,'recipeCount',(SELECT count(*) FROM recipes WHERE author_id=u.id AND published),'followerCount',(SELECT count(*) FROM follows WHERE creator_id=u.id))`
+const creatorJSON = `jsonb_build_object('id',u.id,'name',u.name,'handle',u.handle,'bio',u.bio,'avatar',u.avatar,'founding',u.founding_creator_at IS NOT NULL,'recipeCount',(SELECT count(*) FROM recipes WHERE author_id=u.id AND published),'followerCount',(SELECT count(*) FROM follows WHERE creator_id=u.id))`
 
 func (a *App) creators(c fiber.Ctx) error {
 	limit, offset := pageParams(c, 40, 100)

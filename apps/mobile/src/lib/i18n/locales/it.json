@@ -1878,5 +1878,16 @@
   "Renews {{date}} at {{price}} a month.": "Si rinnova il {{date}} a {{price}} al mese.",
   "Changed your mind? Get the full {{amount}} back until {{date}}.": "Hai cambiato idea? Riavi tutti i {{amount}} fino al {{date}}.",
   "Changed your mind? Get this year’s payment back in full until {{date}}.": "Hai cambiato idea? Riavi per intero il pagamento di quest’anno fino al {{date}}.",
-  "Used up · more from {{date}}": "Esaurito · di nuovo dal {{date}}"
+  "Used up · more from {{date}}": "Esaurito · di nuovo dal {{date}}",
+  "Founding creator": "Creator fondatore",
+  "This week’s cook-along": "Cuciniamo insieme questa settimana",
+  "Be the first to cook it this week.": "Nessuno l’ha ancora cucinata questa settimana. Inizia tu!",
+  "Weekly cook-along": "Cucina insieme ogni settimana",
+  "When the week’s cook-along recipe is announced": "Quando viene annunciata la ricetta della settimana da cucinare insieme",
+  "Your first payout can go out from {{date}}, once members’ payments have cleared.": "Il tuo primo pagamento può partire dal {{date}}, quando i pagamenti dei membri sono confermati.",
+  "cookingAlong": "{{count}} persone la stanno cucinando questa settimana",
+  "cookingAlong_one": "{{count}} persona la sta cucinando questa settimana",
+  "cookingAlong_few": "{{count}} persone la stanno cucinando questa settimana",
+  "cookingAlong_many": "{{count}} persone la stanno cucinando questa settimana",
+  "cookingAlong_other": "{{count}} persone la stanno cucinando questa settimana"
 }

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Text, View } from 'react-native';
 import {
+  Award,
   Ban,
   Crown,
   LogOut,
@@ -49,6 +50,7 @@ const filters = [
   { value: 'paid', label: 'Paid plans' },
   { value: 'reported', label: 'Reported' },
   { value: 'samples', label: 'Sample cooks' },
+  { value: 'founding', label: 'Founding creators' },
 ] as const;
 const sorts = [
   { value: 'newest', label: 'Newest' },
@@ -67,6 +69,7 @@ export function MemberBadges({ m }: { m: AdminMember }) {
       {m.admin && !m.owner && <Badge title="Admin" tone="dark" icon={ShieldCheck} />}
       {m.suspendedAt && <Badge title="Suspended" tone="error" icon={Ban} />}
       {m.sample && <Badge title="Sample" />}
+      {!!m.foundingCreatorAt && <Badge title="Founding creator" tone="dark" icon={Award} />}
       {!m.emailVerified && !m.sample && <Badge title="Unverified" tone="warning" />}
       {m.plan !== 'free' && (
         <Badge title={`${planNames[m.plan]}${m.comped ? ' · comp' : ''}`} tone="success" />
@@ -128,7 +131,8 @@ export function Members() {
   );
 }
 
-type Pending = 'suspend' | 'unsuspend' | 'signout' | 'verify' | 'admin' | 'setup' | 'delete' | null;
+type Pending =
+  'suspend' | 'unsuspend' | 'signout' | 'verify' | 'admin' | 'setup' | 'founding' | 'delete' | null;
 
 export function MemberDialog({ id, onClose }: { id: string; onClose: () => void }) {
   const app = useApp();
@@ -475,6 +479,15 @@ export function MemberDialog({ id, onClose }: { id: string; onClose: () => void 
                       />
                     )}
                     <Button
+                      title={
+                        m.foundingCreatorAt ? 'Remove founding creator' : 'Make founding creator'
+                      }
+                      icon={Award}
+                      variant="secondary"
+                      small
+                      onPress={() => setConfirm('founding')}
+                    />
+                    <Button
                       title="Sign out everywhere"
                       icon={LogOut}
                       variant="secondary"
@@ -606,6 +619,36 @@ export function MemberDialog({ id, onClose }: { id: string; onClose: () => void 
                     await app.refreshUser();
                   }
                 })
+            }
+            onClose={() => setConfirm(null)}
+          />
+          <Confirm
+            visible={confirm === 'founding'}
+            title={
+              m.foundingCreatorAt
+                ? `Remove ${m.name} as a founding creator?`
+                : `Make ${m.name} a founding creator?`
+            }
+            text={
+              m.foundingCreatorAt
+                ? 'The “Founding creator” mark leaves their profile and recipes, and they leave the cook-along’s rotation. Weeks already scheduled stay as they are.'
+                : 'Their profile and recipes say “Founding creator”, and they join the cook-along’s rotation: a week nobody schedules can go to their most saved recipe.'
+            }
+            action={m.foundingCreatorAt ? 'Remove the mark' : 'Make founding creator'}
+            busy={action.busy === 'founding'}
+            result={action.result}
+            onConfirm={() =>
+              void done(
+                'founding',
+                () =>
+                  api(`${path}/founding`, {
+                    method: 'PUT',
+                    body: { founding: !m.foundingCreatorAt },
+                  }),
+                m.foundingCreatorAt
+                  ? `${m.name} is no longer a founding creator.`
+                  : `${m.name} is a founding creator.`,
+              )
             }
             onClose={() => setConfirm(null)}
           />

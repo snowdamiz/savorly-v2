@@ -16,6 +16,8 @@ export type Creator = {
   avatar: string;
   recipeCount?: number;
   followerCount?: number;
+  /** One of the founding creators Savorly marks. Missing on older servers. */
+  founding?: boolean;
 };
 export type RecipeInput = {
   title: string;
@@ -118,6 +120,8 @@ export type NotificationPreferences = {
   comments: boolean;
   /** A week before a yearly plan renews. Older servers leave it out. */
   renewals?: boolean;
+  /** The week's cook-along. Missing on older servers. */
+  cookAlong?: boolean;
 };
 export type Preferences = {
   diets: string[];

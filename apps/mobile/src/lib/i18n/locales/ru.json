@@ -1878,5 +1878,16 @@
   "Renews {{date}} at {{price}} a month.": "Продлится {{date}} за {{price}} в месяц.",
   "Changed your mind? Get the full {{amount}} back until {{date}}.": "Передумали? До {{date}} можно вернуть все {{amount}}.",
   "Changed your mind? Get this year’s payment back in full until {{date}}.": "Передумали? До {{date}} можно полностью вернуть оплату за этот год.",
-  "Used up · more from {{date}}": "Исчерпано · снова с {{date}}"
+  "Used up · more from {{date}}": "Исчерпано · снова с {{date}}",
+  "Founding creator": "Автор-основатель",
+  "This week’s cook-along": "Готовим вместе на этой неделе",
+  "Be the first to cook it this week.": "На этой неделе это блюдо ещё никто не готовил. Начните вы!",
+  "Weekly cook-along": "Готовим вместе каждую неделю",
+  "When the week’s cook-along recipe is announced": "Когда объявлен рецепт недели, который готовим вместе",
+  "Your first payout can go out from {{date}}, once members’ payments have cleared.": "Первая выплата возможна с {{date}}, когда платежи участников будут подтверждены.",
+  "cookingAlong": "{{count}} человека готовят это блюдо на этой неделе",
+  "cookingAlong_one": "{{count}} человек готовит это блюдо на этой неделе",
+  "cookingAlong_few": "{{count}} человека готовят это блюдо на этой неделе",
+  "cookingAlong_many": "{{count}} человек готовят это блюдо на этой неделе",
+  "cookingAlong_other": "{{count}} человека готовят это блюдо на этой неделе"
 }

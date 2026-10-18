@@ -1878,5 +1878,16 @@
   "Renews {{date}} at {{price}} a month.": "将于 {{date}} 以每月 {{price}} 续订。",
   "Changed your mind? Get the full {{amount}} back until {{date}}.": "改变主意了？{{date}} 前可全额退回 {{amount}}。",
   "Changed your mind? Get this year’s payment back in full until {{date}}.": "改变主意了？{{date}} 前可全额退回今年的付款。",
-  "Used up · more from {{date}}": "已用完 · {{date}} 起恢复"
+  "Used up · more from {{date}}": "已用完 · {{date}} 起恢复",
+  "Founding creator": "创始创作者",
+  "This week’s cook-along": "本周一起做",
+  "Be the first to cook it this week.": "本周还没有人做过，来做第一个吧。",
+  "Weekly cook-along": "每周一起做",
+  "When the week’s cook-along recipe is announced": "本周一起做的食谱公布时",
+  "Your first payout can go out from {{date}}, once members’ payments have cleared.": "首次付款最早可在 {{date}} 发出，届时会员的付款已经确认。",
+  "cookingAlong": "本周有 {{count}} 人在做",
+  "cookingAlong_one": "本周有 {{count}} 人在做",
+  "cookingAlong_few": "本周有 {{count}} 人在做",
+  "cookingAlong_many": "本周有 {{count}} 人在做",
+  "cookingAlong_other": "本周有 {{count}} 人在做"
 }

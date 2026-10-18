@@ -1878,5 +1878,16 @@
   "Renews {{date}} at {{price}} a month.": "{{date}}に月額{{price}}で更新されます。",
   "Changed your mind? Get the full {{amount}} back until {{date}}.": "気が変わりましたか？{{date}}までなら{{amount}}を全額返金できます。",
   "Changed your mind? Get this year’s payment back in full until {{date}}.": "気が変わりましたか？{{date}}までなら今年分のお支払いを全額返金できます。",
-  "Used up · more from {{date}}": "上限に達しました・{{date}}から再開"
+  "Used up · more from {{date}}": "上限に達しました・{{date}}から再開",
+  "Founding creator": "創設クリエイター",
+  "This week’s cook-along": "今週のみんなで作るレシピ",
+  "Be the first to cook it this week.": "今週はまだ誰も作っていません。最初に作ってみましょう。",
+  "Weekly cook-along": "毎週のみんなで作るレシピ",
+  "When the week’s cook-along recipe is announced": "今週みんなで作るレシピが発表されたとき",
+  "Your first payout can go out from {{date}}, once members’ payments have cleared.": "初回の支払いは、会員の支払いが確定した後、{{date}}以降に行われます。",
+  "cookingAlong": "今週{{count}}人が作っています",
+  "cookingAlong_one": "今週{{count}}人が作っています",
+  "cookingAlong_few": "今週{{count}}人が作っています",
+  "cookingAlong_many": "今週{{count}}人が作っています",
+  "cookingAlong_other": "今週{{count}}人が作っています"
 }

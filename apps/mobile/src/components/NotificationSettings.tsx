@@ -24,6 +24,7 @@ const everything: NotificationPreferences = {
   reviews: true,
   comments: true,
   renewals: true,
+  cookAlong: true,
 };
 
 /** A setting that is on or off: the whole row is the switch. */
@@ -152,6 +153,11 @@ export function NotificationSettings() {
       kind: 'follows',
       title: t('New recipes'),
       text: t('When a cook you follow shares a recipe'),
+    },
+    {
+      kind: 'cookAlong',
+      title: t('Weekly cook-along'),
+      text: t('When the week’s cook-along recipe is announced'),
     },
     {
       kind: 'pantry',

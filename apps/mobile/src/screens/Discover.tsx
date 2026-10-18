@@ -159,6 +159,7 @@ export function Discover({
   const shelfSize = compact ? 6 : width > 1430 ? 4 : 3;
   const { feed, library } = app;
   const {
+    cookAlong,
     hero,
     trending,
     quick: weeknight,
@@ -172,6 +173,8 @@ export function Discover({
       }),
     [feed, recipes, user, library.followingIds, shelfSize],
   );
+  // Everyone who finished the cook-along started it too, unless they started late last Sunday.
+  const cooking = cookAlong ? Math.max(cookAlong.started, cookAlong.cooks) : 0;
   const hello = `${tr(greeting())}${user ? `, ${user.name.split(' ')[0]}` : ''}`;
   const reset = () => {
     setCategory('All recipes');
@@ -424,6 +427,21 @@ export function Discover({
             {hero && (
               <FadeIn>
                 <Hero recipe={hero} onOpen={onOpen} />
+              </FadeIn>
+            )}
+            {cookAlong && (
+              <FadeIn delay={45}>
+                <SectionTitle
+                  title={tr('This week’s cook-along')}
+                  subtitle={
+                    cooking > 0
+                      ? tr('cookingAlong', { count: cooking })
+                      : tr('Be the first to cook it this week.')
+                  }
+                />
+                <View style={desktop && { maxWidth: 620 }}>
+                  <RecipeRow recipe={cookAlong.recipe} onOpen={onOpen} />
+                </View>
               </FadeIn>
             )}
             <FadeIn delay={90}>

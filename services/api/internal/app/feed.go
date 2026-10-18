@@ -46,7 +46,8 @@ SELECT jsonb_build_object(
  'following',COALESCE((SELECT jsonb_agg(` + recipeJSON + ` ORDER BY x.n) FROM following x JOIN recipes r ON r.id=x.id JOIN users u ON u.id=r.author_id),'[]'),
  'newest',COALESCE((SELECT jsonb_agg(` + recipeJSON + ` ORDER BY x.n) FROM newest x JOIN recipes r ON r.id=x.id JOIN users u ON u.id=r.author_id),'[]'))`
 
+// feed answers the shelves with this week's cook-along (cook_along.go), or null.
 func (a *App) feed(c fiber.Ctx) error {
 	limit, _ := pageParams(c, 12, 24)
-	return a.queryOne(c, feedSQL, hashToken(token(c)), limit)
+	return a.queryOne(c, `SELECT (`+feedSQL+`)||jsonb_build_object('cookAlong',`+cookAlongJSON+`)`, hashToken(token(c)), limit)
 }

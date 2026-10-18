@@ -11,6 +11,7 @@ import { MemberDialog, Members } from './Members';
 import { Reports, Reviews } from './Moderation';
 import { JobDialog, Operations, TurnDialog } from './Operations';
 import { Overview } from './Overview';
+import { Cooking } from './Cooking';
 import { Filters, Nav, AdminNav } from './parts';
 import { RecipeDialog, Recipes } from './Recipes';
 import { Audit, Settings } from './Settings';
@@ -22,6 +23,7 @@ export { AdminPending };
 
 const sections: { value: AdminSection; label: string }[] = [
   { value: 'overview', label: 'Overview' },
+  { value: 'cooking', label: 'Cooking' },
   { value: 'reports', label: 'Reports' },
   { value: 'members', label: 'Members' },
   { value: 'recipes', label: 'Recipes' },
@@ -126,6 +128,7 @@ export function Admin({ onOpen }: { onOpen: (r: Recipe) => void }) {
         />
         <View>
           {section === 'overview' && <Overview />}
+          {section === 'cooking' && <Cooking />}
           {section === 'reports' && <Reports />}
           {section === 'members' && <Members />}
           {section === 'recipes' && <Recipes />}

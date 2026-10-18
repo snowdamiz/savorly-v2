@@ -2,7 +2,15 @@
 import { AIJob, AIKind, PlanID, Recipe } from './types';
 
 export type AdminSection =
-  'overview' | 'reports' | 'members' | 'recipes' | 'reviews' | 'ai' | 'settings' | 'audit';
+  | 'overview'
+  | 'cooking'
+  | 'reports'
+  | 'members'
+  | 'recipes'
+  | 'reviews'
+  | 'ai'
+  | 'settings'
+  | 'audit';
 export type Paged<T> = { items: T[]; total: number; offset: number; limit: number };
 
 export type AdminSettings = {
@@ -144,6 +152,8 @@ export type AdminMember = {
   ownerEmail: boolean;
   suspendedAt: string | null;
   suspendedReason: string;
+  /** When an admin marked them a founding creator; null otherwise. Missing from older APIs. */
+  foundingCreatorAt?: string | null;
   recipeCount: number;
   publishedCount: number;
   openReports: number;
@@ -355,4 +365,89 @@ export type AdminAI = {
   assistant: { turns: number; failed: number; spend: number };
   narration: { clips: number; spend: number };
   voiceTotals: { sessions: number; minutes: number };
+};
+
+/** A week of the cook-along (GET /admin/cook-alongs). Weeks are Mondays, YYYY-MM-DD, in UTC. */
+export type CookAlongWeek = {
+  week: string;
+  updatedAt: string;
+  /** The rotation picked it because no admin scheduled the week. */
+  automatic: boolean;
+  /** The admin who scheduled it, by email; null for the rotation. */
+  scheduledBy: string | null;
+  /** Whose turn it was. */
+  creator: { id: string; name: string; email: string } | null;
+  /** Null once the recipe is deleted. */
+  recipe: {
+    id: string;
+    title: string;
+    image: string;
+    published: boolean;
+    author: { id: string; name: string; email: string; suspended: boolean; founding: boolean };
+  } | null;
+  /** Verified cooks of the recipe that week, and members who started cooking it. */
+  cooks: number;
+  started: number;
+};
+/** A founding creator in the cook-along's rotation, with the recipes it offers for their turn. */
+export type RotationCreator = {
+  id: string;
+  name: string;
+  email: string;
+  avatar: string;
+  foundingAt: string;
+  /** Their latest week, scheduled ahead or past; null if never featured. */
+  lastWeek: string | null;
+  recipes: {
+    id: string;
+    title: string;
+    image: string;
+    saveCount: number;
+    featuredWeek: string | null;
+  }[];
+};
+export type CookAlongs = {
+  /** This week's Monday. */
+  week: string;
+  /** The last week whose cook-along was announced. */
+  announcedWeek: string | null;
+  weeks: CookAlongWeek[];
+  rotation: RotationCreator[];
+  /** Whose turn the next open week is. */
+  next: string | null;
+};
+/** GET /admin/cooking: how we'll know the cooking flywheel works (admin_metrics.go). */
+export type CookingMetrics = {
+  cooksPerActive: { cooks: number; active: number };
+  finishRate: { started: number; finished: number };
+  payingCooked: { month: string; paying: number; cooked: number };
+  /** The last closed month; month is null before any has closed. */
+  creatorsOver25: { month: string | null; creators: number };
+  retention: { cohort: number; retained: number; recordedSince: string | null };
+  aiCost: {
+    members: number;
+    spend: number;
+    perMember: number | null;
+    shareOfCap: number | null;
+  };
+  /** Published recipes that are cook-tested, and those on their way (docs/COOK-TESTED.md). */
+  cookTested?: { recipes: number; early: number };
+  /** Cooks' suggestions in 90 days and how many were accepted (docs/RECIPE-FIXES.md). */
+  fixes?: { suggested: number; accepted: number };
+};
+type Named = { id: string; name: string; email: string };
+/** GET /admin/fund/weeks: the creator fund's weekly report, newest first. */
+export type FundWeeks = {
+  weeks: {
+    week: string;
+    current: boolean;
+    cooks: number;
+    payingMembers: number;
+    poolCents: number;
+    top: (Named & { cooks: number })[];
+    flaggedMembers: number;
+    flaggedCreators: Named[];
+  }[];
+  threshold: number;
+  sharePercent: number;
 };

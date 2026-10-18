@@ -1878,5 +1878,16 @@
   "Renews {{date}} at {{price}} a month.": "Renews {{date}} at {{price}} a month.",
   "Changed your mind? Get the full {{amount}} back until {{date}}.": "Changed your mind? Get the full {{amount}} back until {{date}}.",
   "Changed your mind? Get this year’s payment back in full until {{date}}.": "Changed your mind? Get this year’s payment back in full until {{date}}.",
-  "Used up · more from {{date}}": "Used up · more from {{date}}"
+  "Used up · more from {{date}}": "Used up · more from {{date}}",
+  "Founding creator": "Founding creator",
+  "This week’s cook-along": "This week’s cook-along",
+  "Be the first to cook it this week.": "Be the first to cook it this week.",
+  "Weekly cook-along": "Weekly cook-along",
+  "When the week’s cook-along recipe is announced": "When the week’s cook-along recipe is announced",
+  "Your first payout can go out from {{date}}, once members’ payments have cleared.": "Your first payout can go out from {{date}}, once members’ payments have cleared.",
+  "cookingAlong": "{{count}} people are cooking it this week",
+  "cookingAlong_one": "{{count}} person is cooking it this week",
+  "cookingAlong_few": "{{count}} people are cooking it this week",
+  "cookingAlong_many": "{{count}} people are cooking it this week",
+  "cookingAlong_other": "{{count}} people are cooking it this week"
 }

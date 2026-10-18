@@ -525,13 +525,13 @@ func TestCookTestedFilterAndInsightsRetention(t *testing.T) {
 		t.Fatal("the feed's boost doesn't use the cook-tested threshold")
 	}
 
-	// An unfinished session with step events outlives the two days others get; one without
-	// doesn't, and both go after the window.
+	// An unfinished session with step events outlives the 35 days others get (for the console's
+	// finish rate); one without doesn't, and both go after the window.
 	stepped := cookThrough(t, f, db, cook, early, []int{60, 300}, false)
 	out := expect(t, f, 201, "POST", "/v1/recipes/"+early+"/cook-sessions", cook, nil)
 	bare, _ := out["id"].(string)
 	recordCookQuestion(ctx, db, cookID, early, 1, "how fine do I chop it", "hands_free")
-	if _, e := db.Exec(ctx, `UPDATE cook_sessions SET started_at=now()-interval '3 days' WHERE id IN ($1,$2)`, stepped, bare); e != nil {
+	if _, e := db.Exec(ctx, `UPDATE cook_sessions SET started_at=now()-interval '36 days' WHERE id IN ($1,$2)`, stepped, bare); e != nil {
 		t.Fatal(e)
 	}
 	if _, e := runJanitor(ctx, db); e != nil {
@@ -546,7 +546,7 @@ func TestCookTestedFilterAndInsightsRetention(t *testing.T) {
 		}
 	}
 	if count(); sessions != 1 || events != 3 || questions != 1 {
-		t.Fatalf("after 3 days: %d sessions, %d events, %d questions", sessions, events, questions)
+		t.Fatalf("after 36 days: %d sessions, %d events, %d questions", sessions, events, questions)
 	}
 	if _, e := db.Exec(ctx, `UPDATE cook_sessions SET started_at=now()-interval '181 days' WHERE id=$1;`, stepped); e != nil {
 		t.Fatal(e)

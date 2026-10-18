@@ -1,5 +1,12 @@
 import type { Recipe } from './types';
 
+/**
+ * The week's cook-along (docs/CREATOR-FUND.md): one recipe for everyone to cook this week, Monday
+ * to Sunday in UTC. `started` is how many members started cooking it this week, `cooks` their
+ * verified cooks.
+ */
+export type CookAlong = { week: string; recipe: Recipe; cooks: number; started: number };
+
 /** GET /feed: the home's shelves, ranked by the server. */
 export type Feed = {
   hero: Recipe | null;
@@ -7,6 +14,8 @@ export type Feed = {
   quick: Recipe[];
   following: Recipe[];
   newest: Recipe[];
+  /** Null when there's none this week; missing from older servers and saved feeds. */
+  cookAlong?: CookAlong | null;
 };
 
 const isRecipe = (value: unknown): value is Recipe =>
@@ -15,6 +24,15 @@ const isRecipe = (value: unknown): value is Recipe =>
   typeof (value as Recipe).id === 'string' &&
   typeof (value as Recipe).title === 'string';
 const recipes = (value: unknown) => (Array.isArray(value) ? value.filter(isRecipe) : []);
+const count = (value: unknown) =>
+  typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
+
+function parseCookAlong(value: unknown): CookAlong | null {
+  if (!value || typeof value !== 'object') return null;
+  const v = value as Record<string, unknown>;
+  if (!isRecipe(v.recipe) || typeof v.week !== 'string') return null;
+  return { week: v.week, recipe: v.recipe, cooks: count(v.cooks), started: count(v.started) };
+}
 
 /** The feed in an answer, or null when it isn't one (anything but the shape GET /feed sends). */
 export function parseFeed(value: unknown): Feed | null {
@@ -27,11 +45,13 @@ export function parseFeed(value: unknown): Feed | null {
     quick: recipes(v.quick),
     following: recipes(v.following),
     newest: recipes(v.newest),
+    cookAlong: parseCookAlong(v.cookAlong),
   };
 }
 
 /** What the home shows. Each recipe is on screen once: no shelf repeats an earlier one's. */
 export type Shelves = {
+  cookAlong: CookAlong | null;
   hero: Recipe | undefined;
   trending: Recipe[];
   quick: Recipe[];
@@ -61,12 +81,16 @@ export function homeShelves(
     }
     return picked;
   };
+  // The cook-along has its own card, so the hero is something else.
+  const cookAlong = feed?.cookAlong ?? null;
+  if (cookAlong) shown.add(cookAlong.recipe.id);
   const hero = feed
-    ? (feed.hero ?? feed.trending[0] ?? feed.newest[0])
+    ? [feed.hero, ...feed.trending, ...feed.newest].find((r) => r && !shown.has(r.id)) || undefined
     : (all.find((r) => r.id === 'lemon-ricotta-pasta') ?? all[0]);
   if (hero) shown.add(hero.id);
   if (feed)
     return {
+      cookAlong,
       hero,
       trending: take(feed.trending, counts.trending),
       quick: take(feed.quick, counts.quick),
@@ -77,6 +101,7 @@ export function homeShelves(
       ),
     };
   return {
+    cookAlong,
     hero,
     trending: take(
       [...all].sort((a, b) => b.saveCount - a.saveCount || b.rating - a.rating),
