@@ -240,5 +240,6 @@ func NewWithContext(ctx context.Context, db *pgxpool.Pool, config Config) *fiber
 	a.handsFreeRoutes(v)
 	a.groceryCheckoutRoutes(v)
 	a.equipmentRoutes(v)
+	a.cookInsightRoutes(v)
 	return f
 }

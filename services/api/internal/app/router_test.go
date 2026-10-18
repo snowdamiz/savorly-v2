@@ -44,6 +44,10 @@ var publicRoutes = map[string]bool{
 
 	// Guests read the translations members made; making one needs a session (translations.go).
 	"GET /v1/recipes/:id/translation": true,
+
+	// What cooks found cooking a recipe, from enough of them that nobody's own shows; a session
+	// only lets its author read a private one (cook_insights.go).
+	"GET /v1/recipes/:id/insights": true,
 }
 
 // Rejections the middleware makes before a handler runs.

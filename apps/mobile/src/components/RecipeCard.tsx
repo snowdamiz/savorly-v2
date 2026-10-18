@@ -2,7 +2,8 @@ import { useI18n } from '../lib/i18n';
 import React, { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Bookmark, Clock3, Play, Sparkles, Star } from './icons';
+import { BadgeCheck, Bookmark, Clock3, Play, Sparkles, Star } from './icons';
+import { cookTested } from '../lib/cookInsights';
 import { Recipe } from '../lib/types';
 import { foodIcon } from '../lib/icons';
 import { haptic } from '../lib/haptics';
@@ -84,10 +85,13 @@ function useConflicts(recipe: Recipe) {
 function Badge({ recipe }: { recipe: Recipe }) {
   const { t: tr } = useI18n();
   const rating = useRating(recipe);
-  // Something the reader avoids comes before anything else the card could say.
+  // Something the reader avoids comes before anything else the card could say, and then that
+  // cooks have really made it (docs/COOK-TESTED.md).
   const conflicts = useConflicts(recipe);
   return conflicts.length ? (
     <AvoidPill conflicts={conflicts} />
+  ) : cookTested(recipe) ? (
+    <Pill title={tr('Cook-tested')} icon={BadgeCheck} tone="dark" />
   ) : recipe.rating > 0 ? (
     <View accessible accessibilityRole={web ? 'image' : 'text'} accessibilityLabel={rating.label}>
       <Pill title={rating.text} icon={Star} fill />
@@ -278,6 +282,16 @@ export const RecipeRow = memo(function RecipeRow({
               >
                 <Star size={12} color={color.ink} fill={color.ink} />
                 <Text style={[s.small, { color: color.ink }]}>{rating.text}</Text>
+              </View>
+            )}
+            {cookTested(recipe) && (
+              <View
+                accessible
+                accessibilityRole={web ? 'image' : 'text'}
+                accessibilityLabel={tr('Cook-tested')}
+                style={{ marginLeft: 4 }}
+              >
+                <BadgeCheck size={13} color={color.success} strokeWidth={2.2} />
               </View>
             )}
           </View>

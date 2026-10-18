@@ -267,6 +267,13 @@ func (a *App) studioMessage(c fiber.Ctx) error {
 	if e = tx.QueryRow(ctx, `INSERT INTO voice_events(project_id,session_id,event_id,role,content,images) VALUES($1,$2,$3,'user',$4,$5) RETURNING seq`, project, session, key, in.Text, normalizedJSON(in.Images)).Scan(&seq); e != nil {
 		return e
 	}
+	// A question asked in cooking mode joins the ones cooks ask at that step (cook_insights.go).
+	var cooking studioView
+	if in.Answer == "" && len(in.Images) == 0 && validText(in.Text, 2, 300) {
+		if e = tx.QueryRow(ctx, `SELECT context FROM voice_projects WHERE id=$1`, project).Scan(&cooking); e != nil {
+			return e
+		}
+	}
 	if e = a.enqueueVoiceAction(ctx, tx, owner, project, session, key, seq); e != nil {
 		return e
 	}
@@ -280,6 +287,10 @@ func (a *App) studioMessage(c fiber.Ctx) error {
 	}
 	if e = tx.Commit(ctx); e != nil {
 		return e
+	}
+	// Kept once the message is, so a question that can't be kept never fails it.
+	if cooking.RecipeID != "" && cooking.CookingStep > 0 {
+		recordCookQuestion(ctx, a.DB, owner, cooking.RecipeID, cooking.CookingStep, in.Text, "sous_chef")
 	}
 	a.wake("studio")
 	return c.Status(202).JSON(fiber.Map{"accepted": true})
@@ -820,6 +831,13 @@ func (a *App) agentInput(ctx context.Context, state studioState) (any, error) {
 			screen["openRecipe"] = r
 			if view.CookingStep > 0 {
 				screen["cookingStep"] = view.CookingStep
+				// What other cooks found at this step: how long it really took, what they ask.
+				var steps []Step
+				if raw, e := json.Marshal(r["steps"]); e == nil && json.Unmarshal(raw, &steps) == nil {
+					if line := stepInsightsFor(ctx, a.DB, view.RecipeID, steps)[view.CookingStep-1]; line != "" {
+						screen["cookingStepInsight"] = line
+					}
+				}
 			}
 		}
 	}

@@ -50,6 +50,7 @@ import { foodIcon } from '../lib/icons';
 import { AdminPending } from './admin/AdminPending';
 import { AccountSecurity } from '../components/AccountSecurity';
 import { DataExport } from '../components/DataExport';
+import { ShareCooking } from '../components/CookInsights';
 import { LegalLinks } from '../components/Legal';
 import { NotificationSettings } from '../components/NotificationSettings';
 import { UnitSettings } from '../components/UnitSettings';
@@ -413,6 +414,7 @@ export function Profile({
         <View style={{ gap: 8 }}>
           <AccountSecurity />
           <DataExport />
+          <ShareCooking />
         </View>
       )}
     </>

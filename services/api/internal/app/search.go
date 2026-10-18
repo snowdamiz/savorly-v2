@@ -19,6 +19,8 @@ type recipeQuery struct {
 	// AvoidGroups and AvoidTerms leave out recipes with any of them (a member's avoid list).
 	AvoidGroups, AvoidTerms   []string
 	MaxMinutes, Limit, Offset int
+	// CookTested keeps only cook-tested recipes (cook_insights.go).
+	CookTested bool
 }
 
 // searchWords splits a query into words of letters and digits; nothing else reaches to_tsquery.
@@ -89,6 +91,9 @@ func (q recipeQuery) build() (sql string, args []any, ok bool) {
 	}
 	if q.Follower != "" {
 		where = append(where, "r.author_id IN (SELECT creator_id FROM follows WHERE user_id="+arg(q.Follower)+")")
+	}
+	if q.CookTested {
+		where = append(where, "r.id IN (SELECT recipe_id FROM recipe_cook_times WHERE cooks>="+arg(cookTestedCooks)+")")
 	}
 	if len(q.AvoidGroups) > 0 {
 		where = append(where, "NOT r.allergens && "+arg(q.AvoidGroups)+"::text[]")

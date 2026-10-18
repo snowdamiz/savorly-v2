@@ -61,7 +61,7 @@ type agentToolDef struct {
 
 // Account security (email, password, sign-in, deleting the account) is deliberately absent.
 var agentToolDefs = []agentToolDef{
-	{tool("search_recipes", "Search published Savorly recipes by words or ingredients, cuisine, tag, cook and time. Returns up to 8 summaries, each with its allergen and diet groups (allergens).", object(nil, props{"query": field("string", "Words or ingredients"), "cuisine": field("string", "Exact cuisine, e.g. Italian"), "tag": field("string", "Exact tag, e.g. vegetarian"), "author_id": field("string", "Only this cook's recipes"), "max_minutes": field("integer", ""), "sort": choice("", "Newest", "Quickest", "Top rated"), "include_avoided": field("boolean", "Also return recipes with what the user's diets and allergies leave out; only when they ask for one by name")})), "looking", (*toolTurn).searchRecipes},
+	{tool("search_recipes", "Search published Savorly recipes by words or ingredients, cuisine, tag, cook and time. Returns up to 8 summaries, each with its allergen and diet groups (allergens).", object(nil, props{"query": field("string", "Words or ingredients"), "cuisine": field("string", "Exact cuisine, e.g. Italian"), "tag": field("string", "Exact tag, e.g. vegetarian"), "author_id": field("string", "Only this cook's recipes"), "max_minutes": field("integer", ""), "sort": choice("", "Newest", "Quickest", "Top rated"), "include_avoided": field("boolean", "Also return recipes with what the user's diets and allergies leave out; only when they ask for one by name"), "cook_tested": field("boolean", "Only cook-tested recipes: at least 5 people cooked them through in Savorly (verifiedCooks); cookedMinutes is how long they really took")})), "looking", (*toolTurn).searchRecipes},
 	{tool("pantry_recipes", "Recipes the user can make mostly from their pantry: fewest missing ingredients first, then those using what expires soon. Each says what they have, what's missing and what's expiring. Leaves out what they avoid.", object(nil, props{})), "looking", (*toolTurn).pantryRecipes},
 	{tool("get_recipe", "Full ingredients, steps and equipment of a published recipe or one of the user's own: equipment is what its cook lists, equipmentDetected the equipment its method mentions.", object([]string{"recipe_id"}, props{"recipe_id": recipeID()})), "looking", (*toolTurn).getRecipe},
 	{tool("show_recipes", "Show tappable recipe cards with your reply.", object([]string{"recipe_ids"}, props{"recipe_ids": list(field("string", ""), 6)})), "looking", (*toolTurn).showRecipes},
@@ -298,6 +298,7 @@ type toolArgs struct {
 	Servings, Rating, Step                                                                           int
 	Unsave, Unfollow, Checked                                                                        bool
 	IncludeAvoided                                                                                   bool            `json:"include_avoided"`
+	CookTested                                                                                       bool            `json:"cook_tested"`
 	IncludePantry                                                                                    bool            `json:"include_pantry"`
 	NewRecipe                                                                                        bool            `json:"new_recipe"`
 	Published                                                                                        *bool           `json:"published"`
@@ -377,6 +378,9 @@ func (t *toolTurn) searchRecipes() string {
 	q := url.Values{"q": {t.in.Query}, "category": {t.in.Cuisine}, "tag": {t.in.Tag}, "author": {t.in.AuthorID}, "sort": {t.in.Sort}, "limit": {"8"}}
 	if t.in.MaxMinutes > 0 {
 		q.Set("maxMinutes", strconv.Itoa(t.in.MaxMinutes))
+	}
+	if t.in.CookTested {
+		q.Set("cookTested", "true")
 	}
 	// Suggestions respect the member's allergies and diets unless they asked for a recipe
 	// regardless; what it then finds still carries its allergens for the model to warn about.

@@ -84,7 +84,7 @@ func (a *App) listRecipes(c fiber.Ctx) error {
 		offset = 0
 	}
 	maxMinutes, _ := strconv.Atoi(c.Query("maxMinutes"))
-	q := recipeQuery{Text: strings.TrimSpace(c.Query("q")), Cuisine: c.Query("category"), Author: c.Query("author"), Tag: c.Query("tag"), Sort: c.Query("sort"), MaxMinutes: maxMinutes, Limit: limit, Offset: offset}
+	q := recipeQuery{Text: strings.TrimSpace(c.Query("q")), Cuisine: c.Query("category"), Author: c.Query("author"), Tag: c.Query("tag"), Sort: c.Query("sort"), MaxMinutes: maxMinutes, Limit: limit, Offset: offset, CookTested: c.Query("cookTested") == "true"}
 	if c.Query("following") == "true" {
 		// The kitchen-activity sheet: newest from the cooks this member follows.
 		var e error

@@ -2,7 +2,7 @@
 
 Creators earn from the cooking they inspire. Each calendar month, a share of what paying members pay is split among the creators of the recipes those members actually cooked. The same cooking data gives every recipe its real cook time ("Cooks usually take about 45 min"), which fixes a common complaint: recipes taking longer than they say.
 
-Code: `services/api/internal/app/cook_sessions.go` (sessions, verification, cook times), `creator_fund.go` (the split, the monthly close, earnings, Stripe Connect onboarding, the Connect webhook and payouts), `admin_fund.go` (the console), migration `031_creator_fund.sql`. App: `src/lib/cookSessions.ts` (cooking mode), `src/components/CookTime.tsx` (recipe page), `src/components/CreatorEarnings.tsx` (My kitchen), `src/screens/admin/Fund.tsx` (console).
+Code: `services/api/internal/app/cook_sessions.go` (sessions, verification, cook times), `creator_fund.go` (the split, the monthly close, earnings, Stripe Connect onboarding, the Connect webhook and payouts), `admin_fund.go` (the console), migration `031_creator_fund.sql`. App: `src/lib/cookSessions.ts` (cooking mode), `src/components/CookTested.tsx` (recipe page), `src/components/CreatorEarnings.tsx` (My kitchen), `src/screens/admin/Fund.tsx` (console).
 
 ## Verified cooks
 
@@ -16,13 +16,13 @@ A finished session is a **verified cook** when it plausibly happened:
 - **Within a day.** A session not finished within 24 hours of starting is over.
 - **Once a day.** At most one verified cook per member, recipe and UTC day. A unique index enforces it, and a member's sessions finish one at a time, so two finished at once can't both count.
 
-Sessions that don't become verified cooks are deleted by the janitor two days after they start. Verified cooks are kept: they're each recipe's cook time and each month's fund. Both are the member's data: `GET /v1/me/export` includes them (`cookSessions`), and deleting the account deletes them.
+Sessions that don't become verified cooks are deleted by the janitor two days after they start, unless they have step events for [cook-tested recipes](COOK-TESTED.md), which keep them for 180 days. Verified cooks are kept: they're each recipe's cook time and each month's fund. Both are the member's data: `GET /v1/me/export` includes them (`cookSessions`), and deleting the account deletes them.
 
 **"I cooked this" posts stay social.** A post (`POST /v1/recipes/:id/cooked`) shows on the recipe with its photo and note as before, but without a session it isn't a verified cook: it counts for neither cook times nor money. Posting takes one tap and proves nothing; a session at least shows the cook spent the time on the steps.
 
 ## Real cook time
 
-Each recipe carries `verifiedCooks` (all its verified cooks) and `cookedMinutes`: the median length of its latest 500 verified cooks, in whole minutes, or `null` until 3 verified cooks agree. Both are kept in `recipe_cook_times`, recomputed for one recipe each time one of its cooks is verified, so every recipe list reads them with a single key lookup (`TestCookTimeIsAKeyLookup`). The recipe page shows "Cooks usually take about N min" under the facts, beside the stated time.
+Each recipe carries `verifiedCooks` (all its verified cooks) and `cookedMinutes`: the median length of its latest 500 verified cooks, in whole minutes, or `null` until 3 verified cooks agree. Both are kept in `recipe_cook_times`, recomputed for one recipe each time one of its cooks is verified, so every recipe list reads them with a single key lookup (`TestCookTimeIsAKeyLookup`). The recipe page shows it under the facts, beside the stated time, and from 5 verified cooks the recipe is [cook-tested](COOK-TESTED.md): "Cook-tested · 214 cooks · usually 55 min (says 40)".
 
 ## The fund
 

@@ -56,11 +56,13 @@ func (a *App) askCook(c fiber.Ctx) error {
 	if e != nil {
 		return e
 	}
-	q := ai.CookQuestion{Recipe: recipe.text(), Step: cookStep(recipe, in.Step), Question: question, Language: language}
+	q := ai.CookQuestion{Recipe: recipe.text(), Step: cookStep(recipe, in.Step), Insight: recipe.insight(in.Step), Question: question, Language: language}
 	usage, e := a.reserveCookQuestion(ctx, owner, q.Estimate())
 	if e != nil {
 		return e
 	}
+	// What cooks ask at a step, grouped with others' each night, becomes the recipe's questions.
+	recordCookQuestion(ctx, a.DB, owner, recipe.id, in.Step, question, "hands_free")
 	call, cancel := context.WithTimeout(ctx, 25*time.Second)
 	defer cancel()
 	answer, cost, e := a.AI.CookAnswer(call, q)
@@ -94,6 +96,7 @@ func (a *App) cookRecipe(ctx context.Context, id, owner string) (*sceneRecipe, e
 	}
 	_ = json.Unmarshal(ingredients, &r.ingredients)
 	_ = json.Unmarshal(steps, &r.steps)
+	r.insights = stepInsightsFor(ctx, a.DB, id, r.steps)
 	return r, nil
 }
 

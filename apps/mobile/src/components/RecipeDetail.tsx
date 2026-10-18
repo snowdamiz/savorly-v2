@@ -25,6 +25,7 @@ import {
   Flag,
   Flame,
   Gauge,
+  Hourglass,
   Leaf,
   Minus,
   Pencil,
@@ -36,7 +37,6 @@ import {
   ShoppingBasket,
   Sparkles,
   Star,
-  Timer,
   Trash2,
   Users,
 } from './icons';
@@ -83,7 +83,9 @@ import { CookPhotos, CookSheets, useCooked } from './CookedIt';
 import { Lineage } from './Variations';
 import { TranslationBar } from './TranslationBar';
 import { useRecipeTranslation } from '../lib/useRecipeTranslation';
-import { CookTime } from './CookTime';
+import { CookTested } from './CookTested';
+import { CooksGetStuck, StepQuestions, StepTimerHint, StepUsual } from './CookInsights';
+import { stepInsight, useCookInsights } from '../lib/cookInsights';
 import { DangerButton } from '../screens/Kitchen';
 import { RevealFocus, useKeyboardLift, useKeyboardScroll } from '../lib/keyboard';
 import { foodConflicts, joinNames, pantryLines, useFood } from '../lib/food';
@@ -172,6 +174,9 @@ export function RecipeDetail({
   // (the recipe, or its translation), while amounts, units and everything else stay the recipe's.
   const translation = useRecipeTranslation(recipe);
   const reading = translation.shown;
+  // What cooks found cooking it: the finish rate, and notes and questions at its steps.
+  const insights = useCookInsights(recipe.id);
+  const [stuck, setStuck] = useState(false);
   const equipment = useShownEquipment(reading);
   const saved = app.library.savedIds.includes(recipe.id);
   const following = app.library.followingIds.includes(recipe.author.id);
@@ -579,14 +584,9 @@ export function RecipeDetail({
                   style={{ maxWidth: 480, aspectRatio: 16 / 9, marginTop: 4 }}
                 />
               )}
-              {st.seconds > 0 && (
-                <View style={[s.row, { gap: 6, marginTop: 2 }]}>
-                  <Timer size={14} color={color.muted} />
-                  <Text style={s.small}>
-                    {tr('timerHint', { count: Math.round(st.seconds / 60) })}
-                  </Text>
-                </View>
-              )}
+              <StepTimerHint seconds={st.seconds} insight={stepInsight(insights, i + 1)} />
+              <StepUsual insight={stepInsight(insights, i + 1)} />
+              <StepQuestions insight={stepInsight(insights, i + 1)} />
             </View>
           </View>
         ))}
@@ -698,9 +698,21 @@ export function RecipeDetail({
   const overlays = (
     <>
       <CookSheets cooked={cooks} />
+      {mine && (
+        <CooksGetStuck
+          recipe={reading}
+          visible={stuck}
+          onClose={() => setStuck(false)}
+          onEdit={() => {
+            setStuck(false);
+            onEdit(recipe);
+          }}
+        />
+      )}
       {cooking && (
         <CookMode
           recipe={reading}
+          insights={insights}
           translatedTo={translation.translatedTo}
           command={cookCommand}
           onStep={onCooking}
@@ -989,6 +1001,17 @@ export function RecipeDetail({
     </View>
   );
   const lineage = <Lineage recipe={recipe} onOpen={onOpen} onCreator={onCreator} />;
+  // The author's view of how cooks get on with their recipe, once it's out there.
+  const stuckButton = mine && recipe.published && (
+    <Button
+      title={tr('Where cooks get stuck')}
+      icon={Hourglass}
+      variant="secondary"
+      small
+      style={{ alignSelf: 'flex-start' }}
+      onPress={() => setStuck(true)}
+    />
+  );
   const translationBar = (
     <TranslationBar language={recipe.language ?? ''} translation={translation} />
   );
@@ -1181,7 +1204,8 @@ export function RecipeDetail({
                 {byline}
                 {lineage}
                 {facts}
-                <CookTime recipe={recipe} />
+                <CookTested recipe={recipe} insights={insights} />
+                {stuckButton}
                 <View style={{ gap: 20 }}>
                   <Button
                     title={tr('Start cooking')}
@@ -1283,7 +1307,8 @@ export function RecipeDetail({
               {/* The facts in one card and the things to do in one row, so the page goes
                   straight from the story to the cooking. */}
               <FadeIn delay={130}>{facts}</FadeIn>
-              <CookTime recipe={recipe} />
+              <CookTested recipe={recipe} insights={insights} />
+              {stuckButton}
               <FadeIn delay={200}>{actionRow}</FadeIn>
               {wide ? (
                 <View style={{ flexDirection: 'row', gap: 32, alignItems: 'flex-start' }}>

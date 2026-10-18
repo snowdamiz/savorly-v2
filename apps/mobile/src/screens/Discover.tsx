@@ -5,6 +5,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import {
   ArrowRight,
   ArrowUp,
+  BadgeCheck,
   Bell,
   CalendarDays,
   Carrot,
@@ -126,17 +127,20 @@ export function Discover({
     !!user?.avoid && Object.keys({ ...user.avoid.groups, ...user.avoid.terms }).length > 0;
   const [fitsChoice, setFits] = useState(false);
   const fits = avoids && fitsChoice;
+  // Only recipes enough cooks really made in Savorly (docs/COOK-TESTED.md).
+  const [tested, setTested] = useState(false);
   const listing = !!query || !!explore;
   // Filtering belongs to Explore. Home only searches, so returning to it never leaves the feed
   // stuck as a filtered list, while Explore keeps its filters for the next visit.
   const search = useRecipeSearch(
     explore
-      ? { query, category, cuisine, quick, sort, fits }
+      ? { query, category, cuisine, quick, sort, fits, tested }
       : { query, category: 'All recipes', cuisine: allCuisines, quick: false, sort: 'For you' },
     listing,
   );
   const filtered = search.recipes;
-  const refined = !!explore && (cuisine !== allCuisines || quick || sort !== 'For you' || fits);
+  const refined =
+    !!explore && (cuisine !== allCuisines || quick || sort !== 'For you' || fits || tested);
   // What people search for, and what finds nothing: each search once, when the typing has paused
   // and its first results have arrived (Show more isn't another search).
   const searched = query.trim();
@@ -175,6 +179,7 @@ export function Discover({
     setSort('For you');
     setQuick(false);
     setFits(false);
+    setTested(false);
   };
   const tileWidth = Math.min(250, Math.round(width * 0.6));
   // On phones the feed is a light sheet that rises over the black header on rounded top corners.
@@ -644,6 +649,18 @@ export function Discover({
               icon={Zap}
               active={quick}
               onPress={() => setQuick(true)}
+            />
+          </View>
+        </View>
+        <View style={{ gap: 12 }}>
+          <Text style={s.label}>{tr('Tested by cooks')}</Text>
+          <View style={[s.wrap, { gap: 8 }]}>
+            <Chip title={tr('Any recipe')} active={!tested} onPress={() => setTested(false)} />
+            <Chip
+              title={tr('Cook-tested only')}
+              icon={BadgeCheck}
+              active={tested}
+              onPress={() => setTested(true)}
             />
           </View>
         </View>

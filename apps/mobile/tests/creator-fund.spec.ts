@@ -5,7 +5,8 @@ import { afterPageTimers } from './waits';
 
 // The creator fund (docs/CREATOR-FUND.md): My kitchen's "Creator earnings" for cooks with
 // published recipes while the fund is on, payout setup through Stripe in the browser, the real
-// cook time on recipe pages, and the cook sessions cooking mode records.
+// cook time on recipe pages (docs/COOK-TESTED.md has the rest of what they show), and the cook
+// sessions cooking mode records.
 
 const mine = recipe({ id: 'my-soup', title: 'My soup', author: alex });
 const earnings = (fields: Partial<Earnings> = {}): Earnings => ({
@@ -172,19 +173,22 @@ test('the recipe page shows how long cooks usually take once enough have cooked 
   });
   await mockApi(page, { recipes: [timed, fresh] });
   await page.goto(`/?recipe=${timed.id}`);
-  await expect(page.getByText('Cooks usually take about 45 min', { exact: true })).toBeVisible();
+  // Cook-tested from 5 verified cooks, with the stated time beside theirs when it differs.
+  const tested = 'Cook-tested · 12 cooks · usually 45 min (says 30)';
+  await expect(page.getByText(tested, { exact: true })).toBeVisible();
   await expect(page.getByText('30 min', { exact: true }).first()).toBeVisible();
   await afterPageTimers(page, 1500); // the splash fades out
   await page.screenshot({ path: 'test-results/cook-time-desktop.png' });
   // Phones lay the page out on their own, under the same facts.
   await page.setViewportSize({ width: 390, height: 844 });
   await page.reload();
-  await expect(page.getByText('Cooks usually take about 45 min', { exact: true })).toBeVisible();
+  await expect(page.getByText(tested, { exact: true })).toBeVisible();
   await afterPageTimers(page, 1500);
   await page.screenshot({ path: 'test-results/cook-time-mobile.png' });
   await page.goto(`/?recipe=${fresh.id}`);
   await expect(page.getByRole('heading', { name: 'New braise', exact: true })).toBeVisible();
-  await expect(page.getByText(/Cooks usually take/)).toHaveCount(0);
+  await expect(page.getByText('Early: 2 cooks', { exact: true })).toBeVisible();
+  await expect(page.getByText(/Cooks usually take|Cook-tested/)).toHaveCount(0);
 });
 
 test('cooking mode records a session for a signed-in cook, and nothing for guests or authors', async ({
@@ -219,5 +223,5 @@ test('cooking mode records a session for a signed-in cook, and nothing for guest
   await cook(own.id);
   api.state.session = false;
   await cook(soup.id);
-  expect(api.sentTo(/cook-sessions/)).toHaveLength(3);
+  expect(api.sentTo(/^\/(recipes\/[^/]+\/cook-sessions|cook-sessions\/[^/]+)$/)).toHaveLength(3);
 });

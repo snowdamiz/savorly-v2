@@ -127,6 +127,11 @@ export type Preferences = {
   shareDiet?: boolean;
   /** Recipes in other languages open translated into the app's. Older servers leave it out. */
   translateRecipes?: boolean;
+  /**
+   * The member's cooking counts toward recipes' insights: how long steps take and what cooks ask.
+   * On unless turned off; older servers leave it out.
+   */
+  shareCooking?: boolean;
 };
 export type User = Creator & {
   email: string;

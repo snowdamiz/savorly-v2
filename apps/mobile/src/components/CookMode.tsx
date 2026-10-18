@@ -34,6 +34,8 @@ import { Button, FoodImage, IconButton, useChrome, useSlideOver, webPosition } f
 import { StepClip } from './VideoPlayer';
 import { HandsFree } from './HandsFree';
 import { CookEquipment } from './Equipment';
+import { StepQuestions, StepUsual, TimerNote } from './CookInsights';
+import { cooksNeed, RecipeInsights, stepInsight } from '../lib/cookInsights';
 const RING = 92;
 const CIRCUMFERENCE = 2 * Math.PI * RING;
 export function CookMode({
@@ -44,9 +46,12 @@ export function CookMode({
   command,
   onCooked,
   translatedTo,
+  insights,
 }: {
   /** The recipe as the cook reads it: translated, when they read it translated. */
   recipe: Recipe;
+  /** What other cooks found at each step (docs/COOK-TESTED.md), once it has loaded. */
+  insights?: RecipeInsights | null;
   onClose: () => void;
   onAsk: () => void;
   /** Reports the 1-based step on screen, so the sous-chef knows where the cook is. */
@@ -66,6 +71,8 @@ export function CookMode({
     Math.min(Math.max((command?.step || 1) - 1, 0), recipe.steps.length - 1),
   );
   const [remaining, setRemaining] = useState(recipe.steps[step].seconds);
+  // The timer's length: the step's, unless the cook set it to how long cooks really need.
+  const [length, setLength] = useState(recipe.steps[step].seconds);
   const [endAt, setEndAt] = useState<number | null>(null);
   const {
     state: narrationState,
@@ -74,7 +81,7 @@ export function CookMode({
     stop,
   } = useCookingNarration(recipe, step, translatedTo);
   const [done, setDone] = useState(false);
-  useCookSession(recipe, step, done);
+  const timerEvent = useCookSession(recipe, step, done);
   // The end time is the timer, and the countdown is redrawn from it. JavaScript timers stand still
   // while the app is in the background and slow down in a hidden browser tab, so the countdown is
   // redrawn on return too, and a system alert covers an end that comes while the cook is away.
@@ -89,6 +96,7 @@ export function CookMode({
       if (seconds) return;
       finished = true;
       setEndAt(null);
+      timerEvent('timer_end');
       stop();
       // Back after an end the system already announced, the finished ring says enough.
       const away =
@@ -107,7 +115,7 @@ export function CookMode({
       clearTimeout(end);
       sub.remove();
     };
-  }, [endAt, tr, locale, stop]);
+  }, [endAt, tr, locale, stop, timerEvent]);
   const { title } = recipe;
   const finishedText = tr('Your cooking timer is finished.');
   const channel = tr('Cooking timers');
@@ -128,12 +136,16 @@ export function CookMode({
   }, [endAt, title, finishedText, channel]);
   const current = recipe.steps[step];
   const last = step === recipe.steps.length - 1;
+  // What other cooks found at this step (docs/COOK-TESTED.md).
+  const found = stepInsight(insights ?? null, step + 1);
+  const need = cooksNeed(found);
   const change = (n: number) => {
     stop();
     setEndAt(null);
     setDone(false);
     setStep(n);
     setRemaining(recipe.steps[n].seconds);
+    setLength(recipe.steps[n].seconds);
   };
   useEffect(() => onStep(step + 1), [step, onStep]);
   // Each sous-chef command applies once, to the step on screen when it arrives.
@@ -146,9 +158,15 @@ export function CookMode({
       setDone(false);
       setStep(n);
       setRemaining(recipe.steps[n].seconds);
+      setLength(recipe.steps[n].seconds);
     } else if (command.timerFrom && current.seconds && !endAt)
       setEndAt(command.timerFrom + remaining * 1000);
   }
+  // A timer the sous-chef started counts like one started on screen.
+  const startedBy = command?.timerFrom ? command.n : undefined;
+  useEffect(() => {
+    if (startedBy !== undefined) timerEvent('timer_start');
+  }, [startedBy, timerEvent]);
   const close = () => {
     stop();
     page.leave();
@@ -193,7 +211,7 @@ export function CookMode({
     return () => document.removeEventListener('keydown', onKey);
   }, []);
   const clock = `${String(Math.floor(remaining / 60)).padStart(2, '0')}:${String(remaining % 60).padStart(2, '0')}`;
-  const progress = current.seconds ? remaining / current.seconds : 0;
+  const progress = length ? remaining / length : 0;
   const big = width > 600;
   return (
     // The web page sits beside the sidebar, so cooking mode fixes itself over the whole window.
@@ -251,7 +269,10 @@ export function CookMode({
               previous: () => step > 0 && change(step - 1),
               read,
               stopReading: stop,
-              setTimer: (run) => setEndAt(run ? Date.now() + remaining * 1000 : null),
+              setTimer: (run) => {
+                timerEvent(run ? 'timer_start' : 'timer_pause');
+                setEndAt(run ? Date.now() + remaining * 1000 : null);
+              },
             }}
           />
           {done ? (
@@ -344,6 +365,8 @@ export function CookMode({
                 >
                   {current.text}
                 </Text>
+                <StepUsual insight={found} dark />
+                <StepQuestions key={step} insight={found} dark />
                 {/* One picture a step keeps the timer in view: a clip shows how, so it takes the
                     photo's place, and a new step or closing stops it. */}
                 {current.video ? (
@@ -434,7 +457,10 @@ export function CookMode({
                         icon={endAt ? Pause : Play}
                         variant="inverse"
                         disabled={remaining === 0}
-                        onPress={() => setEndAt(endAt ? null : Date.now() + remaining * 1000)}
+                        onPress={() => {
+                          timerEvent(endAt ? 'timer_pause' : 'timer_start');
+                          setEndAt(endAt ? null : Date.now() + remaining * 1000);
+                        }}
                       />
                       <IconButton
                         icon={RotateCcw}
@@ -443,10 +469,23 @@ export function CookMode({
                         label={tr('Reset timer')}
                         onPress={() => {
                           setEndAt(null);
-                          setRemaining(current.seconds);
+                          setRemaining(length);
                         }}
                       />
                     </View>
+                    {!!need && remaining > 0 && (
+                      <TimerNote
+                        seconds={need}
+                        onUse={
+                          !endAt && remaining === length && length !== need
+                            ? () => {
+                                setLength(need);
+                                setRemaining(need);
+                              }
+                            : undefined
+                        }
+                      />
+                    )}
                   </View>
                 )}
               </ScrollView>
