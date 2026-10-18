@@ -252,5 +252,6 @@ func NewWithContext(ctx context.Context, db *pgxpool.Pool, config Config) *fiber
 	a.assistantRoutes(v)
 	a.importRoutes(v)
 	a.familyRoutes(v)
+	a.mealRoutes(v)
 	return f
 }

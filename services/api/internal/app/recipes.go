@@ -203,6 +203,7 @@ func persistRecipe(ctx context.Context, db recipeWriter, owner, id string, r Rec
 		}
 		keepStepMedia(r.Steps, saved)
 		keepStepVoices(r.Steps, saved)
+		keepStepTiming(r.Steps, saved)
 	}
 	// A step plays only the recipe's own recordings (family.go).
 	if e := fitStepVoices(ctx, db, id, r.Steps); e != nil {
@@ -236,11 +237,14 @@ func persistRecipe(ctx context.Context, db recipeWriter, owner, id string, r Rec
 		return e
 	}
 	// In the same transaction, so the saved recipe is never shown without its allergens, or
-	// without what its method mentions.
+	// without what its method mentions, and is never cooked with a meal without its timing.
 	if e = indexRecipeFood(ctx, db, id); e != nil {
 		return e
 	}
-	return indexRecipeEquipment(ctx, db, id)
+	if e = indexRecipeEquipment(ctx, db, id); e != nil {
+		return e
+	}
+	return indexRecipeTiming(ctx, db, id)
 }
 
 func (a *App) deleteRecipe(c fiber.Ctx) error { return a.deleteOwned(c, "recipes", "author_id") }

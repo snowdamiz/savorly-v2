@@ -49,6 +49,7 @@ func main() {
 	go app.RunJanitor(ctx, db)
 	go app.RunFoodIndex(ctx, db)
 	go app.RunEquipmentIndex(ctx, db)
+	go app.RunStepTiming(ctx, db)
 	go app.RunNotifications(ctx, db)
 	go app.RunCreatorFund(ctx, db)
 	go app.RunCookInsights(ctx, db)

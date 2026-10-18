@@ -28,7 +28,7 @@ const (
 )
 
 const cookSessionJSON = `jsonb_build_object('id',k.id,'recipeId',k.recipe_id,'steps',k.steps,'stepReached',k.step_reached,
- 'startedAt',k.started_at,'finishedAt',k.finished_at,'verified',k.verified)`
+ 'startedAt',k.started_at,'finishedAt',k.finished_at,'verified',k.verified,'mealId',k.meal_id)`
 
 // startCookSession begins a session on a recipe the member can cook: a published one, or their
 // own or their household's (family.go), which never counts.
