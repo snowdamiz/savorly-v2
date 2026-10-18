@@ -1586,6 +1586,8 @@
   "sharedPlanCount_other": "Votre formule couvre aussi {{count}} autres personnes de votre foyer ; vous partagez ses quotas, sur les 30 derniers jours.",
   "You’ll need": "Il vous faut",
   "From the method": "D’après la préparation",
+  "Sous-chef’s guess": "Estimation du sous-chef",
+  "Equipment for this step: {{v0}}": "Ustensiles pour cette étape : {{v0}}",
   "You’ll need: {{v0}}": "Il vous faut : {{v0}}",
   "Before you start": "Avant de commencer",
   "Equipment": "Ustensiles",

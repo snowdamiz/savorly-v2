@@ -266,6 +266,7 @@ type assistantRecipe struct {
 	CookedMinutes                                      *int
 	Rating                                             float64
 	Tags, Allergens, Equipment                         []string
+	EquipmentGuess                                     []equipmentUse
 	Ingredients                                        json.RawMessage
 	Steps                                              []json.RawMessage
 	Author                                             struct{ Name string }
@@ -417,6 +418,8 @@ func (x *assistantCall) showRecipe() toolResult {
 	text := []string{x.a.recipeLine(r), r.Description, fmt.Sprintf("Ingredients for %d serving%s:\n%s", r.Servings, plural(int64(r.Servings)), strings.Join(lines, "\n"))}
 	if len(r.Equipment) > 0 {
 		text = append(text, "Equipment: "+strings.Join(r.Equipment, ", "))
+	} else if len(r.EquipmentGuess) > 0 {
+		text = append(text, "Equipment its method likely uses (a guess, by step): "+equipmentGuessLine(r.EquipmentGuess))
 	}
 	text = append(text, fmt.Sprintf("Its %d step%s are cooked in Savorly, hands-free, with timers: %s", len(r.Steps), plural(int64(len(r.Steps))), detail["cookUrl"]))
 	return toolResult{text: strings.Join(text, "\n\n"), structured: fiber.Map{"recipe": detail}}

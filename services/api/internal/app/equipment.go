@@ -13,12 +13,13 @@ import (
 	"github.com/gofiber/fiber/v3"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"savorly/api/internal/ai"
 )
 
 // What a recipe needs besides its ingredients (032_recipe_equipment.sql): equipment, the pots,
 // pans, appliances and tools its author lists, in their order and words; and equipmentDetected,
 // what its method mentions, read with the equipment lexicon (equipment_lexicon.go) as English keys
-// the app names in the reader's language. Seeded, imported and older recipes have no list, and
+// the app names in the reader's language. Many imported and older recipes have no list, and
 // authors forget things, so the recipe page and cooking mode fall back on what the method
 // mentions, and say so. Like the food index this reads words: it can miss a tool the method takes
 // for granted, and the app never mixes what it found with what the author wrote.
@@ -30,7 +31,7 @@ const (
 	equipmentNameLength = 60
 	// equipmentVersion changes with the lexicon or the rules below; recipes read under another are
 	// read again (indexEquipment).
-	equipmentVersion = 1
+	equipmentVersion = 2
 )
 
 // equipmentWords is folded text as the words an alias is matched against, English-style plurals
@@ -247,13 +248,23 @@ func indexEquipment(ctx context.Context, db *pgxpool.Pool) (indexed int, err err
 }
 
 // RunEquipmentIndex reads what needs it at start-up, then every ten minutes, for any write that
-// didn't. Replicas may overlap; reading is idempotent.
+// didn't, and has the model guess what recipes without a list use, within the day's cap
+// (equipment_guess.go). Replicas may overlap; reading is idempotent, and the model is asked under
+// a lock.
 func RunEquipmentIndex(ctx context.Context, db *pgxpool.Pool) {
+	a := &App{DB: db, AI: ai.New(), Context: ctx}
 	for {
 		if n, e := indexEquipment(ctx, db); e != nil && ctx.Err() == nil {
 			slog.Error("equipment index", "error", e)
 		} else if n > 0 {
 			slog.Info("equipment index", "indexed", n)
+		}
+		if a.AI.TextEnabled() {
+			if n, e := a.guessEquipment(ctx); e != nil && ctx.Err() == nil {
+				slog.Warn("equipment guesses", "error", e)
+			} else if n > 0 {
+				slog.Info("equipment guesses", "recipes", n)
+			}
 		}
 		select {
 		case <-ctx.Done():

@@ -65,7 +65,7 @@ type agentToolDef struct {
 var agentToolDefs = []agentToolDef{
 	{tool("search_recipes", "Search published Savorly recipes by words or ingredients, cuisine, tag, cook and time. Returns up to 8 summaries, each with its allergen and diet groups (allergens).", object(nil, props{"query": field("string", "Words or ingredients"), "cuisine": field("string", "Exact cuisine, e.g. Italian"), "tag": field("string", "Exact tag, e.g. vegetarian"), "author_id": field("string", "Only this cook's recipes"), "max_minutes": field("integer", ""), "sort": choice("", "Newest", "Quickest", "Top rated"), "include_avoided": field("boolean", "Also return recipes with what the user's diets and allergies leave out; only when they ask for one by name"), "cook_tested": field("boolean", "Only cook-tested recipes: at least 5 people cooked them through in Savorly (verifiedCooks); cookedMinutes is how long they really took")})), "looking", (*toolTurn).searchRecipes},
 	{tool("pantry_recipes", "Recipes the user can make mostly from their pantry: fewest missing ingredients first, then those using what expires soon. Each says what they have, what's missing and what's expiring. Leaves out what they avoid.", object(nil, props{})), "looking", (*toolTurn).pantryRecipes},
-	{tool("get_recipe", "Full ingredients, steps and equipment of a published recipe or one of the user's own: equipment is what its cook lists, equipmentDetected the equipment its method mentions.", object([]string{"recipe_id"}, props{"recipe_id": recipeID()})), "looking", (*toolTurn).getRecipe},
+	{tool("get_recipe", "Full ingredients, steps and equipment of a published recipe or one of the user's own: equipment is what its cook lists, equipmentDetected the equipment its method mentions, and equipmentGuess, when its cook lists none, the equipment its method likely uses with the steps that use each, a guess.", object([]string{"recipe_id"}, props{"recipe_id": recipeID()})), "looking", (*toolTurn).getRecipe},
 	{tool("show_recipes", "Show tappable recipe cards with your reply.", object([]string{"recipe_ids"}, props{"recipe_ids": list(field("string", ""), 6)})), "looking", (*toolTurn).showRecipes},
 	{tool("find_cooks", "Find Savorly cooks by name, handle or bio, with ids and recipe counts.", object(nil, props{"query": field("string", "")})), "looking", (*toolTurn).findCooks},
 	{tool("get_reviews", "Recent reviews of a published recipe.", object([]string{"recipe_id"}, props{"recipe_id": recipeID()})), "looking", (*toolTurn).getReviews},
@@ -1365,4 +1365,5 @@ func slimRecipe(r map[string]any, summary bool) {
 	delete(r, "description")
 	delete(r, "equipment")
 	delete(r, "equipmentDetected")
+	delete(r, "equipmentGuess")
 }

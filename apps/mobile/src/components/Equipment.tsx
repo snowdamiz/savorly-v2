@@ -2,7 +2,7 @@ import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { useI18n } from '../lib/i18n';
 import { joinNames } from '../lib/food';
-import { shownEquipment } from '../lib/equipment';
+import { shownEquipment, stepEquipment } from '../lib/equipment';
 import { Recipe } from '../lib/types';
 import { color, font, radius, s } from '../lib/theme';
 import { CookingPot } from './icons';
@@ -92,20 +92,28 @@ export function equipmentName(tr: Translate, key: string) {
   return '';
 }
 
-/** What a recipe shows as what you'll need, in the reader's language, and where it came from. */
+/**
+ * What a recipe shows as what you'll need, in the reader's language, and `note`, where it came
+ * from when it isn't the cook's list ('' when it is).
+ */
 export function useShownEquipment(recipe: Recipe) {
   const { t: tr } = useI18n();
-  return shownEquipment(recipe, (key) => equipmentName(tr, key));
+  const shown = shownEquipment(recipe, (key) => equipmentName(tr, key));
+  const note = shown.guessed
+    ? tr('Sous-chef’s guess')
+    : shown.detected
+      ? tr('From the method')
+      : '';
+  return { ...shown, note };
 }
 
 /**
- * The recipe page's "You'll need", with the ingredients: the cook's list, or what the method
- * mentions, labelled as such. `onCard` sets its names on the card's ground (the web page's
- * ingredients card) rather than the page's.
+ * The recipe page's "You'll need", at the head of the method: the cook's list, or the sous-chef's
+ * guess, or what the method mentions, labelled as such.
  */
-export function RecipeEquipment({ recipe, onCard }: { recipe: Recipe; onCard?: boolean }) {
+export function RecipeEquipment({ recipe }: { recipe: Recipe }) {
   const { t: tr } = useI18n();
-  const { names, detected } = useShownEquipment(recipe);
+  const { names, note } = useShownEquipment(recipe);
   if (!names.length) return null;
   return (
     <View style={{ gap: 10, marginTop: 6 }}>
@@ -114,19 +122,15 @@ export function RecipeEquipment({ recipe, onCard }: { recipe: Recipe; onCard?: b
         <Text role="heading" aria-level={3} style={s.h3}>
           {tr('You’ll need')}
         </Text>
-        {detected && (
+        {!!note && (
           <Text style={[s.small, { flex: 1 }]} numberOfLines={1}>
-            {`· ${tr('From the method')}`}
+            {`· ${note}`}
           </Text>
         )}
       </View>
       <View role="list" style={[s.wrap, { gap: 8 }]}>
         {names.map((name) => (
-          <View
-            key={name}
-            role="listitem"
-            style={[styles.item, { backgroundColor: onCard ? color.bg : color.white }]}
-          >
+          <View key={name} role="listitem" style={styles.item}>
             <Text style={styles.name}>{name}</Text>
           </View>
         ))}
@@ -138,7 +142,7 @@ export function RecipeEquipment({ recipe, onCard }: { recipe: Recipe; onCard?: b
 /** Cooking mode's first step: what to get out before starting, so nothing is missing midway. */
 export function CookEquipment({ recipe }: { recipe: Recipe }) {
   const { t: tr, language } = useI18n();
-  const { names, detected } = useShownEquipment(recipe);
+  const { names, note } = useShownEquipment(recipe);
   if (!names.length) return null;
   return (
     <View accessible style={styles.cook}>
@@ -146,13 +150,39 @@ export function CookEquipment({ recipe }: { recipe: Recipe }) {
       <Text style={styles.cookNames}>
         {tr('You’ll need: {{v0}}', { v0: joinNames(names, language) })}
       </Text>
-      {detected && <Text style={[s.small, { color: color.onInk }]}>{tr('From the method')}</Text>}
+      {!!note && <Text style={[s.small, { color: color.onInk }]}>{note}</Text>}
+    </View>
+  );
+}
+
+/**
+ * Cooking mode's quiet line under a step: what the sous-chef guesses it uses, when the cook lists
+ * no equipment.
+ */
+export function StepEquipment({ recipe, step }: { recipe: Recipe; step: number }) {
+  const { t: tr, language } = useI18n();
+  const names = stepEquipment(recipe, step, (key) => equipmentName(tr, key));
+  if (!names.length) return null;
+  const list = joinNames(names, language);
+  return (
+    <View
+      accessible
+      accessibilityLabel={tr('Equipment for this step: {{v0}}', { v0: list })}
+      style={[s.row, { gap: 6 }]}
+    >
+      <CookingPot size={14} color={color.onInk} strokeWidth={2} />
+      <Text style={[s.small, { flex: 1, color: color.onInk }]}>{list}</Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  item: { borderRadius: radius.pill, paddingHorizontal: 12, paddingVertical: 7 },
+  item: {
+    backgroundColor: color.white,
+    borderRadius: radius.pill,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
   name: { fontFamily: font.semibold, fontSize: 14, color: color.ink },
   cook: {
     backgroundColor: 'rgba(255,255,255,0.08)',

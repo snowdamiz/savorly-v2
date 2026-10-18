@@ -1586,6 +1586,8 @@
   "sharedPlanCount_other": "Tu plan también cubre a {{count}} personas de tu hogar; compartís los límites, que cubren los últimos 30 días.",
   "You’ll need": "Necesitarás",
   "From the method": "Según la preparación",
+  "Sous-chef’s guess": "Suposición del asistente",
+  "Equipment for this step: {{v0}}": "Utensilios para este paso: {{v0}}",
   "You’ll need: {{v0}}": "Necesitarás: {{v0}}",
   "Before you start": "Antes de empezar",
   "Equipment": "Utensilios",

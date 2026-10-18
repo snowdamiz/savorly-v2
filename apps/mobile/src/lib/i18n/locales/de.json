@@ -1586,6 +1586,8 @@
   "sharedPlanCount_other": "Dein Plan gilt auch für {{count}} Personen in deinem Haushalt; die Kontingente teilt ihr euch, für die letzten 30 Tage.",
   "You’ll need": "Du brauchst",
   "From the method": "Aus der Zubereitung",
+  "Sous-chef’s guess": "Schätzung des Souschefs",
+  "Equipment for this step: {{v0}}": "Utensilien für diesen Schritt: {{v0}}",
   "You’ll need: {{v0}}": "Du brauchst: {{v0}}",
   "Before you start": "Bevor du loslegst",
   "Equipment": "Utensilien",
