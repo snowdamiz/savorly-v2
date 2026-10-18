@@ -25,9 +25,12 @@ type Step struct {
 	Image string `json:"image,omitempty"`
 	// A short clip of this step, held to the same rules as the recipe's own video.
 	Video string `json:"video,omitempty"`
-	// Whether the request named an image, or a video, at all: older apps and the sous-chef never
-	// do, and then a saved recipe keeps its step photos and clips (keepStepMedia).
-	imageSet, videoSet bool
+	// Where one of the recipe's family recordings says this step (family.go).
+	Voice *StepVoice `json:"voice,omitempty"`
+	// Whether the request named an image, a video or a voice at all: older apps and the sous-chef
+	// never do, and then a saved recipe keeps its step photos, clips and voices (keepStepMedia,
+	// keepStepVoices).
+	imageSet, videoSet, voiceSet bool
 }
 
 func (s *Step) UnmarshalJSON(b []byte) error {
@@ -37,11 +40,19 @@ func (s *Step) UnmarshalJSON(b []byte) error {
 		Seconds int     `json:"seconds"`
 		Image   *string `json:"image"`
 		Video   *string `json:"video"`
+		// Raw, so a voice of null (taken off the step) differs from none named.
+		Voice json.RawMessage `json:"voice"`
 	}
 	if e := json.Unmarshal(b, &in); e != nil {
 		return e
 	}
-	*s = Step{Title: in.Title, Text: in.Text, Seconds: in.Seconds, imageSet: in.Image != nil, videoSet: in.Video != nil}
+	*s = Step{Title: in.Title, Text: in.Text, Seconds: in.Seconds, imageSet: in.Image != nil, videoSet: in.Video != nil, voiceSet: in.Voice != nil}
+	if in.Voice != nil && string(in.Voice) != "null" {
+		s.Voice = new(StepVoice)
+		if e := json.Unmarshal(in.Voice, s.Voice); e != nil {
+			return e
+		}
+	}
 	if in.Image != nil {
 		s.Image = *in.Image
 	}

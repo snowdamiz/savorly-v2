@@ -151,6 +151,7 @@ test('reads where a notification leads, and nothing else', () => {
     recipeId: 'lemon-pasta',
   });
   expect(push.pushTarget({ type: 'pantry' })).toEqual({ type: 'pantry' });
+  expect(push.pushTarget({ type: 'plan' })).toEqual({ type: 'plan' });
   for (const data of [
     null,
     undefined,

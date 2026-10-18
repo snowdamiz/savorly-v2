@@ -18,8 +18,10 @@ import (
 
 const jobJSON = `jsonb_build_object('id',id,'kind',kind,'prompt',prompt,'source',source,'status',status,'result',result,'error',error,'createdAt',created_at)`
 
+// jobs lists the member's latest jobs, leaving out a bulk import's, whose recipes are saved as
+// drafts already (import_batches.go).
 func (a *App) jobs(c fiber.Ctx) error {
-	return a.queryMany(c, `SELECT `+jobJSON+` FROM ai_jobs WHERE user_id=$1 ORDER BY created_at DESC LIMIT 30`, userID(c))
+	return a.queryMany(c, `SELECT `+jobJSON+` FROM ai_jobs WHERE user_id=$1 AND NOT starts_with(request_key,$2) ORDER BY created_at DESC LIMIT 30`, userID(c), batchJobKey)
 }
 func (a *App) job(c fiber.Ctx) error {
 	return a.queryOne(c, `SELECT `+jobJSON+` FROM ai_jobs WHERE id=$1 AND user_id=$2`, c.Params("id"), userID(c))
@@ -93,20 +95,32 @@ func (a *App) queueJob(c fiber.Ctx, kind, prompt, source string) error {
 // enqueueJob is queueJob with its key given: the job, and whether this request queued it
 // (rather than finding it from an earlier one).
 func (a *App) enqueueJob(c fiber.Ctx, key, kind, prompt, source string) ([]byte, bool, error) {
+	return a.enqueueJobFor(c.Context(), userID(c), key, kind, prompt, source, ai.GenerationEstimate(kind))
+}
+
+// enqueueEstimated is enqueueJob reserving estimate rather than the kind's usual reservation: a
+// family recording's depends on its length (family.go).
+func (a *App) enqueueEstimated(c fiber.Ctx, key, kind, prompt, source string, estimate float64) ([]byte, bool, error) {
+	return a.enqueueJobFor(c.Context(), userID(c), key, kind, prompt, source, estimate)
+}
+
+// enqueueJobFor is enqueueJob for owner, reserving estimate, outside a request too: a bulk
+// import's worker queues its recipe jobs this way.
+func (a *App) enqueueJobFor(ctx context.Context, owner, key, kind, prompt, source string, estimate float64) ([]byte, bool, error) {
 	if len(key) < 8 || len(key) > 100 {
 		return nil, false, fiber.NewError(400, "A valid Idempotency-Key is required.")
 	}
-	tx, e := a.DB.Begin(c.Context())
+	tx, e := a.DB.Begin(ctx)
 	if e != nil {
 		return nil, false, e
 	}
-	defer tx.Rollback(c.Context())
+	defer tx.Rollback(ctx)
 	// Serialize each user's limit check and insert, preventing concurrent overspending.
-	if _, e = tx.Exec(c.Context(), `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, userID(c)); e != nil {
+	if _, e = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, owner); e != nil {
 		return nil, false, e
 	}
 	var existing []byte
-	e = tx.QueryRow(c.Context(), `SELECT `+jobJSON+` FROM ai_jobs WHERE user_id=$1 AND request_key=$2`, userID(c), key).Scan(&existing)
+	e = tx.QueryRow(ctx, `SELECT `+jobJSON+` FROM ai_jobs WHERE user_id=$1 AND request_key=$2`, owner, key).Scan(&existing)
 	if e == nil {
 		var old struct{ Kind, Prompt, Source string }
 		json.Unmarshal(existing, &old)
@@ -119,22 +133,21 @@ func (a *App) enqueueJob(c fiber.Ctx, key, kind, prompt, source string) ([]byte,
 		return nil, false, e
 	}
 
-	estimate := ai.GenerationEstimate(kind)
-	if e = allowance(c.Context(), tx, userID(c), kind); e != nil {
+	if e = allowance(ctx, tx, owner, kind); e != nil {
 		return nil, false, e
 	}
-	if e = reserveGeneration(c.Context(), tx, userID(c), estimate); e != nil {
+	if e = reserveGeneration(ctx, tx, owner, estimate); e != nil {
 		return nil, false, e
 	}
 	var result []byte
-	e = tx.QueryRow(c.Context(), `INSERT INTO ai_jobs(id,user_id,kind,prompt,source,request_key,estimated_cost) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING `+jobJSON, uuid.NewString(), userID(c), kind, prompt, source, key, estimate).Scan(&result)
+	e = tx.QueryRow(ctx, `INSERT INTO ai_jobs(id,user_id,kind,prompt,source,request_key,estimated_cost) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING `+jobJSON, uuid.NewString(), owner, kind, prompt, source, key, estimate).Scan(&result)
 	if e != nil {
 		return nil, false, e
 	}
-	if e = announce(c.Context(), tx, "jobs"); e != nil {
+	if e = announce(ctx, tx, "jobs"); e != nil {
 		return nil, false, e
 	}
-	if e = tx.Commit(c.Context()); e != nil {
+	if e = tx.Commit(ctx); e != nil {
 		return nil, false, e
 	}
 	a.wake("jobs")
@@ -151,6 +164,7 @@ func RunWorker(ctx context.Context, db *pgxpool.Pool, config Config) {
 	defer wg.Wait()
 	wg.Go(func() { a.listenForWork(ctx) })
 	wg.Go(func() { a.runStudioWorker(ctx) })
+	wg.Go(func() { a.runImports(ctx) })
 	wg.Go(func() { every(ctx, sweepEvery, func() { a.failStalledJobs(ctx) }) })
 	w := a.wakeups()
 	slots := make(chan struct{}, 2)
@@ -223,6 +237,11 @@ func (a *App) processJob(parent context.Context, id, owner, kind, prompt, source
 			}
 		}
 	case "recipe":
+		// A family recording or recipe card is written down as a recipe of the member's own.
+		if family, ok := familyJobOf(prompt); ok {
+			a.processFamilyJob(parent, id, owner, family)
+			return
+		}
 		if !a.AI.TextEnabled() {
 			called, err = false, errors.New("text AI is not configured")
 			break
@@ -246,7 +265,7 @@ func (a *App) processJob(parent context.Context, id, owner, kind, prompt, source
 				err = out.Recipe.Validate()
 				result = jsonBytes(out)
 			}
-			if err != nil && importedFrom(prompt) != nil {
+			if err != nil && importJob(prompt) {
 				err = errors.Join(errNoRecipe, err)
 			}
 		}
@@ -262,12 +281,14 @@ func (a *App) processJob(parent context.Context, id, owner, kind, prompt, source
 			message = noRecipeOnPage
 			if strings.HasPrefix(prompt, captionPrefix) {
 				message = captionNoRecipe
+			} else if strings.HasPrefix(prompt, pastedPrefix) {
+				message = pastedNoRecipe
 			}
 		}
 		if parent.Err() != nil {
 			message = jobInterrupted // The worker is stopping.
 		}
-		if kind == "recipe" && importedFrom(prompt) != nil {
+		if kind == "recipe" && importJob(prompt) {
 			a.failImport(parent, id, message, called)
 			return
 		}
@@ -313,6 +334,9 @@ func (a *App) finishJob(ctx context.Context, id string, result []byte, message s
 			slog.Warn("announce studio media", "error", e)
 		}
 		a.wake("studio")
+	}
+	if strings.HasPrefix(key, batchJobKey) {
+		a.importJobDone(ctx)
 	}
 }
 

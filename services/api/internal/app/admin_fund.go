@@ -17,7 +17,8 @@ import (
 // console change.
 
 // adminFund is the fund at a glance: this month so far by the same rule that closes it, the
-// leading creators, every closed month with what's been paid of it, payouts and accounts.
+// leading creators, the paid-cooks signals (fund_signals.go), every closed month with what's been
+// paid of it, payouts and accounts.
 func (a *App) adminFund(c fiber.Ctx) error {
 	ctx := c.Context()
 	from := monthStart(time.Now())
@@ -25,7 +26,8 @@ func (a *App) adminFund(c fiber.Ctx) error {
 	if e != nil {
 		return e
 	}
-	shares, pool, members, cooks := splitFund(rows, fundShareBP())
+	share := fundShareBP()
+	shares, pool, members, cooks := splitFund(rows, share)
 	ids := make([]string, 0, len(shares))
 	for id := range shares {
 		ids = append(ids, id)
@@ -37,28 +39,28 @@ func (a *App) adminFund(c fiber.Ctx) error {
 		return strings.Compare(x, y)
 	})
 	ids = ids[:min(len(ids), 10)]
+	flaggedMembers, flaggedCreators := fundFlags(rows, shares, share)
+	tapped, e := tappedMembers(ctx, a.DB, from, from.AddDate(0, 1, 0))
+	if e != nil {
+		return e
+	}
+	named := slices.Clone(ids)
+	for _, m := range tapped {
+		named = append(named, m.member)
+	}
+	for _, m := range flaggedMembers {
+		named = append(named, m.member, m.creator)
+	}
+	for _, f := range flaggedCreators {
+		named = append(named, f.creator)
+	}
+	who, e := namesOf(ctx, a.DB, named)
+	if e != nil {
+		return e
+	}
 	leaders := []fiber.Map{}
-	if len(ids) > 0 {
-		names, e := a.DB.Query(ctx, `SELECT id,name,email FROM users WHERE id=ANY($1)`, ids)
-		if e != nil {
-			return e
-		}
-		who := map[string][2]string{}
-		for names.Next() {
-			var id, name, email string
-			if e = names.Scan(&id, &name, &email); e != nil {
-				names.Close()
-				return e
-			}
-			who[id] = [2]string{name, email}
-		}
-		names.Close()
-		if e = names.Err(); e != nil {
-			return e
-		}
-		for _, id := range ids {
-			leaders = append(leaders, fiber.Map{"id": id, "name": who[id][0], "email": who[id][1], "estimateCents": shares[id].cents, "cooks": shares[id].cooks})
-		}
+	for _, id := range ids {
+		leaders = append(leaders, fiber.Map{"id": id, "name": who[id].name, "email": who[id].email, "estimateCents": shares[id].cents, "cooks": shares[id].cooks})
 	}
 	var b []byte
 	e = a.DB.QueryRow(ctx, `SELECT jsonb_build_object(
@@ -72,7 +74,8 @@ func (a *App) adminFund(c fiber.Ctx) error {
    'failed7d',count(*) FILTER (WHERE status='failed' AND created_at>now()-interval '7 days'),
    'paid30dCents',COALESCE(sum(amount_cents) FILTER (WHERE status='paid' AND updated_at>now()-interval '30 days'),0)) FROM creator_payouts),
  'accounts',(SELECT jsonb_build_object('connected',count(*) FILTER (WHERE stripe_account_id IS NOT NULL),
-   'enabled',count(*) FILTER (WHERE payouts_enabled),'held',count(*) FILTER (WHERE held_at IS NOT NULL)) FROM creator_accounts))`).Scan(&b)
+   'enabled',count(*) FILTER (WHERE payouts_enabled),'held',count(*) FILTER (WHERE held_at IS NOT NULL)) FROM creator_accounts),
+ 'firstPayoutsWaiting',(SELECT count(*) FROM (SELECT DISTINCT creator_id FROM creator_earnings WHERE status='pending') e WHERE `+firstPayoutSQL("e.creator_id")+`>now()))`).Scan(&b)
 	if e != nil {
 		return e
 	}
@@ -84,12 +87,19 @@ func (a *App) adminFund(c fiber.Ctx) error {
 	out["sharePercent"] = float64(fundShareBP()) / 100
 	out["minimumCents"] = payoutMinimumCents
 	out["current"] = fiber.Map{"month": from.Format(time.DateOnly), "poolCents": pool, "members": members, "cooks": cooks, "creators": len(shares), "leaders": leaders}
+	flags := flagsJSON(flaggedMembers, flaggedCreators, who)
+	tappedJSON := []fiber.Map{}
+	for _, m := range tapped {
+		tappedJSON = append(tappedJSON, fiber.Map{"id": m.member, "name": who[m.member].name, "email": who[m.member].email, "cooks": m.cooks})
+	}
+	flags["tapped"], flags["tappedThreshold"] = tappedJSON, tappedCooks
+	out["flags"] = flags
 	return c.JSON(out)
 }
 
 // adminMemberEarnings is one member's side of the fund: their payout account (with its Stripe
-// id, for finding it in the dashboard), any hold, this month's cooks both ways and estimate,
-// earnings by month and payouts.
+// id, for finding it in the dashboard), any hold, when their first payout may go while that's
+// still ahead, this month's cooks both ways and estimate, earnings by month and payouts.
 func (a *App) adminMemberEarnings(c fiber.Ctx) error {
 	ctx, id := c.Context(), c.Params("id")
 	from := monthStart(time.Now())
@@ -111,6 +121,7 @@ func (a *App) adminMemberEarnings(c fiber.Ctx) error {
  'cooked',(SELECT count(*) FROM cook_sessions k WHERE k.user_id=u.id AND k.verified AND k.finished_at>=$2 AND k.finished_at<$3),
  'balanceCents',(SELECT COALESCE(sum(amount_cents),0) FROM creator_earnings WHERE creator_id=u.id AND status='pending'),
  'paidCents',(SELECT COALESCE(sum(amount_cents),0) FROM creator_earnings WHERE creator_id=u.id AND status='paid'),
+ 'firstPayoutAt',(SELECT t FROM (SELECT `+firstPayoutSQL("u.id")+` AS t) w WHERE t>now()),
  'history',COALESCE((SELECT jsonb_agg(jsonb_build_object('month',e.month,'amountCents',e.amount_cents,'cooks',e.cooks,'status',e.status,'paidAt',e.paid_at,'payoutId',e.payout_id) ORDER BY e.month DESC)
    FROM (SELECT * FROM creator_earnings WHERE creator_id=u.id ORDER BY month DESC LIMIT 24) e),'[]'),
  'payouts',COALESCE((SELECT jsonb_agg(jsonb_build_object('id',p.id,'amountCents',p.amount_cents,'status',p.status,'transferId',p.transfer_id,'error',p.error,'createdAt',p.created_at) ORDER BY p.created_at DESC)
@@ -129,7 +140,8 @@ func (a *App) adminMemberEarnings(c fiber.Ctx) error {
 }
 
 // adminHoldPayouts holds a creator's payouts ({ "held": true, "reason" }) or releases them. Held
-// earnings keep accruing; only the transfers wait. The rank rule applies as for suspensions.
+// earnings keep accruing; only the transfers wait. Releasing never brings a first payout forward
+// (firstPayoutSQL). The rank rule applies as for suspensions.
 func (a *App) adminHoldPayouts(c fiber.Ctx) error {
 	m, e := a.manage(c, false)
 	if e != nil {

@@ -20,7 +20,11 @@ import (
 //   - a recipe's first publish: its author's followers (preferences.notifications.follows);
 //   - a review or a comment on a recipe: its author, never for their own (reviews, comments);
 //   - pantry items expiring within two days: their owner, once per item (pantry), from a pass
-//     that runs once a day.
+//     that runs once a day;
+//   - a yearly plan renewing within the week: its member, once per renewal (renewals), from
+//     renewal_reminders.go, which emails it too.
+//   - the week's cook-along: every member, once a week (cookAlong), from a pass that claims the
+//     week (cook_along.go).
 // Outbox rows and messages are claimed before they are worked on, so no two replicas send the
 // same message; one whose send was cut off fails rather than risk arriving twice.
 
@@ -70,6 +74,9 @@ func RunNotifications(ctx context.Context, db *pgxpool.Pool) {
 			pantry = time.Now()
 			if _, e := n.pantryPass(ctx); e != nil && ctx.Err() == nil {
 				slog.Error("pantry reminders", "error", e)
+			}
+			if _, e := n.cookAlongPass(ctx); e != nil && ctx.Err() == nil {
+				slog.Error("cook-along notice", "error", e)
 			}
 		}
 		return found
@@ -210,6 +217,16 @@ func composeMessages(ctx context.Context, q engagementDB, ev outboxEvent) ([]pus
 			data = jsonBytes(map[string]string{"type": "pantry"})
 			recipients, e = pushRecipients(ctx, q, memberDevices, ev.recipient, "pantry")
 		}
+	case "renewal":
+		// A yearly plan renewing within the week (renewal_reminders.go); its email goes either way.
+		data = jsonBytes(map[string]string{"type": "plan"})
+		recipients, e = pushRecipients(ctx, q, memberDevices, ev.recipient, "renewals")
+	case "cookalong":
+		e = q.QueryRow(ctx, `SELECT r.title,a.name FROM recipes r JOIN users a ON a.id=r.author_id AND a.suspended_at IS NULL WHERE r.id=$1 AND r.published`, ev.recipe).Scan(&vars.Title, &vars.Name)
+		if e == nil {
+			recipients, e = pushRecipients(ctx, q, `SELECT t.user_id,t.token,COALESCE(u.preferences->>'language','') FROM users u JOIN push_tokens t ON t.user_id=u.id
+ WHERE u.suspended_at IS NULL AND (u.preferences->'notifications'->'cookAlong') IS DISTINCT FROM 'false'::jsonb ORDER BY t.user_id,t.token`)
+		}
 	}
 	if errors.Is(e, pgx.ErrNoRows) {
 		return nil, nil
@@ -223,6 +240,9 @@ func composeMessages(ctx context.Context, q engagementDB, ev outboxEvent) ([]pus
 			continue // nobody hears about what they did themselves
 		}
 		title, body := notice(ev.kind, r.language, vars)
+		if ev.kind == "renewal" {
+			title, body = renewalNoticeText(r.language, ev.detail)
+		}
 		out = append(out, pushMessage{user: r.user, token: r.token, title: title, body: body, data: data})
 	}
 	return out, nil
@@ -237,85 +257,94 @@ type noticeVars struct {
 // noticeText is one language's notifications: a title and a body for each kind, and how a
 // list of pantry items is joined.
 type noticeText struct {
-	publish, review, comment, reply, pantry [2]string
-	list                                    string
+	publish, review, comment, reply, pantry, cookalong [2]string
+	list                                               string
 }
 
 // noticeLanguages has the app's nine languages; any other language reads English. {name} is
-// who acted, {title} the recipe, {stars} a review's rating, {text} what they wrote, and
-// {items} the pantry items.
+// who acted (for the cook-along, the recipe's author), {title} the recipe, {stars} a review's
+// rating, {text} what they wrote, and {items} the pantry items.
 var noticeLanguages = map[string]noticeText{
 	"en": {
-		publish: [2]string{"New recipe from {name}", "{title}"},
-		review:  [2]string{"{name} reviewed {title}", "{stars} “{text}”"},
-		comment: [2]string{"{name} commented on {title}", "“{text}”"},
-		reply:   [2]string{"{name} replied to your review", "“{text}”"},
-		pantry:  [2]string{"Pantry reminder", "Use soon: {items}"},
-		list:    ", ",
+		publish:   [2]string{"New recipe from {name}", "{title}"},
+		review:    [2]string{"{name} reviewed {title}", "{stars} “{text}”"},
+		comment:   [2]string{"{name} commented on {title}", "“{text}”"},
+		reply:     [2]string{"{name} replied to your review", "“{text}”"},
+		pantry:    [2]string{"Pantry reminder", "Use soon: {items}"},
+		cookalong: [2]string{"This week’s cook-along", "{title} by {name}. Cook it with everyone this week."},
+		list:      ", ",
 	},
 	"fr": {
-		publish: [2]string{"Nouvelle recette de {name}", "{title}"},
-		review:  [2]string{"{name} a donné son avis sur {title}", "{stars} « {text} »"},
-		comment: [2]string{"{name} a commenté {title}", "« {text} »"},
-		reply:   [2]string{"{name} a répondu à votre avis", "« {text} »"},
-		pantry:  [2]string{"Rappel du garde-manger", "À utiliser bientôt : {items}"},
-		list:    ", ",
+		publish:   [2]string{"Nouvelle recette de {name}", "{title}"},
+		review:    [2]string{"{name} a donné son avis sur {title}", "{stars} « {text} »"},
+		comment:   [2]string{"{name} a commenté {title}", "« {text} »"},
+		reply:     [2]string{"{name} a répondu à votre avis", "« {text} »"},
+		pantry:    [2]string{"Rappel du garde-manger", "À utiliser bientôt : {items}"},
+		cookalong: [2]string{"La recette à cuisiner ensemble cette semaine", "{title} de {name}. Cuisinez-la avec tout le monde cette semaine."},
+		list:      ", ",
 	},
 	"de": {
-		publish: [2]string{"Neues Rezept von {name}", "{title}"},
-		review:  [2]string{"{name} hat {title} bewertet", "{stars} „{text}“"},
-		comment: [2]string{"{name} hat {title} kommentiert", "„{text}“"},
-		reply:   [2]string{"{name} hat auf deine Bewertung geantwortet", "„{text}“"},
-		pantry:  [2]string{"Vorrats-Erinnerung", "Bald verbrauchen: {items}"},
-		list:    ", ",
+		publish:   [2]string{"Neues Rezept von {name}", "{title}"},
+		review:    [2]string{"{name} hat {title} bewertet", "{stars} „{text}“"},
+		comment:   [2]string{"{name} hat {title} kommentiert", "„{text}“"},
+		reply:     [2]string{"{name} hat auf deine Bewertung geantwortet", "„{text}“"},
+		pantry:    [2]string{"Vorrats-Erinnerung", "Bald verbrauchen: {items}"},
+		cookalong: [2]string{"Gemeinsam kochen diese Woche", "{title} von {name}. Koch es diese Woche mit allen zusammen."},
+		list:      ", ",
 	},
 	"ru": {
-		publish: [2]string{"Новый рецепт от {name}", "{title}"},
-		review:  [2]string{"Отзыв от {name} на «{title}»", "{stars} «{text}»"},
-		comment: [2]string{"Комментарий от {name} к «{title}»", "«{text}»"},
-		reply:   [2]string{"{name} ответил(а) на ваш отзыв", "«{text}»"},
-		pantry:  [2]string{"Напоминание о продуктах", "Скоро истекает срок годности: {items}"},
-		list:    ", ",
+		publish:   [2]string{"Новый рецепт от {name}", "{title}"},
+		review:    [2]string{"Отзыв от {name} на «{title}»", "{stars} «{text}»"},
+		comment:   [2]string{"Комментарий от {name} к «{title}»", "«{text}»"},
+		reply:     [2]string{"{name} ответил(а) на ваш отзыв", "«{text}»"},
+		pantry:    [2]string{"Напоминание о продуктах", "Скоро истекает срок годности: {items}"},
+		cookalong: [2]string{"Готовим вместе на этой неделе", "«{title}» от {name}. Приготовьте вместе со всеми на этой неделе."},
+		list:      ", ",
 	},
 	"es": {
-		publish: [2]string{"Nueva receta de {name}", "{title}"},
-		review:  [2]string{"{name} dejó una reseña de {title}", "{stars} «{text}»"},
-		comment: [2]string{"{name} comentó en {title}", "«{text}»"},
-		reply:   [2]string{"{name} respondió a tu reseña", "«{text}»"},
-		pantry:  [2]string{"Recordatorio de la despensa", "Para usar pronto: {items}"},
-		list:    ", ",
+		publish:   [2]string{"Nueva receta de {name}", "{title}"},
+		review:    [2]string{"{name} dejó una reseña de {title}", "{stars} «{text}»"},
+		comment:   [2]string{"{name} comentó en {title}", "«{text}»"},
+		reply:     [2]string{"{name} respondió a tu reseña", "«{text}»"},
+		pantry:    [2]string{"Recordatorio de la despensa", "Para usar pronto: {items}"},
+		cookalong: [2]string{"La receta para cocinar juntos esta semana", "{title} de {name}. Cocínala con todos esta semana."},
+		list:      ", ",
 	},
 	"it": {
-		publish: [2]string{"Nuova ricetta di {name}", "{title}"},
-		review:  [2]string{"{name} ha recensito {title}", "{stars} «{text}»"},
-		comment: [2]string{"{name} ha commentato {title}", "«{text}»"},
-		reply:   [2]string{"{name} ha risposto alla tua recensione", "«{text}»"},
-		pantry:  [2]string{"Promemoria dispensa", "Da usare presto: {items}"},
-		list:    ", ",
+		publish:   [2]string{"Nuova ricetta di {name}", "{title}"},
+		review:    [2]string{"{name} ha recensito {title}", "{stars} «{text}»"},
+		comment:   [2]string{"{name} ha commentato {title}", "«{text}»"},
+		reply:     [2]string{"{name} ha risposto alla tua recensione", "«{text}»"},
+		pantry:    [2]string{"Promemoria dispensa", "Da usare presto: {items}"},
+		cookalong: [2]string{"La ricetta da cucinare insieme questa settimana", "{title} di {name}. Cucinala con tutti questa settimana."},
+		list:      ", ",
 	},
 	"pt": {
-		publish: [2]string{"Nova receita de {name}", "{title}"},
-		review:  [2]string{"{name} avaliou {title}", "{stars} “{text}”"},
-		comment: [2]string{"{name} comentou em {title}", "“{text}”"},
-		reply:   [2]string{"{name} respondeu à sua avaliação", "“{text}”"},
-		pantry:  [2]string{"Lembrete da despensa", "Para usar logo: {items}"},
-		list:    ", ",
+		publish:   [2]string{"Nova receita de {name}", "{title}"},
+		review:    [2]string{"{name} avaliou {title}", "{stars} “{text}”"},
+		comment:   [2]string{"{name} comentou em {title}", "“{text}”"},
+		reply:     [2]string{"{name} respondeu à sua avaliação", "“{text}”"},
+		pantry:    [2]string{"Lembrete da despensa", "Para usar logo: {items}"},
+		cookalong: [2]string{"A receita para cozinhar junto esta semana", "{title} de {name}. Cozinhe com todo mundo esta semana."},
+		list:      ", ",
 	},
 	"zh": {
-		publish: [2]string{"{name}发布了新菜谱", "{title}"},
-		review:  [2]string{"{name}评价了《{title}》", "{stars}“{text}”"},
-		comment: [2]string{"{name}评论了《{title}》", "“{text}”"},
-		reply:   [2]string{"{name}回复了你的评价", "“{text}”"},
-		pantry:  [2]string{"食材提醒", "请尽快食用：{items}"},
-		list:    "、",
+		publish:   [2]string{"{name}发布了新菜谱", "{title}"},
+		review:    [2]string{"{name}评价了《{title}》", "{stars}“{text}”"},
+		comment:   [2]string{"{name}评论了《{title}》", "“{text}”"},
+		reply:     [2]string{"{name}回复了你的评价", "“{text}”"},
+		pantry:    [2]string{"食材提醒", "请尽快食用：{items}"},
+		cookalong: [2]string{"本周一起做", "{name}的《{title}》。本周和大家一起做吧。"},
+		list:      "、",
 	},
 	"ja": {
-		publish: [2]string{"{name}さんが新しいレシピを投稿しました", "{title}"},
-		review:  [2]string{"{name}さんが「{title}」にレビューを書きました", "{stars}「{text}」"},
-		comment: [2]string{"{name}さんが「{title}」にコメントしました", "「{text}」"},
-		reply:   [2]string{"{name}さんがあなたのレビューに返信しました", "「{text}」"},
-		pantry:  [2]string{"食材のお知らせ", "早めに使いましょう：{items}"},
-		list:    "、",
+		publish:   [2]string{"{name}さんが新しいレシピを投稿しました", "{title}"},
+		review:    [2]string{"{name}さんが「{title}」にレビューを書きました", "{stars}「{text}」"},
+		comment:   [2]string{"{name}さんが「{title}」にコメントしました", "「{text}」"},
+		reply:     [2]string{"{name}さんがあなたのレビューに返信しました", "「{text}」"},
+		pantry:    [2]string{"食材のお知らせ", "早めに使いましょう：{items}"},
+		cookalong: [2]string{"今週のみんなで作るレシピ", "{name}さんの「{title}」。今週はみんなで一緒に作りましょう。"},
+		list:      "、",
 	},
 }
 
@@ -338,6 +367,8 @@ func notice(kind, language string, v noticeVars) (title, body string) {
 		t = texts.reply
 	case "pantry":
 		t = texts.pantry
+	case "cookalong":
+		t = texts.cookalong
 	}
 	rating := min(max(v.Rating, 0), 5)
 	items := v.Items

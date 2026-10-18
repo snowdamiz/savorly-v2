@@ -34,6 +34,11 @@ export type Earnings = {
   sharePercent: number;
   /** Payouts wait until the balance reaches this. */
   minimumCents: number;
+  /**
+   * A creator's first payout waits 60 days after their first month closes; this is when, while
+   * it's still ahead. Missing on older servers.
+   */
+  firstPayoutAt?: string | null;
   history: EarningsMonth[];
   payouts: PayoutSetup;
   /** Where Stripe can pay creators out, as two-letter codes. */

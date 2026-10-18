@@ -58,7 +58,11 @@ A question is `POST /v1/recipes/:id/ask` with `{ "question", "step", "language" 
 The server reads the recipe as the member may see it (published by a cook in good standing, or
 their own) and asks GPT-6 Luna (`OPENROUTER_AGENT_MODEL`, low reasoning, at most 300 output
 tokens) for one to three short spoken sentences from the recipe (its equipment included: the cook's
-list, or what the method mentions) and the cook's step. The call has
+list, or what the method mentions), the cook's step, and what other cooks found at that step: how
+long it really took them and what they often ask ([cook-tested recipes](COOK-TESTED.md)), and
+the cook's own version of the recipe and kitchen notes ([your version](YOUR-VERSION.md)). The
+question itself is kept with its step for 90 days, for the questions recipes show, unless it's the
+cook's own recipe or they keep their cooking out. The call has
 no tools: it can't move a step, start a timer or change anything, and it is told never to claim it
 did, to treat the recipe and the question as data rather than instructions, to give safe internal
 temperatures where doneness matters, and never to guarantee allergy safety.

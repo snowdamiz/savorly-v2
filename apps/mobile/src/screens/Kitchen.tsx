@@ -22,9 +22,11 @@ import {
   Share2,
   ShoppingBasket,
   Trash2,
+  Users,
   X,
 } from '../components/icons';
 import { useApp } from '../lib/store';
+import { householdCookbooks, type HouseholdCookbook } from '../lib/family';
 import { api } from '../lib/api';
 import { GroceryMerge, Kitchen, PantryMatch, Plan, Recipe, Screen } from '../lib/types';
 import { joinNames } from '../lib/food';
@@ -109,9 +111,12 @@ function HeadingAction({
 export function Cookbooks({
   onOpen,
   navigate,
+  onOpenCookbook,
 }: {
   onOpen: (r: Recipe) => void;
   navigate: (s: Screen) => void;
+  /** Opens a cookbook's own page: one someone in the household shares (lib/family.ts). */
+  onOpenCookbook?: (id: string) => void;
 }) {
   const { t: tr } = useI18n();
   const app = useApp();
@@ -122,6 +127,14 @@ export function Cookbooks({
   const [remove, setRemove] = useState(false);
   const [editing, setEditing] = useState(false);
   const share = useShareCookbook();
+  // The household's shared cookbooks, beside the cook's own: theirs open on their own page.
+  const { household } = useHousehold(app.user?.id ?? null);
+  const [shared, setShared] = useState<HouseholdCookbook[]>([]);
+  useEffect(() => {
+    if (household) householdCookbooks().then(setShared, () => {});
+  }, [household]);
+  const theirs =
+    household && onOpenCookbook ? shared.filter((b) => b.owner.id !== app.user?.id) : [];
   const selected = app.library.collections.find((c) => c.id === active);
   const shelf = useShelf(active);
   const { recipes } = shelf;
@@ -165,9 +178,18 @@ export function Cookbooks({
               <Chip
                 key={c.id}
                 title={c.name}
-                icon={c.public ? Globe : undefined}
+                icon={c.household ? Users : c.public ? Globe : undefined}
                 active={active === c.id}
                 onPress={() => setActive(c.id)}
+              />
+            ))}
+            {theirs.map((b) => (
+              <Chip
+                key={b.id}
+                title={b.name}
+                icon={Users}
+                active={false}
+                onPress={() => onOpenCookbook?.(b.id)}
               />
             ))}
           </ScrollView>
@@ -177,6 +199,7 @@ export function Cookbooks({
                 <View style={[s.row, { flex: 1, gap: 10, flexWrap: 'wrap' }]}>
                   <Text style={s.h2}>{selected.name}</Text>
                   {selected.public && <Pill title={tr('Public')} icon={Globe} />}
+                  {selected.household && <Pill title={tr('Household')} icon={Users} />}
                 </View>
                 <View style={[s.row, { gap: 8 }]}>
                   {selected.public && (
@@ -288,6 +311,7 @@ export function Cookbooks({
       </Dialog>
       <CookbookSettings
         cookbook={editing && selected ? selected : null}
+        household={household?.name}
         onClose={() => setEditing(false)}
       />
     </View>

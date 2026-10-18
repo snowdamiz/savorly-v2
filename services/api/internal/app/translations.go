@@ -58,13 +58,13 @@ func (s recipeSource) hash() string {
 	return hashToken(translationVersion + "\x00" + s.language + "\x00" + string(jsonBytes(s.text)))
 }
 
-// loadRecipeSource reads a recipe viewer ("" for a guest) may see: published, or their own, by a
-// cook in good standing, as GET /recipes/:id shows it. A missing one is pgx.ErrNoRows.
+// loadRecipeSource reads a recipe viewer ("" for a guest) may see (visibleRecipeSQL), by a cook in
+// good standing, as GET /recipes/:id shows it. A missing one is pgx.ErrNoRows.
 func loadRecipeSource(ctx context.Context, q querier, id, viewer string) (recipeSource, error) {
 	var s recipeSource
 	var ingredients []Ingredient
 	var steps []Step
-	e := q.QueryRow(ctx, `SELECT r.title,r.description,r.ingredients,r.steps,r.language,r.equipment`+recipeFrom+`WHERE r.id=$1 AND (r.published OR r.author_id=$2)`, id, viewer).
+	e := q.QueryRow(ctx, `SELECT r.title,r.description,r.ingredients,r.steps,r.language,r.equipment`+recipeFrom+`WHERE r.id=$1 AND `+visibleRecipeSQL("r", "$2"), id, viewer).
 		Scan(&s.text.Title, &s.text.Description, &ingredients, &steps, &s.language, &s.text.Equipment)
 	if e != nil {
 		return s, e

@@ -125,6 +125,18 @@ export function CreatorEarnings() {
             amount: money(earnings.minimumCents),
           })}
         </Text>
+        {!!earnings.firstPayoutAt && (
+          <Text style={s.small}>
+            {tr(
+              'Your first payout can go out from {{date}}, once members’ payments have cleared.',
+              {
+                date: new Date(earnings.firstPayoutAt).toLocaleDateString(locale, {
+                  dateStyle: 'long',
+                }),
+              },
+            )}
+          </Text>
+        )}
       </View>
       {earnings.history.length > 0 && (
         <View style={{ gap: 2 }}>

@@ -6,6 +6,7 @@ import (
 	"os"
 	"slices"
 	"strconv"
+	"time"
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/jackc/pgx/v5"
@@ -200,6 +201,22 @@ func poolUsage(ctx context.Context, q querier, members []string) (usage, error) 
  (SELECT count(*) FROM ai_usage WHERE user_id=ANY($1) AND kind='cook_question' AND created_at>now()-interval '30 days')`, members).
 		Scan(&u.Assistant, &u.VoiceSeconds, &u.Images, &u.Videos, &u.Narration, &u.Spend, &u.CookQuestions)
 	return u, e
+}
+
+// poolUsageFrees is when each allowance gets room back: its oldest use that poolUsage counts stops
+// counting 30 days after it was made. Keys are usage's; an allowance with nothing counted is nil.
+func poolUsageFrees(ctx context.Context, q querier, members []string) (map[string]*time.Time, error) {
+	var assistant, voice, images, videos, narration, cookQuestions *time.Time
+	e := q.QueryRow(ctx, `SELECT
+ least((SELECT min(a.created_at) FROM voice_actions a JOIN voice_projects p ON p.id=a.project_id WHERE p.user_id=ANY($1) AND a.estimated_cost>0 AND a.created_at>now()-interval '30 days'),
+  (SELECT min(created_at) FROM ai_jobs WHERE user_id=ANY($1) AND kind NOT IN ('image','video') AND estimated_cost>0 AND created_at>now()-interval '30 days'))+interval '30 days',
+ (SELECT min(created_at) FROM voice_sessions WHERE user_id=ANY($1) AND reserved_seconds>0 AND created_at>now()-interval '30 days')+interval '30 days',
+ (SELECT min(created_at) FROM ai_jobs WHERE user_id=ANY($1) AND kind='image' AND estimated_cost>0 AND created_at>now()-interval '30 days')+interval '30 days',
+ (SELECT min(created_at) FROM ai_jobs WHERE user_id=ANY($1) AND kind='video' AND estimated_cost>0 AND created_at>now()-interval '30 days')+interval '30 days',
+ (SELECT min(created_at) FROM narration_usage WHERE user_id=ANY($1) AND created_at>now()-interval '30 days')+interval '30 days',
+ (SELECT min(created_at) FROM ai_usage WHERE user_id=ANY($1) AND kind='cook_question' AND created_at>now()-interval '30 days')+interval '30 days'`, members).
+		Scan(&assistant, &voice, &images, &videos, &narration, &cookQuestions)
+	return map[string]*time.Time{"assistant": assistant, "voiceSeconds": voice, "images": images, "videos": videos, "narration": narration, "cookQuestions": cookQuestions}, e
 }
 
 // allowance refuses one more unit of kind ("assistant", "image", "video", "narration", "cook_question")

@@ -7,6 +7,18 @@ export type RecipeStep = {
   image?: string;
   /** A short clip of this step (a media URL); missing or '' for none. */
   video?: string;
+  /** Where one of the recipe's family recordings says this step (lib/family.ts); missing for none. */
+  voice?: StepVoice | null;
+};
+/** A stretch of a family recording: which one (`Recipe.recordings`), from and to, in milliseconds. */
+export type StepVoice = { recording: string; startMs: number; endMs: number };
+/** A family recording a recipe's steps play: who is speaking, and whether they agreed to sharing it. */
+export type RecipeRecording = {
+  id: string;
+  speaker: string;
+  url: string;
+  durationMs: number;
+  consented: boolean;
 };
 export type Creator = {
   id: string;
@@ -16,6 +28,8 @@ export type Creator = {
   avatar: string;
   recipeCount?: number;
   followerCount?: number;
+  /** One of the founding creators Savorly marks. Missing on older servers. */
+  founding?: boolean;
 };
 export type RecipeInput = {
   title: string;
@@ -87,11 +101,15 @@ export type Recipe = Omit<RecipeInput, 'derivedFrom'> & {
   verifiedCooks?: number;
   /** How long verified cooks usually take, in minutes; null until 3 agree. Missing on older servers. */
   cookedMinutes?: number | null;
+  /** Cooks whose suggested fixes its author accepted (docs/RECIPE-FIXES.md). Missing on older servers. */
+  improvedBy?: number;
   /**
    * The equipment its method mentions, read by the server's lexicon, as English keys ('frying
    * pan', 'oven') the app names in the reader's language (equipmentName). Missing on older servers.
    */
   equipmentDetected?: string[];
+  /** The family recordings its steps play, in a relative's own voice. Missing on older servers. */
+  recordings?: RecipeRecording[];
 };
 /**
  * What the server's ingredient lexicon reads in one ingredient line: what it is (`key`, which the
@@ -114,6 +132,10 @@ export type NotificationPreferences = {
   pantry: boolean;
   reviews: boolean;
   comments: boolean;
+  /** A week before a yearly plan renews. Older servers leave it out. */
+  renewals?: boolean;
+  /** The week's cook-along. Missing on older servers. */
+  cookAlong?: boolean;
 };
 export type Preferences = {
   diets: string[];
@@ -127,6 +149,11 @@ export type Preferences = {
   shareDiet?: boolean;
   /** Recipes in other languages open translated into the app's. Older servers leave it out. */
   translateRecipes?: boolean;
+  /**
+   * The member's cooking counts toward recipes' insights: how long steps take and what cooks ask.
+   * On unless turned off; older servers leave it out.
+   */
+  shareCooking?: boolean;
 };
 export type User = Creator & {
   email: string;
@@ -188,6 +215,15 @@ export type Billing = {
   sharedBy?: { id: string; name: string } | null;
   /** How many others in the household use this member's plan (0 or missing for none). */
   sharedWith?: number;
+  /** The plan is the member's own Stripe subscription, which they can cancel or keep in the app. Missing on older servers. */
+  cancelable?: boolean;
+  /**
+   * A yearly plan in its first 14 days can be refunded in full until `until`: `amountCents` in
+   * `currency` (lowercase, as Stripe writes it), left out when Stripe couldn't say. Null otherwise.
+   */
+  refund?: { until: string; amountCents?: number; currency?: string } | null;
+  /** When each allowance gets room back: its oldest use counted turns 30 days old (null when nothing is counted). */
+  usageFreesAt?: Partial<Record<keyof Billing['usage'], string | null>>;
 };
 export type Review = {
   id: string;
@@ -327,6 +363,8 @@ export type Capabilities = {
   billing?: boolean;
   /** The creator fund pays creators for verified cooks of their recipes (CREATOR_FUND). */
   creatorFund?: boolean;
+  /** Family recordings and recipe cards can be written down as recipes (lib/family.ts). */
+  familyRecipes?: boolean;
   /** Password-reset email is configured, and with it email confirmation and email changes. */
   passwordRecovery?: boolean;
   /** Cloudflare Turnstile's public site key; '' (or missing) when sign-up has no check. */
@@ -351,7 +389,9 @@ export type Screen =
   | 'profile'
   | 'create'
   | 'community'
-  | 'admin';
+  | 'admin'
+  | 'mealime'
+  | 'own-site';
 export const emptyRecipe = (): RecipeInput => ({
   title: '',
   description: '',
@@ -416,7 +456,10 @@ export type StudioEffect = {
     | 'review'
     | 'report'
     | 'media'
-    | 'cooked';
+    | 'cooked'
+    | 'suggested'
+    | 'remembered'
+    | 'kitchen_note';
   count?: number;
   title?: string;
   /** A recipe to open from the receipt. */
@@ -477,6 +520,8 @@ export type Collection = {
   /** Anyone with the link can see the cookbook and the published recipes in it. */
   public?: boolean;
   description?: string;
+  /** The household can open it, and the owner's private recipes in it (lib/family.ts). */
+  household?: boolean;
 };
 /** A cookbook page, GET /cookbooks/:id: public ones for everyone, private ones for their owner. */
 export type PublicCookbook = {
@@ -535,6 +580,34 @@ export type DeviceSession = {
   /** iPhone, iPad, iOS, Android, macOS, Windows, ChromeOS, Linux, or ''. */
   system: string;
   current: boolean;
+};
+/** What an assistant linked to Savorly may do (docs/ASSISTANTS.md). */
+export type AssistantScope = 'cookbooks' | 'planner' | 'groceries';
+/** An assistant asking to connect, as the consent page shows it. */
+export type AssistantApp = {
+  id: string;
+  name: string;
+  /** The site that vouches for it, or else where it sends the member back. */
+  host: string;
+  /** One of the assistants Savorly lists itself in, such as ChatGPT or Claude. */
+  verified: boolean;
+};
+/** GET /oauth/authorize: the request to show, or where to send the member back when it's wrong. */
+export type ConnectRequest =
+  | {
+      client: AssistantApp;
+      redirectHost: string;
+      /** It returns to this device, which any program on it could claim to be. */
+      localhost: boolean;
+      scopes: AssistantScope[];
+      redirect?: undefined;
+    }
+  | { redirect: string; client?: undefined };
+/** A linked assistant, as GET /me/connected-apps lists it (newest first). */
+export type ConnectedApp = AssistantApp & {
+  scopes: AssistantScope[];
+  connectedAt: string;
+  lastUsedAt: string;
 };
 /**
  * A recipe's text in another language, GET /recipes/:id/translation: ingredients and steps in the

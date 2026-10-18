@@ -133,6 +133,22 @@ func (s *MediaStore) Read(ctx context.Context, owner, url string, limit int64) (
 	return data, e
 }
 
+// Open streams one of owner's own files from storage, with its type, for as long as the caller
+// reads it; anyone else's file is never opened.
+func (s *MediaStore) Open(ctx context.Context, owner, url string) (io.ReadCloser, string, error) {
+	if !s.Own(owner, url) {
+		return nil, "", errors.New("not the member's own file")
+	}
+	if s.S3 == nil {
+		return nil, "", fiber.NewError(503, "Media storage has not been configured.")
+	}
+	out, e := s.S3.GetObject(ctx, &s3.GetObjectInput{Bucket: aws.String(s.Bucket), Key: aws.String(strings.TrimPrefix(url, s.BaseURL+"/"))})
+	if e != nil {
+		return nil, "", e
+	}
+	return out.Body, aws.ToString(out.ContentType), nil
+}
+
 // uploadMedia is the multipart upload older apps use. The server spools a large part to a
 // temporary file while reading the request, and the part goes from there straight to storage.
 func (a *App) uploadMedia(c fiber.Ctx) error {

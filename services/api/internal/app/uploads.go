@@ -24,11 +24,43 @@ const mediaReadTimeout = 5 * time.Minute
 var uploadTypes = map[string]map[string]string{
 	"image": {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"},
 	"video": {"video/mp4": ".mp4", "video/webm": ".webm"},
+	// Family recordings (family.go): AAC in MP4 from phones and Safari, WebM from other browsers,
+	// and MP3.
+	"audio": {"audio/mp4": ".m4a", "audio/webm": ".weba", "audio/mpeg": ".mp3"},
 }
 
 const uploadExpiry = 15 * time.Minute
 
-var uploadName = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(jpg|png|webp|mp4|webm)$`)
+var uploadName = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(jpg|png|webp|mp4|webm|m4a|weba|mp3)$`)
+
+// The refusals of a file of the wrong type, by kind.
+const (
+	wrongMedia     = "Use a JPEG, PNG, WebP, MP4, or WebM file."
+	wrongRecording = "Use an M4A, WebM or MP3 recording."
+)
+
+// uploadSize is the most a direct upload of type mime may hold, and the refusal past it: recordings
+// stay within what speech-to-text takes in one request.
+func uploadSize(mime string) (int64, string) {
+	if strings.HasPrefix(mime, "audio/") {
+		return maxRecordingBytes, "Choose a recording smaller than 25 MB."
+	}
+	return maxMediaBytes, "Choose a file smaller than 50 MB."
+}
+
+// audioType is the kind of recording data starts with: MP4 (an ftyp box, as AAC recordings are
+// kept), WebM (an EBML header) or MP3 (an ID3 tag or a frame header); "" for anything else.
+func audioType(data []byte) string {
+	switch {
+	case len(data) >= 12 && string(data[4:8]) == "ftyp":
+		return "audio/mp4"
+	case len(data) >= 4 && string(data[:4]) == "\x1a\x45\xdf\xa3":
+		return "audio/webm"
+	case len(data) >= 3 && string(data[:3]) == "ID3", len(data) >= 2 && data[0] == 0xff && data[1]&0xe0 == 0xe0:
+		return "audio/mpeg"
+	}
+	return ""
+}
 
 // uploadPrefix is where a member's direct uploads live in the public media bucket.
 func uploadPrefix(owner string) string { return "uploads/" + owner + "/" }
@@ -52,11 +84,14 @@ func (a *App) createUpload(c fiber.Ctx) error {
 		return e
 	}
 	ext, ok := uploadTypes[in.Kind][in.ContentType]
-	if !ok {
-		return fiber.NewError(400, "Use a JPEG, PNG, WebP, MP4, or WebM file.")
+	if !ok && in.Kind == "audio" {
+		return fiber.NewError(400, wrongRecording)
 	}
-	if in.Size < 1 || in.Size > maxMediaBytes {
-		return fiber.NewError(400, "Choose a file smaller than 50 MB.")
+	if !ok {
+		return fiber.NewError(400, wrongMedia)
+	}
+	if limit, tooLarge := uploadSize(in.ContentType); in.Size < 1 || in.Size > limit {
+		return fiber.NewError(400, tooLarge)
 	}
 	if a.Media == nil || a.Media.Presign == nil || a.Media.BaseURL == "" {
 		return fiber.NewError(503, "Media storage has not been configured.")
@@ -109,9 +144,6 @@ func (a *App) completeUpload(c fiber.Ctx) error {
 		}
 		return fiber.NewError(400, message)
 	}
-	if size := aws.ToInt64(head.ContentLength); size < 1 || size > maxMediaBytes {
-		return refuse("Choose a file smaller than 50 MB.")
-	}
 	want := ""
 	for _, types := range uploadTypes {
 		for mime, ext := range types {
@@ -119,6 +151,9 @@ func (a *App) completeUpload(c fiber.Ctx) error {
 				want = mime
 			}
 		}
+	}
+	if limit, tooLarge := uploadSize(want); aws.ToInt64(head.ContentLength) < 1 || aws.ToInt64(head.ContentLength) > limit {
+		return refuse(tooLarge)
 	}
 	// The signed Content-Type only labels the bytes; check what they are.
 	first, e := a.Media.S3.GetObject(ctx, &s3.GetObjectInput{Bucket: bucket, Key: key, Range: aws.String("bytes=0-511")})
@@ -130,8 +165,14 @@ func (a *App) completeUpload(c fiber.Ctx) error {
 	if e != nil {
 		return e
 	}
-	if mime, _ := mediaType(sniff); mime != want || aws.ToString(head.ContentType) != want {
-		return refuse("Use a JPEG, PNG, WebP, MP4, or WebM file.")
+	got, _ := mediaType(sniff)
+	wrong := wrongMedia
+	if strings.HasPrefix(want, "audio/") {
+		// Recordings come in containers videos use too, so they're judged as recordings.
+		got, wrong = audioType(sniff), wrongRecording
+	}
+	if got != want || aws.ToString(head.ContentType) != want {
+		return refuse(wrong)
 	}
 	return c.JSON(fiber.Map{"url": a.Media.BaseURL + "/" + in.Key})
 }

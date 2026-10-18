@@ -56,11 +56,14 @@ func (a *App) askCook(c fiber.Ctx) error {
 	if e != nil {
 		return e
 	}
-	q := ai.CookQuestion{Recipe: recipe.text(), Step: cookStep(recipe, in.Step), Question: question, Language: language}
+	q := ai.CookQuestion{Recipe: recipe.text(), Step: cookStep(recipe, in.Step), Insight: recipe.insight(in.Step), Question: question, Language: language,
+		Yours: yourVersionLine(ctx, a.DB, owner, recipe.id, recipe.steps, recipe.ingredients)}
 	usage, e := a.reserveCookQuestion(ctx, owner, q.Estimate())
 	if e != nil {
 		return e
 	}
+	// What cooks ask at a step, grouped with others' each night, becomes the recipe's questions.
+	recordCookQuestion(ctx, a.DB, owner, recipe.id, in.Step, question, "hands_free")
 	call, cancel := context.WithTimeout(ctx, 25*time.Second)
 	defer cancel()
 	answer, cost, e := a.AI.CookAnswer(call, q)
@@ -80,11 +83,11 @@ func (a *App) askCook(c fiber.Ctx) error {
 }
 
 // cookRecipe is the recipe a question is about, as the member may see it: published by a cook
-// who isn't suspended, or their own.
+// who isn't suspended, their own, or their household's (family.go).
 func (a *App) cookRecipe(ctx context.Context, id, owner string) (*sceneRecipe, error) {
 	r := &sceneRecipe{id: id}
 	var ingredients, steps []byte
-	e := a.DB.QueryRow(ctx, `SELECT r.title,u.name,r.author_id=$2,r.servings,r.minutes,r.ingredients,r.steps,r.equipment,r.equipment_detected`+recipeFrom+`WHERE r.id=$1 AND (r.published OR r.author_id=$2)`, id, owner).
+	e := a.DB.QueryRow(ctx, `SELECT r.title,u.name,r.author_id=$2,r.servings,r.minutes,r.ingredients,r.steps,r.equipment,r.equipment_detected`+recipeFrom+`WHERE r.id=$1 AND `+visibleRecipeSQL("r", "$2"), id, owner).
 		Scan(&r.title, &r.author, &r.mine, &r.servings, &r.minutes, &ingredients, &steps, &r.equipment, &r.detected)
 	if errors.Is(e, pgx.ErrNoRows) {
 		return nil, fiber.NewError(404, "Recipe not found.")
@@ -94,6 +97,7 @@ func (a *App) cookRecipe(ctx context.Context, id, owner string) (*sceneRecipe, e
 	}
 	_ = json.Unmarshal(ingredients, &r.ingredients)
 	_ = json.Unmarshal(steps, &r.steps)
+	r.insights = stepInsightsFor(ctx, a.DB, id, r.steps)
 	return r, nil
 }
 

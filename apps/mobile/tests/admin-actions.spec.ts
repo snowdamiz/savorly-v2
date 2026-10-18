@@ -10,8 +10,9 @@ import type {
 import { empty, failure, json, mockApi, recipe } from './mockApi';
 
 // Admin console actions beyond admin.spec.ts, each behind its confirmation: suspending a member and
-// lifting it, making one an admin, deleting one by typing their email back, unpublishing a recipe
-// with a note and restoring it, cancelling an AI job and ending a live voice session.
+// lifting it, making one an admin or a founding creator, deleting one by typing their email back,
+// unpublishing a recipe with a note and restoring it, cancelling an AI job and ending a live voice
+// session.
 
 const owner = {
   id: 'owner',
@@ -118,6 +119,9 @@ async function adminConsole(page: Page, tab: string) {
     const { admin } = body as { admin: boolean };
     return change({ admin, appointedAdmin: admin });
   });
+  api.on('PUT', '/admin/users/sam/founding', ({ body }) =>
+    change({ foundingCreatorAt: (body as { founding: boolean }).founding ? at : null }),
+  );
   api.on('DELETE', '/admin/users/sam', () => {
     record = null;
     return empty();
@@ -303,6 +307,27 @@ test('an owner makes a member an admin after confirming', async ({ page }) => {
   await expect(sheet(page).getByText('Sam Spam is now an admin.', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Remove as admin', exact: true })).toBeVisible();
   expect(api.sentTo('/admin/users/sam/admin')).toEqual([['PUT', { admin: true }]]);
+});
+
+test('an admin marks a founding creator, and can take the mark back', async ({ page }) => {
+  const api = await adminConsole(page, 'members');
+  await openSam(page);
+  await ask(page, 'Make founding creator', 'Make Sam Spam a founding creator?');
+  await expect(page.getByText(/they join the cook-along’s rotation/)).toBeVisible();
+  await page.getByRole('button', { name: 'Make founding creator', exact: true }).click();
+  await expect(
+    sheet(page).getByText('Sam Spam is a founding creator.', { exact: true }),
+  ).toBeVisible();
+  await expect(sheet(page).getByText('Founding creator', { exact: true })).toBeVisible();
+  await ask(page, 'Remove founding creator', 'Remove Sam Spam as a founding creator?');
+  await page.getByRole('button', { name: 'Remove the mark', exact: true }).click();
+  await expect(
+    sheet(page).getByText('Sam Spam is no longer a founding creator.', { exact: true }),
+  ).toBeVisible();
+  expect(api.sentTo('/admin/users/sam/founding')).toEqual([
+    ['PUT', { founding: true }],
+    ['PUT', { founding: false }],
+  ]);
 });
 
 test('deleting a member takes their email typed back', async ({ page }) => {

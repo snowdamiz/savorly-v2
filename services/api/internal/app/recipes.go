@@ -19,8 +19,9 @@ import (
 // index lookups, like the reviews and saves ones. derivedFrom names the original only while
 // it's public, so a variation never shows the title of a draft, its own author's included.
 // cookedMinutes, the real cook time (cook_sessions.go), is kept up to date in recipe_cook_times
-// and shows once 3 verified cooks agree; null until then. jsonb_build_object takes at most 100
-// arguments, two a field: this one has 33 fields.
+// and shows once 3 verified cooks agree; null until then. author.founding marks a founding
+// creator (founding.go), and recordings are the family recordings its steps play (family.go).
+// jsonb_build_object takes at most 100 arguments, two a field: this one has 35 fields.
 const recipeJSON = `jsonb_build_object(
  'id',r.id,'title',r.title,'description',r.description,'cuisine',r.cuisine,
  'minutes',r.minutes,'servings',r.servings,'difficulty',r.difficulty,'image',r.image,'photos',r.photos,'video',r.video,
@@ -38,7 +39,9 @@ const recipeJSON = `jsonb_build_object(
  'cookedCount',(SELECT count(*) FROM cooks WHERE recipe_id=r.id),
  'verifiedCooks',COALESCE((SELECT t.cooks FROM recipe_cook_times t WHERE t.recipe_id=r.id),0),
  'cookedMinutes',(SELECT t.minutes FROM recipe_cook_times t WHERE t.recipe_id=r.id AND t.cooks>=3),
- 'author',jsonb_build_object('id',u.id,'name',u.name,'handle',u.handle,'avatar',u.avatar,'bio',u.bio))`
+ 'improvedBy',(SELECT count(DISTINCT s.user_id) FROM recipe_suggestions s WHERE s.recipe_id=r.id AND s.status='accepted'),
+ 'recordings',` + recipeRecordingsJSON + `,
+ 'author',jsonb_build_object('id',u.id,'name',u.name,'handle',u.handle,'avatar',u.avatar,'bio',u.bio,'founding',u.founding_creator_at IS NOT NULL))`
 
 // Suspended members' recipes leave every public and sous-chef view; admin views join directly.
 const recipeFrom = ` FROM recipes r JOIN users u ON u.id=r.author_id AND u.suspended_at IS NULL `
@@ -84,7 +87,7 @@ func (a *App) listRecipes(c fiber.Ctx) error {
 		offset = 0
 	}
 	maxMinutes, _ := strconv.Atoi(c.Query("maxMinutes"))
-	q := recipeQuery{Text: strings.TrimSpace(c.Query("q")), Cuisine: c.Query("category"), Author: c.Query("author"), Tag: c.Query("tag"), Sort: c.Query("sort"), MaxMinutes: maxMinutes, Limit: limit, Offset: offset}
+	q := recipeQuery{Text: strings.TrimSpace(c.Query("q")), Cuisine: c.Query("category"), Author: c.Query("author"), Tag: c.Query("tag"), Sort: c.Query("sort"), MaxMinutes: maxMinutes, Limit: limit, Offset: offset, CookTested: c.Query("cookTested") == "true"}
 	if c.Query("following") == "true" {
 		// The kitchen-activity sheet: newest from the cooks this member follows.
 		var e error
@@ -112,7 +115,9 @@ func (a *App) listRecipes(c fiber.Ctx) error {
 	return a.queryMany(c, sql, args...)
 }
 func (a *App) getRecipe(c fiber.Ctx) error {
-	return a.queryOne(c, `SELECT `+recipeJSON+recipeFrom+`WHERE r.id=$1 AND (r.published OR r.author_id=(SELECT user_id FROM sessions WHERE token_hash=$2 AND expires_at>now()))`, c.Params("id"), hashToken(token(c)))
+	// A private recipe opens for its author, and for their household when it's in a cookbook they
+	// share with it (family.go).
+	return a.queryOne(c, `SELECT `+recipeJSON+recipeFrom+`WHERE r.id=$1 AND `+visibleRecipeSQL("r", "COALESCE((SELECT user_id FROM sessions WHERE token_hash=$2 AND expires_at>now()),'')"), c.Params("id"), hashToken(token(c)))
 }
 func (a *App) createRecipe(c fiber.Ctx) error { return a.writeRecipe(c, false) }
 func (a *App) updateRecipe(c fiber.Ctx) error { return a.writeRecipe(c, true) }
@@ -142,26 +147,38 @@ func (a *App) writeRecipe(c fiber.Ctx, update bool) error {
 		return e
 	}
 	if update {
-		// Lock linked conversations before modifying the recipe, matching the media worker.
-		if _, e = tx.Exec(c.Context(), `SELECT id FROM voice_projects WHERE recipe_id=$1 FOR UPDATE`, id); e != nil {
-			return e
-		}
+		e = saveOwnRecipe(c.Context(), tx, userID(c), id, r)
+	} else if e = moderationHold(c.Context(), tx, id, userID(c), r.Published); e == nil {
+		e = persistRecipe(c.Context(), tx, userID(c), id, r, false)
 	}
-	if e = moderationHold(c.Context(), tx, id, userID(c), r.Published); e != nil {
+	if e != nil {
 		return e
-	}
-	if e = persistRecipe(c.Context(), tx, userID(c), id, r, update); e != nil {
-		return e
-	}
-	if update {
-		if _, e = tx.Exec(c.Context(), `UPDATE voice_projects SET revision=revision+1,confirmed_revision=-1,auto_media=false,status=CASE WHEN $2 THEN 'published' ELSE 'draft' END,updated_at=now() WHERE recipe_id=$1`, id, r.Published); e != nil {
-			return e
-		}
 	}
 	if e = tx.Commit(c.Context()); e != nil {
 		return e
 	}
 	return a.queryOne(c, `SELECT `+recipeJSON+recipeFrom+`WHERE r.id=$1`, id)
+}
+
+// saveOwnRecipe saves a change to one of owner's recipes in tx, as the editor does: the
+// conversations working on it are locked first (matching the media worker) and hear of it after,
+// a recipe an admin holds stays private, and one with family recordings is published only with
+// the recorded person's agreement (family.go).
+func saveOwnRecipe(ctx context.Context, tx pgx.Tx, owner, id string, r RecipeInput) error {
+	if _, e := tx.Exec(ctx, `SELECT id FROM voice_projects WHERE recipe_id=$1 FOR UPDATE`, id); e != nil {
+		return e
+	}
+	if e := moderationHold(ctx, tx, id, owner, r.Published); e != nil {
+		return e
+	}
+	if e := recordingConsentHold(ctx, tx, id, owner, r.Published); e != nil {
+		return e
+	}
+	if e := persistRecipe(ctx, tx, owner, id, r, true); e != nil {
+		return e
+	}
+	_, e := tx.Exec(ctx, `UPDATE voice_projects SET revision=revision+1,confirmed_revision=-1,auto_media=false,status=CASE WHEN $2 THEN 'published' ELSE 'draft' END,updated_at=now() WHERE recipe_id=$1`, id, r.Published)
+	return e
 }
 
 type recipeWriter interface {
@@ -185,6 +202,11 @@ func persistRecipe(ctx context.Context, db recipeWriter, owner, id string, r Rec
 			return e
 		}
 		keepStepMedia(r.Steps, saved)
+		keepStepVoices(r.Steps, saved)
+	}
+	// A step plays only the recipe's own recordings (family.go).
+	if e := fitStepVoices(ctx, db, id, r.Steps); e != nil {
+		return e
 	}
 	// Older clients send neither a source nor an original (nil): a saved recipe keeps its own.
 	var source, derived any
@@ -235,7 +257,7 @@ func (a *App) deleteOwned(c fiber.Ctx, table, column string) error {
 	return c.SendStatus(204)
 }
 
-const creatorJSON = `jsonb_build_object('id',u.id,'name',u.name,'handle',u.handle,'bio',u.bio,'avatar',u.avatar,'recipeCount',(SELECT count(*) FROM recipes WHERE author_id=u.id AND published),'followerCount',(SELECT count(*) FROM follows WHERE creator_id=u.id))`
+const creatorJSON = `jsonb_build_object('id',u.id,'name',u.name,'handle',u.handle,'bio',u.bio,'avatar',u.avatar,'founding',u.founding_creator_at IS NOT NULL,'recipeCount',(SELECT count(*) FROM recipes WHERE author_id=u.id AND published),'followerCount',(SELECT count(*) FROM follows WHERE creator_id=u.id))`
 
 func (a *App) creators(c fiber.Ctx) error {
 	limit, offset := pageParams(c, 40, 100)

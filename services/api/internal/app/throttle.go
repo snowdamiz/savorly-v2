@@ -76,6 +76,7 @@ func (t *attemptCounter) makeRoom(now time.Time) {
 type accountThrottles struct {
 	logins     attemptCounter // sign-in attempts per email, cleared by a successful one
 	resetMails attemptCounter // reset codes mailed per address
+	assistants attemptCounter // MCP requests per linked app, or per address (mcp.go)
 }
 
 // perUser limits a signed-in member's use of a route, wherever they connect from. It must come

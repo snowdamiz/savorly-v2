@@ -5,8 +5,10 @@ import {
   Animated,
   AppState,
   Platform,
+  Pressable,
   ScrollView,
   StatusBar,
+  StyleSheet,
   Text,
   View,
 } from 'react-native';
@@ -25,7 +27,7 @@ import {
 } from './icons';
 import * as Speech from 'expo-speech';
 import { useCookingNarration } from '../lib/narration/useCookingNarration';
-import { useCookSession } from '../lib/cookSessions';
+import { Overrun, useCookSession } from '../lib/cookSessions';
 import { useScreenAwake } from '../lib/screenAwake';
 import { announced, cancelTimerAlert, scheduleTimerAlert } from '../lib/timerAlerts';
 import { CookCommand, Recipe } from '../lib/types';
@@ -34,6 +36,13 @@ import { Button, FoodImage, IconButton, useChrome, useSlideOver, webPosition } f
 import { StepClip } from './VideoPlayer';
 import { HandsFree } from './HandsFree';
 import { CookEquipment } from './Equipment';
+import { StepQuestions, StepUsual, TimerNote } from './CookInsights';
+import { cooksNeed, RecipeInsights, stepInsight } from '../lib/cookInsights';
+import { FixDraft } from '../lib/recipeFixes';
+import { dropEdit, editDraft, keepEdit, RecipeEdit } from '../lib/yourVersion';
+import { useApp } from '../lib/store';
+import { useVoiceClip, VoiceButton } from './VoiceClip';
+import { stepVoice } from '../lib/family';
 const RING = 92;
 const CIRCUMFERENCE = 2 * Math.PI * RING;
 export function CookMode({
@@ -43,10 +52,16 @@ export function CookMode({
   onStep,
   command,
   onCooked,
+  onSuggest,
+  onKept,
+  onChange,
   translatedTo,
+  insights,
 }: {
   /** The recipe as the cook reads it: translated, when they read it translated. */
   recipe: Recipe;
+  /** What other cooks found at each step (docs/COOK-TESTED.md), once it has loaded. */
+  insights?: RecipeInsights | null;
   onClose: () => void;
   onAsk: () => void;
   /** Reports the 1-based step on screen, so the sous-chef knows where the cook is. */
@@ -54,6 +69,15 @@ export function CookMode({
   command?: CookCommand | null;
   /** After the last step: "I cooked this" on the recipe page, with a photo or a note. */
   onCooked?: () => void;
+  /**
+   * Suggest a change to the recipe (docs/RECIPE-FIXES.md), offered when the cook is done, if this
+   * was a verified cook and a step took clearly longer than its timer.
+   */
+  onSuggest?: (draft: FixDraft) => void;
+  /** A change was kept in the member's own version (docs/YOUR-VERSION.md), or taken back. */
+  onKept?: () => void;
+  /** Offered when the cook is done and no step ran long: change the recipe for themselves. */
+  onChange?: () => void;
   /** The language `recipe` is translated into, so its steps are read aloud in it; null as written. */
   translatedTo?: string | null;
 }) {
@@ -66,6 +90,8 @@ export function CookMode({
     Math.min(Math.max((command?.step || 1) - 1, 0), recipe.steps.length - 1),
   );
   const [remaining, setRemaining] = useState(recipe.steps[step].seconds);
+  // The timer's length: the step's, unless the cook set it to how long cooks really need.
+  const [length, setLength] = useState(recipe.steps[step].seconds);
   const [endAt, setEndAt] = useState<number | null>(null);
   const {
     state: narrationState,
@@ -73,8 +99,12 @@ export function CookMode({
     read,
     stop,
   } = useCookingNarration(recipe, step, translatedTo);
+  // A family recipe's step can also play the relative who told it (lib/family.ts). Their clip and
+  // narration never play over each other. A translated step still has its clip.
+  const voice = useVoiceClip();
+  const stopVoice = voice.stop;
   const [done, setDone] = useState(false);
-  useCookSession(recipe, step, done);
+  const { timerEvent, verified, overrun } = useCookSession(recipe, step, done);
   // The end time is the timer, and the countdown is redrawn from it. JavaScript timers stand still
   // while the app is in the background and slow down in a hidden browser tab, so the countdown is
   // redrawn on return too, and a system alert covers an end that comes while the cook is away.
@@ -89,7 +119,9 @@ export function CookMode({
       if (seconds) return;
       finished = true;
       setEndAt(null);
+      timerEvent('timer_end');
       stop();
+      stopVoice();
       // Back after an end the system already announced, the finished ring says enough.
       const away =
         Date.now() - endAt > 3000 && !!systemAlert.current && announced(systemAlert.current);
@@ -107,7 +139,7 @@ export function CookMode({
       clearTimeout(end);
       sub.remove();
     };
-  }, [endAt, tr, locale, stop]);
+  }, [endAt, tr, locale, stop, timerEvent, stopVoice]);
   const { title } = recipe;
   const finishedText = tr('Your cooking timer is finished.');
   const channel = tr('Cooking timers');
@@ -127,15 +159,26 @@ export function CookMode({
     };
   }, [endAt, title, finishedText, channel]);
   const current = recipe.steps[step];
+  const clip = stepVoice(recipe, current);
   const last = step === recipe.steps.length - 1;
+  // What other cooks found at this step (docs/COOK-TESTED.md).
+  const found = stepInsight(insights ?? null, step + 1);
+  const need = cooksNeed(found);
+  const readAloud = () => {
+    stopVoice();
+    read();
+  };
   const change = (n: number) => {
     stop();
     setEndAt(null);
     setDone(false);
     setStep(n);
     setRemaining(recipe.steps[n].seconds);
+    setLength(recipe.steps[n].seconds);
   };
   useEffect(() => onStep(step + 1), [step, onStep]);
+  // However the step changes (a tap, a spoken command, the sous-chef), its clip stops.
+  useEffect(() => stopVoice, [step, stopVoice]);
   // Each sous-chef command applies once, to the step on screen when it arrives.
   const [handled, setHandled] = useState(command?.n);
   if (command && command.n !== handled) {
@@ -146,16 +189,24 @@ export function CookMode({
       setDone(false);
       setStep(n);
       setRemaining(recipe.steps[n].seconds);
+      setLength(recipe.steps[n].seconds);
     } else if (command.timerFrom && current.seconds && !endAt)
       setEndAt(command.timerFrom + remaining * 1000);
   }
+  // A timer the sous-chef started counts like one started on screen.
+  const startedBy = command?.timerFrom ? command.n : undefined;
+  useEffect(() => {
+    if (startedBy !== undefined) timerEvent('timer_start');
+  }, [startedBy, timerEvent]);
   const close = () => {
     stop();
+    stopVoice();
     page.leave();
   };
   const next = () => {
     if (last) {
       stop();
+      stopVoice();
       setEndAt(null);
       setDone(true);
     } else change(step + 1);
@@ -193,7 +244,7 @@ export function CookMode({
     return () => document.removeEventListener('keydown', onKey);
   }, []);
   const clock = `${String(Math.floor(remaining / 60)).padStart(2, '0')}:${String(remaining % 60).padStart(2, '0')}`;
-  const progress = current.seconds ? remaining / current.seconds : 0;
+  const progress = length ? remaining / length : 0;
   const big = width > 600;
   return (
     // The web page sits beside the sidebar, so cooking mode fixes itself over the whole window.
@@ -235,6 +286,7 @@ export function CookMode({
               label={tr('Ask the sous-chef')}
               onPress={() => {
                 stop();
+                stopVoice();
                 onAsk();
               }}
             />
@@ -245,13 +297,19 @@ export function CookMode({
             cook={{
               step,
               done,
-              reading: speaking,
+              reading: speaking || !!voice.playing,
               timer: { seconds: current.seconds, remaining, running: !!endAt },
               next,
               previous: () => step > 0 && change(step - 1),
-              read,
-              stopReading: stop,
-              setTimer: (run) => setEndAt(run ? Date.now() + remaining * 1000 : null),
+              read: readAloud,
+              stopReading: () => {
+                stop();
+                stopVoice();
+              },
+              setTimer: (run) => {
+                timerEvent(run ? 'timer_start' : 'timer_pause');
+                setEndAt(run ? Date.now() + remaining * 1000 : null);
+              },
             }}
           />
           {done ? (
@@ -280,6 +338,15 @@ export function CookMode({
               >
                 {tr('Take a moment to enjoy what you made.\nThen let the cook know how it went.')}
               </Text>
+              <AfterCook
+                recipeId={recipe.id}
+                overrun={overrun}
+                verified={verified}
+                onSuggest={onSuggest}
+                onKept={onKept}
+                onChange={onChange}
+                leave={page.leave}
+              />
               {onCooked && (
                 <Button
                   title={tr('I cooked this')}
@@ -344,6 +411,8 @@ export function CookMode({
                 >
                   {current.text}
                 </Text>
+                <StepUsual insight={found} dark />
+                <StepQuestions key={step} insight={found} dark />
                 {/* One picture a step keeps the timer in view: a clip shows how, so it takes the
                     photo's place, and a new step or closing stops it. */}
                 {current.video ? (
@@ -434,7 +503,10 @@ export function CookMode({
                         icon={endAt ? Pause : Play}
                         variant="inverse"
                         disabled={remaining === 0}
-                        onPress={() => setEndAt(endAt ? null : Date.now() + remaining * 1000)}
+                        onPress={() => {
+                          timerEvent(endAt ? 'timer_pause' : 'timer_start');
+                          setEndAt(endAt ? null : Date.now() + remaining * 1000);
+                        }}
                       />
                       <IconButton
                         icon={RotateCcw}
@@ -443,10 +515,23 @@ export function CookMode({
                         label={tr('Reset timer')}
                         onPress={() => {
                           setEndAt(null);
-                          setRemaining(current.seconds);
+                          setRemaining(length);
                         }}
                       />
                     </View>
+                    {!!need && remaining > 0 && (
+                      <TimerNote
+                        seconds={need}
+                        onUse={
+                          !endAt && remaining === length && length !== need
+                            ? () => {
+                                setLength(need);
+                                setRemaining(need);
+                              }
+                            : undefined
+                        }
+                      />
+                    )}
                   </View>
                 )}
               </ScrollView>
@@ -458,6 +543,11 @@ export function CookMode({
               )}
               {narrationState === 'blocked' && (
                 <Text style={[s.small, { color: color.onInk }]}>{tr('Tap again to play')}</Text>
+              )}
+              {!!clip && voice.playing === String(step) && (
+                <Text accessibilityLiveRegion="polite" style={[s.small, { color: color.onInk }]}>
+                  {tr('{{v0}}’s voice', { v0: clip.speaker })}
+                </Text>
               )}
               <View style={[s.row, { gap: 10 }]}>
                 <IconButton
@@ -473,8 +563,19 @@ export function CookMode({
                   dark
                   size={58}
                   label={speaking ? tr('Stop reading') : tr('Read this step aloud')}
-                  onPress={speaking ? stop : read}
+                  onPress={speaking ? stop : readAloud}
                 />
+                {clip && (
+                  <VoiceButton
+                    clip={clip}
+                    playing={voice.playing === String(step)}
+                    onPress={() => {
+                      if (voice.playing === String(step)) return stopVoice();
+                      stop();
+                      voice.play(String(step), clip);
+                    }}
+                  />
+                )}
                 <Button
                   title={last ? tr('Finish cooking') : tr('Next step')}
                   icon={last ? Check : undefined}
@@ -496,3 +597,110 @@ export function CookMode({
     </Animated.View>
   );
 }
+
+/**
+ * Under "Dinner is served": when a step took clearly longer than its timer, a way to keep that
+ * time in the member's own version in one tap (and take it back), or, after a verified cook, to
+ * suggest it to the recipe's cook; otherwise a way to note any other change for next time.
+ */
+function AfterCook({
+  recipeId,
+  overrun,
+  verified,
+  onSuggest,
+  onKept,
+  onChange,
+  leave,
+}: {
+  recipeId: string;
+  overrun: Overrun | null;
+  verified: boolean;
+  onSuggest?: (draft: FixDraft) => void;
+  onKept?: () => void;
+  onChange?: () => void;
+  leave: () => void;
+}) {
+  const { t: tr } = useI18n();
+  const app = useApp();
+  const [kept, setKept] = useState<{ edit: RecipeEdit; replaced: RecipeEdit | null } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const act = (fn: () => Promise<void>) => {
+    if (busy) return;
+    setBusy(true);
+    void app
+      .act(async () => {
+        await fn();
+        onKept?.();
+      })
+      .finally(() => setBusy(false));
+  };
+  const link = (title: string, onPress: () => void) => (
+    <Pressable accessibilityRole="button" hitSlop={8} onPress={onPress} disabled={busy}>
+      <Text style={[s.small, styles.link]}>{title}</Text>
+    </Pressable>
+  );
+  if (!overrun)
+    return onChange ? (
+      <View style={styles.line}>
+        {link(tr('Changed something? Keep it for next time'), () => {
+          leave();
+          onChange();
+        })}
+      </View>
+    ) : null;
+  const draft: FixDraft = {
+    kind: 'time',
+    step: overrun.step,
+    change: { seconds: overrun.minutes * 60 },
+    reason: tr('It took me {{v0}} minutes, not {{v1}}.', {
+      v0: overrun.minutes,
+      v1: overrun.timer,
+    }),
+  };
+  const suggest = verified && onSuggest;
+  return (
+    <View style={styles.line}>
+      <Text style={[s.small, styles.note]}>
+        {tr('tookYouLonger', { step: overrun.step, count: overrun.minutes, timer: overrun.timer })}
+      </Text>
+      {kept ? (
+        <>
+          <Text style={[s.small, styles.note]}>{tr('Kept in your version.')}</Text>
+          {link(tr('Undo'), () =>
+            act(async () => {
+              // A time that replaced one kept before puts that one back.
+              const was = kept.replaced;
+              await (was ? keepEdit(recipeId, editDraft(was), was.source) : dropEdit(kept.edit.id));
+              setKept(null);
+            }),
+          )}
+        </>
+      ) : (
+        <>
+          {onKept &&
+            link(tr('keepMinutes', { count: overrun.minutes }), () =>
+              act(async () => setKept(await keepEdit(recipeId, draft, 'cooking'))),
+            )}
+          {onKept && suggest && <Text style={[s.small, styles.note]}>·</Text>}
+          {suggest &&
+            link(tr('Suggest a change'), () => {
+              leave();
+              onSuggest(draft);
+            })}
+        </>
+      )}
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  line: {
+    flexDirection: 'row',
+    gap: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+  },
+  note: { color: color.onInk, fontSize: 14 },
+  link: { color: color.white, fontSize: 14, textDecorationLine: 'underline' },
+});

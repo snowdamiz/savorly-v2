@@ -38,6 +38,16 @@ type sceneRecipe struct {
 	steps             []Step
 	// equipment is the cook's list, detected what the method mentions (equipment.go).
 	equipment, detected []string
+	// insights is what other cooks found at each step, by 0-based step (cook_insights.go).
+	insights map[int]string
+}
+
+// insight is what other cooks found at 1-based step n, or "".
+func (r *sceneRecipe) insight(n int) string {
+	if n < 1 {
+		return ""
+	}
+	return r.insights[n-1]
 }
 
 // sceneKeySQL is a scene's key, for voice_projects p.
@@ -72,6 +82,7 @@ func (a *App) voiceScene(ctx context.Context, project, owner string) (voiceScene
 	}
 	_ = json.Unmarshal(ingredients, &r.ingredients)
 	_ = json.Unmarshal(steps, &r.steps)
+	r.insights = stepInsightsFor(ctx, a.DB, r.id, r.steps)
 	s.recipe = r
 	return s, nil
 }
@@ -207,7 +218,11 @@ func (s voiceScene) step() string {
 	if n > len(s.recipe.steps) {
 		return "In cooking mode, step " + strconv.Itoa(n) + "."
 	}
-	return fmt.Sprintf("In cooking mode, the user is on step %d of %d: %s", n, len(s.recipe.steps), stepText(s.recipe.steps[n-1], 600))
+	text := fmt.Sprintf("In cooking mode, the user is on step %d of %d: %s", n, len(s.recipe.steps), stepText(s.recipe.steps[n-1], 600))
+	if insight := s.recipe.insight(n); insight != "" {
+		text += "\n" + insight
+	}
+	return text
 }
 
 func (s voiceScene) recipeID() string {

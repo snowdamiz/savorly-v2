@@ -8,6 +8,7 @@ import {
   CalendarDays,
   Check,
   ChevronRight,
+  Globe,
   Leaf,
   LogOut,
   Plus,
@@ -50,8 +51,11 @@ import { foodIcon } from '../lib/icons';
 import { AdminPending } from './admin/AdminPending';
 import { AccountSecurity } from '../components/AccountSecurity';
 import { DataExport } from '../components/DataExport';
+import { ConnectedApps } from '../components/ConnectedApps';
+import { YourCooking } from '../components/YourVersion';
 import { LegalLinks } from '../components/Legal';
 import { NotificationSettings } from '../components/NotificationSettings';
+import { FoundingMark } from '../components/FoundingMark';
 import { UnitSettings } from '../components/UnitSettings';
 import { VerifyEmail } from '../components/VerifyEmail';
 function MenuRow({
@@ -129,7 +133,11 @@ export function Community({ onCreator }: { onCreator: (c: Creator) => void }) {
                 <Avatar uri={c.avatar} name={c.name} size={56} />
                 <View style={{ flex: 1, gap: 2 }}>
                   <Text style={s.h3}>{c.name}</Text>
-                  <Text style={s.small}>@{c.handle}</Text>
+                  <Text style={s.small}>
+                    {[`@${c.handle}`, c.founding && tr('Founding creator')]
+                      .filter(Boolean)
+                      .join(' · ')}
+                  </Text>
                 </View>
                 {following && <Pill title={tr('Following')} icon={Check} tone="dark" />}
               </View>
@@ -179,6 +187,7 @@ export function CreatorDialog({
           <Text style={[s.h1, { fontSize: 26, textAlign: 'center' }]}>{creator.name}</Text>
           <Text style={s.small}>@{creator.handle}</Text>
         </View>
+        <FoundingMark creator={creator} />
         {!!creator.bio && (
           <Text style={[s.muted, { textAlign: 'center', maxWidth: 440 }]}>{creator.bio}</Text>
         )}
@@ -292,6 +301,12 @@ export function Profile({
       go: () => app.requireUser(() => setHistory(true)),
     },
     {
+      icon: Globe,
+      title: tr('Import from my site'),
+      text: 'Your published recipes, with their photos',
+      go: () => navigate('own-site'),
+    },
+    {
       icon: Users,
       title: tr('Community'),
       inSidebar: true,
@@ -334,6 +349,7 @@ export function Profile({
         <Text style={[s.h1, { fontSize: 24, textAlign: 'center' }]}>{app.user.name}</Text>
         <Text style={s.small}>@{app.user.handle}</Text>
       </View>
+      <FoundingMark creator={app.user} />
       {!!app.user.bio && (
         <Text style={[s.muted, { textAlign: 'center', maxWidth: 440 }]}>{app.user.bio}</Text>
       )}
@@ -412,7 +428,9 @@ export function Profile({
       {app.user && (
         <View style={{ gap: 8 }}>
           <AccountSecurity />
+          <ConnectedApps />
           <DataExport />
+          <YourCooking />
         </View>
       )}
     </>

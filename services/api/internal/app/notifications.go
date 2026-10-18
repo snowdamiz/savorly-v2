@@ -21,6 +21,8 @@ const (
 	letterPasswordChanged
 	letterNewSignIn
 	letterAccountDeleted
+	// A week before a yearly plan renews (renewal_reminders.go).
+	letterRenewal
 )
 
 type letterData struct {
@@ -28,6 +30,7 @@ type letterData struct {
 	OldEmail, NewEmail string
 	Device             string // from deviceLabel's fixed vocabulary
 	When               time.Time
+	Plan, Amount       string // a plan's name and what it will cost, for letterRenewal
 }
 
 type letter struct{ Subject, Text string }
@@ -59,6 +62,9 @@ func englishLetter(kind letterKind, d letterData) letter {
 		return letter{"New sign-in to your Savorly account", "Your Savorly account was just signed in on a new device: " + d.Device + ", at " + d.When.UTC().Format("2 January 2006, 15:04 UTC") + ".\n\nIf this was you, there's nothing to do. If it wasn't, change your password and sign out your other devices in My kitchen." + sign}
 	case letterAccountDeleted:
 		return letter{"Your Savorly account was deleted", "Your Savorly account and everything in it, including your recipes, reviews, cookbooks and plans, have been deleted as you asked. Any subscription was cancelled.\n\nThank you for cooking with us." + sign}
+	case letterRenewal:
+		day := d.When.UTC().Format("2 January 2006")
+		return letter{"Your Savorly " + d.Plan + " plan renews on " + day, "Your yearly Savorly " + d.Plan + " plan renews on " + day + ", and " + d.Amount + " will be charged for another year.\n\nTo keep it, there's nothing to do. To cancel, open Savorly, go to My kitchen, tap Cancel plan under Your plan, and confirm: two taps. You keep " + d.Plan + " until " + day + ", and nothing more is charged.\n\nIf it renews and you change your mind, you can get a full refund in the same place within 14 days of the renewal." + sign}
 	}
 	return letter{}
 }

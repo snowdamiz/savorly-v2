@@ -50,20 +50,24 @@ export function useShareCookbook() {
 
 /**
  * A cookbook's name, description and whether it's public. Public cookbooks have a page anyone with
- * the link can open, showing the published recipes in them.
+ * the link can open, showing the published recipes in them. A cookbook shared with the household
+ * opens for everyone in it, the owner's private recipes in it included (lib/family.ts).
  */
 export function CookbookSettings({
   cookbook,
+  household,
   onClose,
 }: {
   /** The cookbook to edit; null keeps the sheet closed. */
   cookbook: Collection | null;
+  /** The household's name, when the cook is in one it can be shared with. */
+  household?: string | null;
   onClose: () => void;
 }) {
   const { t: tr, number } = useI18n();
   const { refreshLibrary, notify } = useApp();
   const { busy, error, setError, run } = useSheetAction();
-  const [form, setForm] = useState({ name: '', description: '', public: false });
+  const [form, setForm] = useState({ name: '', description: '', public: false, household: false });
   const [copied, setCopied] = useState(false);
   // Each opening starts from the cookbook as it's saved.
   const [openFor, setOpenFor] = useState<string | null>(null);
@@ -75,6 +79,7 @@ export function CookbookSettings({
         name: cookbook.name,
         description: cookbook.description ?? '',
         public: !!cookbook.public,
+        household: !!cookbook.household,
       });
     setError('');
     setCopied(false);
@@ -92,9 +97,13 @@ export function CookbookSettings({
     ...(name !== cookbook.name && { name }),
     ...(description !== (cookbook.description ?? '') && { description }),
     ...(form.public !== !!cookbook.public && { public: form.public }),
+    ...(form.household !== !!cookbook.household && { household: form.household }),
   };
+  // Older servers can't share a cookbook with the household.
+  const shareable = !!household && typeof cookbook.household === 'boolean';
   const save = async () => {
     const madePublic = changes.public === true;
+    const madeShared = changes.household === true;
     const saved = await run(async () => {
       await api(`/collections/${encodeURIComponent(cookbook.id)}`, {
         method: 'PATCH',
@@ -107,7 +116,9 @@ export function CookbookSettings({
     notify(
       madePublic
         ? 'Your cookbook is public. Anyone with the link can open it.'
-        : 'Cookbook updated.',
+        : madeShared
+          ? 'Shared with your household.'
+          : 'Cookbook updated.',
     );
   };
   const share = () =>
@@ -183,6 +194,31 @@ export function CookbookSettings({
               title={copied ? tr('Link copied') : tr('Share link')}
               onPress={share}
               style={{ alignSelf: 'flex-start' }}
+            />
+          </View>
+        )}
+        {shareable && (
+          <View style={[s.row, { gap: 14 }]}>
+            <Pressable
+              accessible={false}
+              focusable={false}
+              onPress={() => setForm((f) => ({ ...f, household: !f.household }))}
+              style={{ flex: 1, gap: 2 }}
+            >
+              <Text style={s.h3}>{tr('Share with my household')}</Text>
+              <Text style={s.muted}>
+                {tr('Everyone in {{v0}} can open it, your private recipes in it too.', {
+                  v0: household,
+                })}
+              </Text>
+            </Pressable>
+            <Switch
+              value={form.household}
+              onValueChange={(on) => setForm((f) => ({ ...f, household: on }))}
+              accessibilityLabel={tr('Share with my household')}
+              trackColor={{ false: color.line, true: color.ink }}
+              thumbColor={color.white}
+              {...(Platform.OS === 'web' ? { activeThumbColor: color.white } : {})}
             />
           </View>
         )}

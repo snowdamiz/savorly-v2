@@ -10,6 +10,7 @@ import {
   invalidFingerprints,
   isExportFile,
   isHashedAsset,
+  isRootApiPath,
   originOf,
   parseCookbook,
   parseRecipe,
@@ -415,11 +416,11 @@ export default {
       incoming.hostname = incoming.hostname.slice(4);
       return Response.redirect(incoming.toString(), 301);
     }
-    if (incoming.pathname.startsWith('/api/')) {
-      const forwarded = new Request(
-        new URL(incoming.pathname.slice(4) + incoming.search, incoming.origin),
-        request,
-      );
+    // The assistants' paths (isRootApiPath) reach the API as they are; the app's under /api.
+    const rootApi = isRootApiPath(incoming.pathname);
+    if (rootApi || incoming.pathname.startsWith('/api/')) {
+      const path = rootApi ? incoming.pathname : incoming.pathname.slice(4);
+      const forwarded = new Request(new URL(path + incoming.search, incoming.origin), request);
       forwarded.headers.set(clientIPHeader, request.headers.get('CF-Connecting-IP') ?? '');
       let response: Response;
       try {
@@ -437,7 +438,9 @@ export default {
         response = unavailable();
       }
       const result = withHeaders(response, env);
-      result.headers.set('Cache-Control', 'no-store');
+      // Only the discovery documents say they may be kept a while.
+      if (!rootApi || !result.headers.has('Cache-Control'))
+        result.headers.set('Cache-Control', 'no-store');
       return result;
     }
     return withHeaders(await site(request, env, ctx, incoming), env);

@@ -133,6 +133,22 @@ export const isHashedAsset = (pathname: string) =>
  */
 export const isExportFile = (pathname: string) => /^\/(?:_expo\/static|assets)\//.test(pathname);
 
+// The paths the API answers at the site's root rather than under /api: the MCP server for
+// ChatGPT and Claude, its OAuth endpoints and their metadata, where assistants look for them
+// (docs/ASSISTANTS.md). /oauth/authorize isn't one: it's the app's consent page.
+const rootApiPaths = new Set([
+  '/mcp',
+  '/oauth/register',
+  '/oauth/token',
+  '/oauth/revoke',
+  '/.well-known/oauth-authorization-server',
+  '/.well-known/oauth-protected-resource',
+  '/.well-known/oauth-protected-resource/mcp',
+]);
+
+/** Whether the Worker sends a path to the API as it is, outside /api. */
+export const isRootApiPath = (pathname: string) => rootApiPaths.has(pathname);
+
 export const cookbookUrl = (origin: string, id: string) =>
   `${origin}/cookbooks/${encodeURIComponent(id)}`;
 

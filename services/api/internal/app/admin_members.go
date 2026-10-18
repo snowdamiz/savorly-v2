@@ -27,7 +27,7 @@ var memberJSON = `jsonb_build_object('id',u.id,'name',u.name,'email',u.email,'ha
  'emailVerified',u.email_verified,'onboarded',u.onboarded_at IS NOT NULL,'hasPassword',NOT starts_with(u.password_hash,'!'),'sample',u.password_hash='!disabled',
  'identities',COALESCE((SELECT jsonb_agg(provider ORDER BY provider) FROM identities WHERE user_id=u.id),'[]'),
  'admin',` + adminSQL(2, 3) + `,'owner',` + ownerSQL(2, 3) + `,'ownerEmail',u.email=ANY($2::text[]),
- 'suspendedAt',u.suspended_at,'suspendedReason',u.suspended_reason,
+ 'suspendedAt',u.suspended_at,'suspendedReason',u.suspended_reason,'foundingCreatorAt',u.founding_creator_at,
  'recipeCount',m.recipes,'publishedCount',m.published,'openReports',m.reports,'spend30d',round(m.spend::numeric,4),'lastSignInAt',m.seen)`
 
 var memberFilters = map[string]string{
@@ -37,6 +37,7 @@ var memberFilters = map[string]string{
 	"paid":       effectivePlanSQL + `<>'free'`,
 	"reported":   `m.reports>0`,
 	"samples":    `u.password_hash='!disabled'`,
+	"founding":   `u.founding_creator_at IS NOT NULL`,
 }
 var memberOrders = map[string]string{
 	"newest":  `u.created_at DESC`,
@@ -81,6 +82,8 @@ func (a *App) adminUser(c fiber.Ctx) error {
    FROM (SELECT * FROM ai_jobs WHERE user_id=u.id ORDER BY created_at DESC LIMIT 20) j),'[]'),
  'reportsFiled',COALESCE((SELECT jsonb_agg(jsonb_build_object('id',p.id,'reason',p.reason,'status',p.status,'createdAt',p.created_at,'recipe',jsonb_build_object('id',r.id,'title',r.title)) ORDER BY p.created_at DESC)
    FROM (SELECT * FROM reports WHERE user_id=u.id ORDER BY created_at DESC LIMIT 20) p JOIN recipes r ON r.id=p.recipe_id),'[]'),
+ 'planRefunds',COALESCE((SELECT jsonb_agg(jsonb_build_object('amountCents',f.amount_cents,'currency',f.currency,'subscription',f.subscription_id,'createdAt',f.created_at,'completedAt',f.completed_at) ORDER BY f.created_at DESC)
+   FROM plan_refunds f WHERE f.user_id=u.id),'[]'),
  'history',COALESCE((SELECT jsonb_agg(`+auditJSON+` ORDER BY x.created_at DESC,x.id DESC)
    FROM (SELECT * FROM admin_actions WHERE target_type='user' AND target_id=u.id ORDER BY created_at DESC,id DESC LIMIT 20) x),'[]'))
  FROM users u`+memberLateral+`WHERE u.id=$1`, id, ownerEmails(), a.Config.Production)

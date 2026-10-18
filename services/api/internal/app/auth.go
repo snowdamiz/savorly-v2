@@ -192,7 +192,7 @@ func (a *App) profile(ctx context.Context, id string) ([]byte, error) {
 	// adminPending: an owner's address that hasn't been proven yet, so the console stays closed.
 	// onboarded: false until a new kitchen finishes or skips its setup.
 	var b []byte
-	e := a.DB.QueryRow(ctx, `SELECT jsonb_build_object('id',u.id,'name',u.name,'email',u.email,'emailVerified',u.email_verified,'handle',u.handle,'bio',u.bio,'avatar',u.avatar,'preferences',`+preferencesJSON+`,'onboarded',u.onboarded_at IS NOT NULL,
+	e := a.DB.QueryRow(ctx, `SELECT jsonb_build_object('id',u.id,'name',u.name,'email',u.email,'emailVerified',u.email_verified,'handle',u.handle,'bio',u.bio,'avatar',u.avatar,'founding',u.founding_creator_at IS NOT NULL,'preferences',`+preferencesJSON+`,'onboarded',u.onboarded_at IS NOT NULL,
  'avoid',COALESCE((SELECT avoid FROM food_avoid WHERE user_id=u.id),'{"groups":{},"terms":{}}'),'householdAvoid',`+householdAvoidJSON+`,
  'hasPassword',NOT starts_with(u.password_hash,'!'),'identities',COALESCE((SELECT jsonb_agg(provider ORDER BY provider) FROM identities WHERE user_id=u.id),'[]'),'plan',`+memberPlanSQL+`,
  'admin',`+adminSQL(2, 3)+`,'adminOwner',`+ownerSQL(2, 3)+`,'adminPending',(NOT `+adminSQL(2, 3)+` AND u.email=ANY($2::text[]))) FROM users u WHERE u.id=$1`, id, ownerEmails(), a.Config.Production).Scan(&b)
