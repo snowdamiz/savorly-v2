@@ -136,7 +136,11 @@ test('a signed-in kitchen comes from the session, and its plans for a window of 
   const window = asked.find((a) => a.startsWith('GET /kitchen'))!;
   const [, from, to] = /from=(\d{4}-\d{2}-\d{2})&to=(\d{4}-\d{2}-\d{2})/.exec(window) ?? [];
   const day = 86_400_000;
-  const today = Date.parse(new Date().toISOString().slice(0, 10));
+  // The window is in the cook's own days, so today is the local date (as UTC midnight, like
+  // Date.parse reads the window's dates), not the UTC one, which is already tomorrow in the
+  // evening west of Greenwich.
+  const now = new Date();
+  const today = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
   // Last week's start through four weeks ahead: six whole weeks around today.
   expect((Date.parse(to) - Date.parse(from)) / day + 1).toBe(42);
   expect((today - Date.parse(from)) / day).toBeGreaterThanOrEqual(7);
