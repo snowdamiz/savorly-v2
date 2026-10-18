@@ -29,7 +29,6 @@ import {
   Leaf,
   Minus,
   Pencil,
-  Play,
   Plus,
   Printer,
   Repeat2,
@@ -77,7 +76,7 @@ import {
 } from './ui';
 import { CookMode } from './CookMode';
 import { AppToast } from './AppToast';
-import { StepVideo, VideoPlayer } from './VideoPlayer';
+import { StepVideo } from './VideoPlayer';
 import { useVoiceClip, VoiceLink } from './VoiceClip';
 import { stepVoice } from '../lib/family';
 import { localDate } from '../lib/utils';
@@ -170,7 +169,6 @@ export function RecipeDetail({
   // A sous-chef command opens cooking mode until the cook closes it.
   const [closedCommand, setClosedCommand] = useState<number>();
   const cooking = cook || (!!cookCommand && cookCommand.n !== closedCommand);
-  const [watch, setWatch] = useState(false);
   const [reviews, setReviews] = useState<Review[]>([]);
   // Cooking mode's "I cooked this" opens the sheet on the page it returns to.
   const [cookedRequest, setCookedRequest] = useState(0);
@@ -831,9 +829,6 @@ export function RecipeDetail({
           }}
         />
       )}
-      <Dialog visible={watch} onClose={() => setWatch(false)} title={tr('Watch and cook')}>
-        {watch && recipe.video ? <VideoPlayer uri={recipe.video} /> : null}
-      </Dialog>
       <Dialog visible={plan} onClose={() => setPlan(false)} title={tr('Plan this meal')}>
         <ScrollView
           horizontal
@@ -1001,17 +996,6 @@ export function RecipeDetail({
       label: tr('Add to cookbook'),
       onPress: () => app.requireUser(() => setCollections(true)),
     },
-    ...(recipe.video
-      ? [
-          {
-            key: 'video',
-            icon: Play,
-            title: tr('Video'),
-            label: tr('Watch video'),
-            onPress: () => setWatch(true),
-          },
-        ]
-      : []),
     ...(cooks.off
       ? []
       : [

@@ -62,7 +62,7 @@
     "OPENROUTER_IMAGE_MODEL": "openai/gpt-image-2.5-flare",
     "OPENROUTER_IMAGE_EDIT_MODEL": "openai/gpt-image-2.5-sunburst",
     "OPENROUTER_TTS_VOICE": "sarah",
-    "REAPI_VIDEO_MODEL": "doubao-seedance-2.5-eco",
+    "REAPI_VIDEO_MODEL": "doubao-seedance-2.0-eco-mini",
     "OPENAI_LIVE_MODEL": "gpt-live-1",
     "OPENAI_LIVE_VOICE": "gleam",
     "AI_FREE_DAILY_BUDGET_USD": "5",
@@ -120,7 +120,7 @@
         "OPENROUTER_IMAGE_MODEL": "openai/gpt-image-2.5-flare",
         "OPENROUTER_IMAGE_EDIT_MODEL": "openai/gpt-image-2.5-sunburst",
         "OPENROUTER_TTS_VOICE": "sarah",
-        "REAPI_VIDEO_MODEL": "doubao-seedance-2.5-eco",
+        "REAPI_VIDEO_MODEL": "doubao-seedance-2.0-eco-mini",
         "OPENAI_LIVE_MODEL": "gpt-live-1",
         "OPENAI_LIVE_VOICE": "gleam",
         // With no per-member limits, these shared daily ceilings are the only spend guard.

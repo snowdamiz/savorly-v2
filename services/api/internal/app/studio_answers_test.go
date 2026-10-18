@@ -244,11 +244,12 @@ func TestADraftOnlyPromisesTheMediaThatsComing(t *testing.T) {
 		}
 		return reply
 	}
-	if reply := build("pro"); !strings.Contains(reply, "Its cover photo and short video are being prepared.") {
+	// Step clips are only made when the cook asks, so even Pro's draft gets just its photo.
+	if reply := build("pro"); !strings.Contains(reply, "Its cover photo is being prepared.") || strings.Contains(reply, "video") || strings.Contains(reply, "clip") {
 		t.Fatalf("pro: %s", reply)
 	}
 	if reply := build("plus"); !strings.Contains(reply, "Its cover photo is being prepared.") || strings.Contains(reply, "video") {
-		t.Fatalf("a plan without video was promised one: %s", reply)
+		t.Fatalf("plus: %s", reply)
 	}
 	// Free includes one photo a month, already used by the plus draft above.
 	if reply := build("free"); !strings.Contains(reply, "No cover photo is being made: You've used your plan's AI photos for the last 30 days.") || strings.Contains(reply, "being prepared") {

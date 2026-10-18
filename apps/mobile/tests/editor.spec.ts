@@ -201,25 +201,6 @@ test('the step timer takes fractional minutes typed either way', async ({ page }
     .toBe(90);
 });
 
-test('a video address mounts a player only once it is complete', async ({ page }) => {
-  await mockKitchen(page);
-  await page.route('https://media.test/**', (route) =>
-    route.fulfill({ path: 'tests/fixtures/sample.mp4', contentType: 'video/mp4' }),
-  );
-  await page.goto('/?page=create');
-  const field = page.getByRole('textbox', { name: 'Or use a direct video URL', exact: true });
-  const players = page.locator('video');
-  await field.fill('https://media.test/cl');
-  await expect(field).toHaveValue('https://media.test/cl');
-  await expect(players).toHaveCount(0);
-  await field.fill('not a video link');
-  await field.press('Tab');
-  await expect(players).toHaveCount(0);
-  await field.fill('https://media.test/clip.mp4');
-  await field.press('Enter');
-  await expect(players).toHaveCount(1);
-});
-
 test('a photo address that failed shows the photo once it is corrected', async ({ page }) => {
   await mockKitchen(page);
   await page.route('https://media.test/**', (route) =>

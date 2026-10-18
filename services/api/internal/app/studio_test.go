@@ -179,10 +179,11 @@ func TestStudioClarificationBuildMediaAndPublish(t *testing.T) {
 	}
 	var count int
 	a.DB.QueryRow(ctx, `SELECT count(*) FROM voice_assets WHERE project_id=$1`, p).Scan(&count)
-	if count != 2 {
-		t.Fatalf("expected both media jobs, got %d", count)
+	// A draft gets its cover photo; step clips wait for the cook to ask.
+	if count != 1 {
+		t.Fatalf("expected the cover photo job alone, got %d", count)
 	}
-	_, e = a.DB.Exec(ctx, `UPDATE ai_jobs SET status='completed',result=jsonb_build_object('url',CASE kind WHEN 'image' THEN 'https://media.example/cover.jpg' ELSE 'https://media.example/clip.mp4' END) WHERE id IN(SELECT job_id FROM voice_assets WHERE project_id=$1)`, p)
+	_, e = a.DB.Exec(ctx, `UPDATE ai_jobs SET status='completed',result=jsonb_build_object('url','https://media.example/cover.jpg') WHERE id IN(SELECT job_id FROM voice_assets WHERE project_id=$1)`, p)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -190,7 +191,7 @@ func TestStudioClarificationBuildMediaAndPublish(t *testing.T) {
 		t.Fatal(e)
 	}
 	state, _ = a.studioState(ctx, p, 0)
-	if state.Recipe.Image == "" || state.Recipe.Video == "" || state.Status != "ready" {
+	if state.Recipe.Image == "" || state.Recipe.Video != "" || state.Status != "ready" {
 		t.Fatalf("assets not applied: %#v", state)
 	}
 	_, e = a.applyDraftAction(ctx, state, "publish", nil, false)
@@ -327,9 +328,11 @@ func TestManualEditInvalidatesStudioMediaAndApproval(t *testing.T) {
 		t.Fatal("manual edits overwritten or stale approval retained")
 	}
 }
-func TestAutomaticMediaSkipsVideoWithoutAProvider(t *testing.T) {
+
+// A draft's automatic media is its cover photo, even with a video provider and a plan with step
+// clips: those are made only when the cook asks.
+func TestAutomaticMediaIsTheCoverPhotoAlone(t *testing.T) {
 	a, p := studioFixture(t)
-	a.AI.VideoKey = ""
 	ctx := context.Background()
 	id := uuid.NewString()
 	if e := persistRecipe(ctx, a.DB, "cook", id, exampleVoiceRecipe(), false); e != nil {
@@ -342,7 +345,7 @@ func TestAutomaticMediaSkipsVideoWithoutAProvider(t *testing.T) {
 	var kinds string
 	a.DB.QueryRow(ctx, `SELECT string_agg(kind,',') FROM voice_assets WHERE project_id=$1`, p).Scan(&kinds)
 	if kinds != "image" {
-		t.Fatalf("automatic media without a video provider: %q", kinds)
+		t.Fatalf("automatic media: %q", kinds)
 	}
 }
 
@@ -362,7 +365,7 @@ func TestStudioRecoversUnqueuedBundleAndQueuesSourceDeletion(t *testing.T) {
 	a.recoverStudioBundles(ctx)
 	var count int
 	a.DB.QueryRow(ctx, `SELECT count(*) FROM voice_assets WHERE project_id=$1`, p).Scan(&count)
-	if count != 2 {
+	if count != 1 {
 		t.Fatalf("recovery not idempotent: %d", count)
 	}
 	_, e = a.DB.Exec(ctx, `INSERT INTO voice_sources(id,project_id,object_key,mime) VALUES('source',$1,'private-source.jpg','image/jpeg')`, p)

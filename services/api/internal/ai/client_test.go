@@ -48,8 +48,18 @@ func TestProviderContracts(t *testing.T) {
 			}
 			w.Write([]byte(`{"data":[{"b64_json":"aW1hZ2U=","media_type":"image/jpeg"}]}`))
 		case "/videos/generations":
-			if body["duration"] != float64(5) || body["resolution"] != "720p" || body["model"] != "doubao-seedance-2.5-eco" || body["content_filter"] != true {
-				t.Error("incorrect video contract")
+			if body["duration"] != float64(4) || body["resolution"] != "720p" || body["size"] != "16:9" || body["model"] != "doubao-seedance-2.0-eco-mini" || body["content_filter"] != true || body["generate_audio"] != false || body["watermark"] != true {
+				t.Errorf("incorrect video contract: %v", body)
+			}
+			// A step's photo opens its clip; a step without one is made from its words alone.
+			frames, _ := body["image_with_roles"].([]any)
+			if strings.Contains(body["prompt"].(string), "photo") {
+				frame, _ := frames[0].(map[string]any)
+				if len(frames) != 1 || frame["url"] != "https://cdn.example/step.jpg" || frame["role"] != "first_frame" {
+					t.Errorf("incorrect first frame: %v", frames)
+				}
+			} else if frames != nil {
+				t.Errorf("a clip without a photo sent frames: %v", frames)
 			}
 			w.Write([]byte(`{"id":"task_123","status":"processing"}`))
 		case "/tasks/task_123":
@@ -65,7 +75,6 @@ func TestProviderContracts(t *testing.T) {
 	c.VideoURL = server.URL
 	c.OpenRouterKey = "test-key"
 	c.VideoKey = "test-key"
-	c.VideoModel = "doubao-seedance-2.5-eco"
 	ctx := context.Background()
 	recipe, e := c.Recipe(ctx, "Import the recipe on this web page: https://cook.example/pasta")
 	if e != nil || string(recipe) != `{"recipe":{"title":"Lemon pasta"}}` {
@@ -79,9 +88,12 @@ func TestProviderContracts(t *testing.T) {
 	if e != nil || string(b) != "image" || mime != "image/jpeg" {
 		t.Fatalf("touch-up: %v", e)
 	}
-	task, e := c.Video(ctx, "pasta")
+	task, e := c.Video(ctx, "Toss the pasta", "")
 	if e != nil || task.ID != "task_123" {
 		t.Fatalf("video: %v", e)
+	}
+	if _, e = c.Video(ctx, "Toss the pasta in the photo", "https://cdn.example/step.jpg"); e != nil {
+		t.Fatalf("video from a photo: %v", e)
 	}
 	task, e = c.PollVideo(ctx, task.ID)
 	if e != nil || task.Status != "completed" || len(task.Output.URLs) != 1 {

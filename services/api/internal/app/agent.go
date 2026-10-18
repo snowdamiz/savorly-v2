@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v3"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"savorly/api/internal/ai"
 )
@@ -89,14 +90,14 @@ var agentToolDefs = []agentToolDef{
 	{tool("report_recipe", "Report a published recipe for moderation, with the user's reason. Needs confirmation.", object([]string{"recipe_id", "reason"}, props{"recipe_id": recipeID(), "reason": field("string", "5–1000 characters")})), "saving", (*toolTurn).reportRecipe},
 	{tool("edit_recipe", "Change one of the user's own existing recipes, keeping its photos. Send only the fields that change; ingredients, steps, tags and equipment replace the whole list, so include every item. Publishing it, or changing a published recipe, needs confirmation.", object([]string{"recipe_id"}, props{"recipe_id": recipeID(), "changes": editableRecipe, "published": field("boolean", "true publishes, false makes it private")})), "", (*toolTurn).editRecipe},
 	{tool("delete_recipe", "Permanently delete one of the user's own recipes. Needs confirmation.", object([]string{"recipe_id"}, props{"recipe_id": recipeID()})), "recipe", (*toolTurn).deleteRecipe},
-	{tool("generate_recipe_media", "Make a new AI cover photo and/or short video for one of the user's own recipes; it replaces the current one when ready. Each costs a generation.", object([]string{"recipe_id", "kinds"}, props{"recipe_id": recipeID(), "kinds": list(choice("", "image", "video"), 2)})), "media", (*toolTurn).generateRecipeMedia},
+	{tool("generate_recipe_media", "Make a new AI cover photo for one of the user's own recipes (image), replacing the current one when ready, and/or a short AI clip of each of its steps that has none (step_clips), each put on its step when ready. Each photo and each clip costs a generation.", object([]string{"recipe_id", "kinds"}, props{"recipe_id": recipeID(), "kinds": list(choice("", "image", "step_clips"), 2)})), "media", (*toolTurn).generateRecipeMedia},
 	{tool("update_profile", "Change the user's display name, bio, diets or allergies. diets and allergies replace the whole list. Needs confirmation.", object(nil, props{"name": field("string", ""), "bio": field("string", ""), "diets": list(field("string", ""), 12), "allergies": list(field("string", ""), 20)})), "saving", (*toolTurn).updateProfile},
 	{tool("confirm_action", "Carry out the action the user was asked to confirm, once their latest message clearly says yes. Only as the turn's first tool call.", none), "", (*toolTurn).confirmAction},
 	{tool("app_action", "Do something on the user's screen when your reply arrives: open a recipe, start cooking mode (optionally at a step), go to a step or start that step's timer in cooking mode, open a page, or change the interface language.", object([]string{"action"}, props{"action": choice("", "open_recipe", "start_cooking", "cooking_step", "start_timer", "go_to", "set_language"), "recipe_id": field("string", "For open_recipe and start_cooking"), "step": field("integer", "1-based, for start_cooking or cooking_step"), "page": choice("For go_to", pages...), "language": choice("For set_language", languages...), "say": field("string", "Your reply to the user, in their language. In a live call, when this is all they asked for, write it here: it is spoken at once and the turn ends. For a cooking step, say what the step says. Leave it empty when other tools come first or after")})), "", (*toolTurn).appAction},
-	{tool("save_recipe_draft", "Create a new recipe, or revise an unpublished one created in this conversation, with the complete recipe; saves it privately and generates its AI cover photo and short video. Never include media URLs. Use edit_recipe for published and other existing recipes.", object([]string{"recipe"}, props{"recipe": draftRecipe, "new_recipe": field("boolean", "Start a different recipe instead of revising the current draft"), "source_url": field("string", "For a recipe from a web page the user shared: the sourceUrl import_recipe gave, to credit it"), "derived_from": field("string", "For a version of another recipe (a twist, a swap): the original's id, which the new recipe credits")})), "recipe", (*toolTurn).draftAction},
+	{tool("save_recipe_draft", "Create a new recipe, or revise an unpublished one created in this conversation, with the complete recipe; saves it privately and generates its AI cover photo. Never include media URLs. Use edit_recipe for published and other existing recipes.", object([]string{"recipe"}, props{"recipe": draftRecipe, "new_recipe": field("boolean", "Start a different recipe instead of revising the current draft"), "source_url": field("string", "For a recipe from a web page the user shared: the sourceUrl import_recipe gave, to credit it"), "derived_from": field("string", "For a version of another recipe (a twist, a swap): the original's id, which the new recipe credits")})), "recipe", (*toolTurn).draftAction},
 	{tool("read_back_draft", "Read back the current saved draft so the user can approve publishing it.", none), "recipe", (*toolTurn).draftAction},
 	{tool("publish_draft", "Publish the current draft after the user approved its read-back. Only as the turn's first tool call.", none), "recipe", (*toolTurn).draftAction},
-	{tool("retry_draft_media", "Retry the draft's failed cover photo or video.", none), "media", (*toolTurn).draftAction},
+	{tool("retry_draft_media", "Retry the draft's failed cover photo.", none), "media", (*toolTurn).draftAction},
 	{tool("end_voice_conversation", "End the live voice conversation.", none), "", (*toolTurn).endVoiceConversation},
 }
 
@@ -907,37 +908,66 @@ func (t *toolTurn) deleteRecipe() string {
 func (t *toolTurn) generateRecipeMedia() string {
 	kinds := []string{}
 	for _, k := range t.in.Kinds {
-		if (k == "image" || k == "video") && !slices.Contains(kinds, k) {
+		if (k == "image" || k == "step_clips") && !slices.Contains(kinds, k) {
 			kinds = append(kinds, k)
 		}
 	}
 	if len(kinds) == 0 {
-		return toolError("Choose image, video, or both.")
+		return toolError("Choose image, step_clips, or both.")
 	}
 	if _, e := t.a.ownRecipe(t.ctx, t.owner, t.in.RecipeID); e != nil {
 		return toolError("Only your own recipes can get new media.")
 	}
-	// Media already being made for this recipe isn't ordered, or paid for, twice. The rest
-	// is checked against the plan and budgets before the conversation adopts the recipe.
-	order, e := t.a.mediaToOrder(t.ctx, t.run.state, t.in.RecipeID, kinds)
-	if e == nil && len(order) > 0 {
-		e = t.a.mediaAllowed(t.ctx, t.owner, order)
-	}
-	if e != nil {
-		return toolError(publicError(e))
-	}
-	if len(order) > 0 {
-		if e = t.a.adoptRecipe(t.ctx, t.run, t.in.RecipeID); e == nil {
-			e = t.a.queueStudioAssets(t.ctx, t.run.state, "all", order...)
+	out, made := fiber.Map{}, false
+	if slices.Contains(kinds, "image") {
+		// A photo already being made for this recipe isn't ordered, or paid for, twice. The
+		// rest is checked against the plan and budgets before the conversation adopts the
+		// recipe.
+		order, e := t.a.mediaToOrder(t.ctx, t.run.state, t.in.RecipeID, []string{"image"})
+		if e == nil && len(order) > 0 {
+			e = t.a.mediaAllowed(t.ctx, t.owner, order)
+		}
+		if e == nil && len(order) > 0 {
+			if e = t.a.adoptRecipe(t.ctx, t.run, t.in.RecipeID); e == nil {
+				e = t.a.queueStudioAssets(t.ctx, t.run.state, "all", order...)
+			}
 		}
 		if e != nil {
-			return toolError(publicError(e))
+			if len(kinds) == 1 {
+				return toolError(publicError(e))
+			}
+			out["imageError"] = publicError(e)
+		} else if len(order) > 0 {
+			made = true
 		}
+	}
+	if slices.Contains(kinds, "step_clips") {
+		// Asked again in the same turn, the same recipe's clips aren't ordered twice.
+		turn := t.run.action
+		if turn == "" {
+			turn = uuid.NewString()
+		}
+		clips, queued, e := t.a.queueStepClips(t.ctx, t.owner, t.in.RecipeID, "chat-"+turn+"-"+t.in.RecipeID)
+		if e != nil {
+			if len(kinds) == 1 {
+				return toolError(publicError(e))
+			}
+			out["stepClipsError"] = publicError(e)
+		} else {
+			made = made || queued
+			out["stepClips"] = clips
+		}
+	}
+	if made {
 		t.run.changed = true
 		t.run.note(effect{Kind: "media", Title: t.a.recipeTitle(t.ctx, t.in.RecipeID), Recipe: t.in.RecipeID})
 	}
 	t.a.refreshRun(t.ctx, t.run)
-	return string(jsonBytes(fiber.Map{"media": t.run.state.Assets, "note": "Queued media attaches to the recipe automatically when ready; a failed status carries the reason."}))
+	if slices.Contains(kinds, "image") {
+		out["media"] = t.run.state.Assets
+	}
+	out["note"] = "Queued media attaches to the recipe automatically when ready: the photo as its cover, each clip on its step. A failed status carries the reason."
+	return string(jsonBytes(out))
 }
 
 func (t *toolTurn) updateProfile() string {
@@ -1227,7 +1257,7 @@ func (a *App) adoptRecipe(ctx context.Context, run *agentRun, recipe string) err
 	}
 	if pending, e := draftMediaPending(ctx, tx, run.state.ID, revision); e != nil || pending {
 		if e == nil {
-			e = fiber.NewError(409, "The current draft's photo and video are still being made. Try again in a minute, or open a new chat.")
+			e = fiber.NewError(409, "The current draft's cover photo is still being made. Try again in a minute, or open a new chat.")
 		}
 		return e
 	}

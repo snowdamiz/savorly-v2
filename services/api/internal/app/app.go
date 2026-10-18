@@ -155,7 +155,8 @@ func NewWithContext(ctx context.Context, db *pgxpool.Pool, config Config) *fiber
 			"recipeChat":        a.AI.TextEnabled(), "recipePhotos": a.AI.TextEnabled() && a.Media.S3 != nil,
 			"textAI": a.AI.TextEnabled(), "recipeModel": a.AI.RecipeModel, "agentModel": a.AI.AgentModel,
 			"imageAI": a.AI.TextEnabled(), "imageModel": a.AI.ImageModel, "imageEditModel": a.AI.ImageEditModel,
-			"videoAI": a.AI.VideoEnabled(), "videoProvider": "reAPI", "videoModel": a.AI.VideoModel, "videoEstimateUSD": 1.005,
+			// videoAI is AI step clips (POST /recipes/:id/step-clips); videoEstimateUSD is one clip.
+			"videoAI": a.AI.VideoEnabled() && a.Media.S3 != nil, "videoProvider": "reAPI", "videoModel": a.AI.VideoModel, "videoEstimateUSD": 0.144,
 			"recipeTranslation": a.AI.TextEnabled(), "translationModel": a.AI.TranslationModel,
 			"passwordRecovery": emailEnabled(),
 			"turnstileSiteKey": turnstileSiteKey(),
@@ -190,6 +191,8 @@ func NewWithContext(ctx context.Context, db *pgxpool.Pool, config Config) *fiber
 	v.Get("/recipes/:id", a.getRecipe)
 	v.Post("/recipes/:id/steps/:step/narration", a.requireAuth, a.prepareNarration)
 	v.Get("/recipes/:id/steps/:step/narration/:key", a.requireAuth, a.readNarration)
+	v.Get("/recipes/:id/step-clips", a.requireAuth, a.stepClips)
+	v.Post("/recipes/:id/step-clips", a.requireAuth, a.orderStepClips)
 	v.Post("/recipes", a.requireAuth, a.createRecipe)
 	v.Put("/recipes/:id", a.requireAuth, a.updateRecipe)
 	v.Delete("/recipes/:id", a.requireAuth, a.deleteRecipe)

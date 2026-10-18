@@ -441,8 +441,7 @@ function Shell({ onReady }: { onReady: (ready: boolean) => void }) {
         .catch(() => setSelected((s) => (s?.id === selected.id ? null : s)));
   };
   const ai = (request: AIRequest) => {
-    const enabled =
-      request.kind === 'video' ? app.capabilities?.videoAI : app.capabilities?.imageAI;
+    const enabled = app.capabilities?.imageAI;
     // Automatic requests ask for sign-in in the originating press event, before mounting a job.
     if (request.prompt && enabled && !app.requireUser()) return;
     setAsk(request);

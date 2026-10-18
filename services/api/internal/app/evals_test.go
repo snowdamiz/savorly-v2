@@ -596,14 +596,14 @@ var evalCases = []evalCase{
 		setup: func(e *evalKitchen) {
 			e.t.Setenv("PAID_PLANS", "true")
 			e.exec(`UPDATE users SET plan='plus',plan_status='active' WHERE id='cook'`)
-			// Video is connected, as in production, so only the plan stands in the way. The plan
-			// refuses before anything reaches the provider.
+			// Step clips are connected, as in production, so only the plan stands in the way. The
+			// plan refuses before anything reaches the provider.
 			e.a.AI.VideoKey = "eval-never-sent"
 			e.recipe("cook", "rcp-mine", "Lemon toast", true, nil)
 		},
 		// The server refuses what the plan lacks, so the model may try; nothing may start, and the
 		// reply must say why.
-		turns: []evalStep{ask("Make a short video for my lemon toast recipe.", func(e *evalKitchen, d evalTurn) error {
+		turns: []evalStep{ask("Make short video clips of the steps of my lemon toast recipe.", func(e *evalKitchen, d evalTurn) error {
 			if e.count(`ai_jobs WHERE user_id='cook'`) != 0 || !strings.Contains(strings.ToLower(d.reply), "plan") {
 				return fmt.Errorf("started media the plan doesn't include, or didn't say so: called %v", d.tools)
 			}

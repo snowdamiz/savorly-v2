@@ -1,19 +1,19 @@
 import { useI18n } from '../lib/i18n';
-import React, { useState } from 'react';
+import React from 'react';
 import { Text, View } from 'react-native';
-import { Check, ImagePlus, Video } from './icons';
+import { Check, ImagePlus } from './icons';
 import { Recipe, StudioProject } from '../lib/types';
 import { color, radius, s } from '../lib/theme';
-import { Button, Dialog, FoodImage, Pill } from './ui';
-import { VideoPlayer } from './VideoPlayer';
+import { Button, FoodImage, Pill } from './ui';
 
 /**
- * The recipe a conversation saved: enough of it to see it's the right one, how its photo and
- * video are coming along, and ways to open it, watch its video, or retry media that failed.
+ * The recipe a conversation saved: enough of it to see it's the right one, how its cover photo is
+ * coming along, and ways to open it or retry a photo that failed. Older conversations also made
+ * a recipe video, which the app no longer shows.
  */
 export function StudioDraft({
   recipe,
-  assets,
+  assets: all,
   busy,
   onOpen,
   onRetry,
@@ -26,8 +26,7 @@ export function StudioDraft({
   onRetry: () => void;
 }) {
   const { t: tr } = useI18n();
-  // The draft's video, open large.
-  const [videoOpen, setVideoOpen] = useState(false);
+  const assets = all.filter((asset) => asset.kind === 'image');
   return (
     <View style={[s.card, { gap: 14 }]}>
       <View style={[s.row, { gap: 14 }]}>
@@ -59,14 +58,8 @@ export function StudioDraft({
       {assets.map((asset) => (
         <View key={asset.kind} style={{ gap: 4 }}>
           <View style={[s.row, { gap: 8 }]}>
-            {asset.kind === 'image' ? (
-              <ImagePlus size={17} color={color.ink} />
-            ) : (
-              <Video size={17} color={color.ink} />
-            )}
-            <Text style={[s.body, { flex: 1 }]}>
-              {asset.kind === 'image' ? tr('AI cover photo') : tr('AI recipe video')}
-            </Text>
+            <ImagePlus size={17} color={color.ink} />
+            <Text style={[s.body, { flex: 1 }]}>{tr('AI cover photo')}</Text>
             <Text style={s.small}>
               {asset.status === 'completed'
                 ? tr('Ready')
@@ -80,15 +73,6 @@ export function StudioDraft({
       ))}
       <View style={[s.row, { gap: 8, flexWrap: 'wrap' }]}>
         <Button title={tr('Open recipe')} small onPress={onOpen} />
-        {!!recipe.video && (
-          <Button
-            title={tr('Watch video')}
-            icon={Video}
-            small
-            variant="secondary"
-            onPress={() => setVideoOpen(true)}
-          />
-        )}
         {assets.some((a) => a.status === 'failed') && (
           <Button
             title={tr('Retry media')}
@@ -100,9 +84,6 @@ export function StudioDraft({
         )}
       </View>
       <Text style={s.small}>{tr('Media keeps creating when you close this conversation.')}</Text>
-      <Dialog visible={videoOpen} onClose={() => setVideoOpen(false)} title={recipe.title}>
-        {videoOpen && !!recipe.video ? <VideoPlayer uri={recipe.video} /> : null}
-      </Dialog>
     </View>
   );
 }

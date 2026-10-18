@@ -17,11 +17,12 @@ import (
 	"time"
 )
 
-// queueStudioAssets starts media for the current revision. redo picks which existing
-// jobs are replaced: "missing" (none), "failed", or "all" (an explicit regeneration).
+// queueStudioAssets starts media for the current revision: its cover photo. Step clips are
+// only ever made when the cook asks (step_clips_ai.go). redo picks which existing jobs are
+// replaced: "missing" (none), "failed", or "all" (an explicit regeneration).
 func (a *App) queueStudioAssets(ctx context.Context, state studioState, redo string, kinds ...string) error {
 	if len(kinds) == 0 {
-		kinds = []string{"image", "video"}
+		kinds = []string{"image"}
 	}
 	if state.Recipe == nil {
 		return fiber.NewError(400, "Make the recipe before generating media.")
@@ -49,7 +50,7 @@ func (a *App) queueStudioAssets(ctx context.Context, state studioState, redo str
 	for _, kind := range kinds {
 		// Automatic media skips what the plan doesn't include, or the server can't make, rather
 		// than showing a failure. Explicit regeneration still explains why.
-		if redo == "missing" && ((kind == "video" && (plan.Videos == 0 || !a.AI.VideoEnabled())) || (kind == "image" && plan.Images == 0)) {
+		if redo == "missing" && kind == "image" && plan.Images == 0 {
 			continue
 		}
 		var status string
@@ -83,9 +84,13 @@ func (a *App) queueStudioAssets(ctx context.Context, state studioState, redo str
 		} else {
 			queued = true
 		}
+		// The recipe's words, without the addresses of the media it has.
 		r := *state.Recipe
-		r.Image = ""
-		r.Video = ""
+		r.Image, r.Video, r.Photos = "", "", nil
+		r.Steps = slices.Clone(r.Steps)
+		for i := range r.Steps {
+			r.Steps[i].Image, r.Steps[i].Video = "", ""
+		}
 		prompt := fmt.Sprintf("Illustrate this exact recipe. Do not add ingredients or imply the generated scene is actual footage of its author. Recipe: %s", jsonBytes(r))
 		id := uuid.NewString()
 		key := "studio-" + id
@@ -120,14 +125,10 @@ func inFlight(status string) bool {
 	return status == "queued" || status == "running" || status == "processing"
 }
 
-// mediaUnavailable says why this server can't make kind at all, or "".
+// mediaUnavailable says why this server can't make kind (a cover photo) at all, or "".
 func (a *App) mediaUnavailable(kind string) string {
 	message := ""
-	if kind == "video" {
-		if !a.AI.VideoEnabled() {
-			message = "Video generation needs a reAPI connection. The recipe is saved."
-		}
-	} else if !a.AI.TextEnabled() {
+	if !a.AI.TextEnabled() {
 		message = "Image generation needs an OpenRouter connection."
 	}
 	if a.Media == nil || a.Media.S3 == nil {

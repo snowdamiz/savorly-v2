@@ -267,7 +267,7 @@ export function MemberDialog({ id, onClose }: { id: string; onClose: () => void 
                   display={`${m.usage.images} of ${m.limits.images}`}
                 />
                 <Meter
-                  label="AI videos"
+                  label="AI step clips"
                   used={m.usage.videos}
                   limit={m.limits.videos}
                   display={`${m.usage.videos} of ${m.limits.videos}`}
@@ -291,7 +291,7 @@ export function MemberDialog({ id, onClose }: { id: string; onClose: () => void 
                   ['Sous-chef turns', f.number(m.usage.assistant)],
                   ['Voice minutes', f.number(Math.ceil(m.usage.voiceSeconds / 60))],
                   ['AI photos', f.number(m.usage.images)],
-                  ['AI videos', f.number(m.usage.videos)],
+                  ['AI step clips', f.number(m.usage.videos)],
                   ['Read-alouds', f.number(m.usage.narration)],
                   ['Spend', `${f.money(m.spend30d)} (no plan limits while paid plans are off)`],
                 ]}
