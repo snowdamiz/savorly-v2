@@ -1,14 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Platform, Share, StyleSheet, Text, View } from 'react-native';
-import {
-  Check,
-  ChevronRight,
-  LogOut,
-  Share2,
-  UserMinus,
-  UserPlus,
-  Users,
-} from './icons';
+import { Check, ChevronRight, LogOut, Share2, UserMinus, UserPlus, Users } from './icons';
 import { useI18n } from '../lib/i18n';
 import { api, ApiError } from '../lib/api';
 import { useApp } from '../lib/store';
@@ -17,6 +9,7 @@ import { color, font, s } from '../lib/theme';
 import { Avatar, Button, Dialog, Field, IconButton, Press } from './ui';
 import { DangerButton } from './DangerButton';
 import { SheetError, useSheetAction } from './SheetAction';
+import { SwitchRow } from './NotificationSettings';
 
 const isHousehold = (h: unknown): h is Household =>
   !!h &&
@@ -106,7 +99,7 @@ function Faces({ members }: { members: HouseholdMember[] }) {
   );
 }
 
-/** The way into sharing from the grocery list: "Share this list", or the household it's shared in. */
+/** The way into sharing from the grocery list or pantry: "Share your kitchen", or its household. */
 export function HouseholdEntry({
   household,
   onPress,
@@ -120,7 +113,7 @@ export function HouseholdEntry({
     <Press
       accessibilityRole="button"
       accessibilityLabel={
-        household ? tr('Shared list: {{v0}}', { v0: household.name }) : tr('Share this list')
+        household ? tr('Shared kitchen: {{v0}}', { v0: household.name }) : tr('Share your kitchen')
       }
       onPress={onPress}
       scale={0.98}
@@ -144,14 +137,16 @@ export function HouseholdEntry({
       )}
       <View style={{ flex: 1, gap: 2 }}>
         <Text numberOfLines={1} style={[s.h3, { fontSize: 15 }]}>
-          {household ? household.name : tr('Share this list')}
+          {household ? household.name : tr('Share your kitchen')}
         </Text>
         <Text style={[s.small, { fontFamily: font.medium }]}>
           {!household
-            ? tr('Shop together: everyone in your household sees the same list.')
+            ? tr(
+                'Cook together: your household shares the grocery list, the meal plan and the pantry.',
+              )
             : members > 1
               ? tr('sharedListCount', { count: members })
-              : tr('Just you so far. Invite someone to share the list.')}
+              : tr('Just you so far. Invite someone to share your kitchen.')}
         </Text>
       </View>
       <ChevronRight size={18} color={color.soft} />
@@ -207,11 +202,12 @@ export function HouseholdSheet({
     setStep(next);
     return run(fn);
   };
-  // The grocery list moves in (or out) with the household.
+  // The kitchen moves in (or out) with the household, and whose diets the recipes warn about
+  // (the profile's householdAvoid) changes with who's in it.
   const changed = async (next: Household | null) => {
     set(next);
     setInvite(null);
-    await refreshKitchen();
+    await Promise.all([refreshKitchen(), app.refreshUser()]);
   };
   // Already in a household (joined from another device, perhaps): show it.
   const conflict = (e: unknown): never => {
@@ -273,7 +269,7 @@ export function HouseholdSheet({
       await api(`/household/members/${encodeURIComponent(member.id)}`, { method: 'DELETE' });
       if (household)
         set({ ...household, members: household.members.filter((m) => m.id !== member.id) });
-      await Promise.all([reload(), refreshKitchen()]);
+      await Promise.all([reload(), refreshKitchen(), app.refreshUser()]);
     });
     if (removed) setConfirm(null);
   };
@@ -291,7 +287,7 @@ export function HouseholdSheet({
       <Dialog
         visible={visible}
         onClose={close}
-        title={household ? household.name : tr('Share this list')}
+        title={household ? household.name : tr('Share your kitchen')}
       >
         {!household ? (
           <>
@@ -310,7 +306,7 @@ export function HouseholdSheet({
                 maxLength={60}
               />
               <Text style={[s.small, { fontFamily: font.medium }]}>
-                {tr('Your grocery list comes with you.')}
+                {tr('Your grocery list, meal plan and pantry come with you.')}
               </Text>
               <SheetError message={errorFor('create')} />
               <Button
@@ -335,7 +331,9 @@ export function HouseholdSheet({
                 style={code ? { fontFamily: font.bold, letterSpacing: 2 } : undefined}
               />
               <Text style={[s.small, { fontFamily: font.medium }]}>
-                {tr('Your grocery list joins theirs.')}
+                {tr(
+                  'Your grocery list, meal plan and pantry join theirs. Where they already have a meal planned or an item stocked, theirs stays.',
+                )}
               </Text>
               <SheetError message={errorFor('join')} />
               <Button
@@ -350,7 +348,9 @@ export function HouseholdSheet({
         ) : (
           <>
             <Text style={s.muted}>
-              {tr('Everyone here shares one grocery list and can add to it or check things off.')}
+              {tr(
+                'Everyone here shares the grocery list, the meal plan and the pantry, and can change any of them.',
+              )}
             </Text>
             <View style={[s.card, { paddingVertical: 4, paddingRight: 8 }]}>
               {household.members.map((m, n) => (
@@ -386,6 +386,7 @@ export function HouseholdSheet({
                 </View>
               ))}
             </View>
+            <ShareDiet household={household.name} />
             {invite ? (
               <View style={[s.card, { gap: 10, alignItems: 'center' }]}>
                 <Text style={s.label}>{tr('Invite code')}</Text>
@@ -449,7 +450,9 @@ export function HouseholdSheet({
       >
         <Text style={s.body}>
           {!owner
-            ? tr('You’ll stop seeing the shared list. You can join again with a new code.')
+            ? tr(
+                'You’ll stop seeing the shared kitchen and start an empty one of your own. You can join again with a new code.',
+              )
             : others.length
               ? tr(
                   'You own this household. When you leave, the member who has been here longest becomes the owner.',
@@ -469,7 +472,7 @@ export function HouseholdSheet({
         title={tr('Remove {{v0}}?', { v0: member?.name || '' })}
       >
         <Text style={s.body}>
-          {tr('They’ll stop seeing the shared list. They can join again with a new code.')}
+          {tr('They’ll stop seeing the shared kitchen. They can join again with a new code.')}
         </Text>
         <SheetError message={errorFor('remove')} />
         <DangerButton
@@ -482,7 +485,41 @@ export function HouseholdSheet({
   );
 }
 
-/** "Added by Sam" under a grocery someone else in the household put on the list. */
+/**
+ * Whether the household sees the member's diets and allergies: off until they say so, since
+ * allergies are health information. On, recipes warn everyone in the kitchen about them and the
+ * sous-chef's suggestions leave them out for all.
+ */
+function ShareDiet({ household }: { household: string }) {
+  const { t: tr } = useI18n();
+  const app = useApp();
+  const [changed, setChanged] = useState<boolean | null>(null);
+  if (!app.user) return null;
+  const on = changed ?? !!app.user.preferences.shareDiet;
+  return (
+    <View style={[s.card, { paddingVertical: 4 }]}>
+      <SwitchRow
+        title={tr('Share my diets and allergies')}
+        text={tr('Recipes warn everyone in {{v0}} about them, and suggestions leave them out.', {
+          v0: household,
+        })}
+        value={on}
+        onChange={() => {
+          const next = !on;
+          setChanged(next);
+          void app
+            .act(async () => {
+              await api('/me/preferences', { method: 'PATCH', body: { shareDiet: next } });
+              await app.refreshUser();
+            })
+            .then((ok) => !ok && setChanged(null));
+        }}
+      />
+    </View>
+  );
+}
+
+/** "Added by Sam" under a grocery or pantry item someone else in the household added. */
 export function AddedBy({ name }: { name: string }) {
   const { t: tr } = useI18n();
   return (

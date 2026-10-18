@@ -9,7 +9,7 @@ The API sends push notifications through [Expo's push service](https://docs.expo
 | New recipe | A recipe is published for the first time (created published, or a draft published later). Unpublishing and publishing again, or an admin's restore, sends nothing. | The author's followers | `follows` | `{ "type": "recipe", "recipeId" }` |
 | Review | A review is written. Editing one sends nothing; at most one per reviewer and recipe a day, even if a review is deleted and written again. | The recipe's author | `reviews` | `{ "type": "recipe", "recipeId" }` |
 | Comment | A comment or reply is written; at most one per commenter and recipe an hour. | The recipe's author | `comments` | `{ "type": "recipe", "recipeId" }` |
-| Pantry | Once a day, from 12:00 UTC: pantry items that expire today or in the next two days. Each item is mentioned once per expiry date; one notification lists a member's items. | The pantry's owner | `pantry` | `{ "type": "pantry" }` |
+| Pantry | Once a day, from 12:00 UTC: pantry items that expire today or in the next two days. Each item is mentioned once per expiry date; one notification lists a member's items. | The pantry's owner, or every member of a household's pantry | `pantry` | `{ "type": "pantry" }` |
 
 Nobody is told about their own action, and suspended members neither send nor receive notifications. A review or comment deleted before it goes out, a recipe unpublished, or a member suspended meanwhile sends nothing. Every switch is on until the member turns it off with `PATCH /me/preferences`.
 

@@ -128,7 +128,7 @@ test('a cook starts a household and invites someone with a code', async ({ page 
   const server: Server = { household: null, groceries: [grocery('g1', 'Lemons', null)] };
   const { requests, bodies } = await kitchen(page, server);
   await openGroceries(page);
-  await page.getByRole('button', { name: 'Share this list', exact: true }).click();
+  await page.getByRole('button', { name: 'Share your kitchen', exact: true }).click();
   await page.getByRole('textbox', { name: 'Household name', exact: true }).fill('The flat');
   requests.length = 0;
   await page.getByRole('button', { name: 'Create household', exact: true }).click();
@@ -151,10 +151,10 @@ test('a cook starts a household and invites someone with a code', async ({ page 
   // Back on the list, the entry names the household.
   await page.getByRole('button', { name: 'Close dialog', exact: true }).click();
   await expect(
-    page.getByRole('button', { name: 'Shared list: The flat', exact: true }),
+    page.getByRole('button', { name: 'Shared kitchen: The flat', exact: true }),
   ).toBeVisible();
   await expect(
-    page.getByText('Just you so far. Invite someone to share the list.', { exact: true }),
+    page.getByText('Just you so far. Invite someone to share your kitchen.', { exact: true }),
   ).toBeVisible();
 });
 
@@ -163,7 +163,7 @@ test('joining takes a valid code, and the shared list shows who added what', asy
   const { bodies } = await kitchen(page, server);
   await openGroceries(page);
   await expect(page.getByText('Added by', { exact: false })).toHaveCount(0);
-  await page.getByRole('button', { name: 'Share this list', exact: true }).click();
+  await page.getByRole('button', { name: 'Share your kitchen', exact: true }).click();
   const code = page.getByRole('textbox', { name: 'Invite code', exact: true });
   await code.fill('wrong-123');
   // Dashes and lower case don't count; the code is 8 letters and digits.
@@ -184,7 +184,7 @@ test('joining takes a valid code, and the shared list shows who added what', asy
 
   await page.getByRole('button', { name: 'Close dialog', exact: true }).click();
   await expect(
-    page.getByRole('button', { name: 'Shared list: The Rossi kitchen', exact: true }),
+    page.getByRole('button', { name: 'Shared kitchen: The Rossi kitchen', exact: true }),
   ).toBeVisible();
   await expect(page.getByText('2 people share this list', { exact: true })).toBeVisible();
   // Sam's basil says who added it; your own bread doesn't.
@@ -196,12 +196,17 @@ test('joining takes a valid code, and the shared list shows who added what', asy
   );
 
   // A member leaving is told what that means.
-  await page.getByRole('button', { name: 'Shared list: The Rossi kitchen', exact: true }).click();
+  await page
+    .getByRole('button', { name: 'Shared kitchen: The Rossi kitchen', exact: true })
+    .click();
   await page.getByRole('button', { name: 'Leave household', exact: true }).click();
   await expect(
-    page.getByText('You’ll stop seeing the shared list. You can join again with a new code.', {
-      exact: true,
-    }),
+    page.getByText(
+      'You’ll stop seeing the shared kitchen and start an empty one of your own. You can join again with a new code.',
+      {
+        exact: true,
+      },
+    ),
   ).toBeVisible();
 });
 
@@ -211,7 +216,7 @@ test('joining from a kitchen that is already in a household shows that household
   const server: Server = { household: null, groceries: [] };
   await kitchen(page, server);
   await openGroceries(page);
-  await page.getByRole('button', { name: 'Share this list', exact: true }).click();
+  await page.getByRole('button', { name: 'Share your kitchen', exact: true }).click();
   // Meanwhile, another device joined the Rossis.
   server.household = rossi();
   await page.getByRole('textbox', { name: 'Invite code', exact: true }).fill('ABCD2345');
@@ -231,7 +236,7 @@ test('the owner removes a member, then leaves after being told what happens', as
   };
   const { requests } = await kitchen(page, server);
   await openGroceries(page);
-  await page.getByRole('button', { name: 'Shared list: The flat', exact: true }).click();
+  await page.getByRole('button', { name: 'Shared kitchen: The flat', exact: true }).click();
   await page.getByRole('button', { name: 'Leave household', exact: true }).click();
   // The owner hears that someone else takes over.
   await expect(
@@ -244,7 +249,7 @@ test('the owner removes a member, then leaves after being told what happens', as
 
   await page.getByRole('button', { name: 'Remove Sam from the household', exact: true }).click();
   await expect(
-    page.getByText('They’ll stop seeing the shared list. They can join again with a new code.', {
+    page.getByText('They’ll stop seeing the shared kitchen. They can join again with a new code.', {
       exact: true,
     }),
   ).toBeVisible();
@@ -260,5 +265,5 @@ test('the owner removes a member, then leaves after being told what happens', as
   await page.getByRole('button', { name: 'Leave household', exact: true }).click();
   await expect(page.getByText('You’ve left the household.', { exact: true })).toBeVisible();
   expect(requests).toContain('DELETE /household/members/me');
-  await expect(page.getByRole('button', { name: 'Share this list', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Share your kitchen', exact: true })).toBeVisible();
 });

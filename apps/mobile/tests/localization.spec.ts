@@ -108,6 +108,7 @@ test('all catalogs cover the same messages, retain placeholders, and include eve
     'AI photos',
     'AI videos',
     'Natural-voice read-alouds',
+    'Cooking questions',
     'Baking',
     'Easy',
     'Medium',

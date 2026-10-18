@@ -2,7 +2,8 @@
   "ios": {
     "CFBundleDisplayName": "Savorly",
     "NSCameraUsageDescription": "Let Savorly use the camera to photograph recipes for your cooking assistant and to take your profile photo.",
-    "NSMicrophoneUsageDescription": "Let Savorly listen while you describe your recipe.",
-    "NSPhotoLibraryUsageDescription": "Let Savorly access your photos to add images and videos to your recipes and a picture to your profile."
+    "NSMicrophoneUsageDescription": "Let Savorly listen while you describe your recipe or cook hands-free.",
+    "NSPhotoLibraryUsageDescription": "Let Savorly access your photos to add images and videos to your recipes and a picture to your profile.",
+    "NSSpeechRecognitionUsageDescription": "Let Savorly recognize what you say while you cook hands-free, such as “next step”."
   }
 }

@@ -101,6 +101,7 @@ OPENROUTER_RECIPE_MODEL=openai/gpt-6.1-sol
 OPENROUTER_AGENT_MODEL=openai/gpt-6-luna
 OPENROUTER_IMAGE_MODEL=openai/gpt-image-2.5-flare
 OPENROUTER_IMAGE_EDIT_MODEL=openai/gpt-image-2.5-sunburst
+OPENROUTER_TRANSLATION_MODEL=openai/gpt-6-luna
 OPENROUTER_TTS_VOICE=sarah
 ```
 
@@ -208,6 +209,24 @@ Use the signing secret printed by that CLI session while testing locally, and ke
 10. Before selling real subscriptions, complete Stripe's business/payout onboarding and repeat the product, price, webhook, and portal setup in live mode. Replace **all** test keys, price IDs, and webhook secrets together; they are environment-specific.
 
 **Done when:** Checkout returns to the app, the plan updates through the webhook, and Manage plan works. Prices and allowances are defined in `services/api/internal/app/plans.go`; keep them aligned with Stripe. See [billing details](PRICING.md).
+
+### Stripe Connect — creator payouts
+
+Only needed for the [creator fund](CREATOR-FUND.md), which also needs subscriptions working (above). The fund pays creators with Stripe Connect **Express** accounts and **transfers** from Savorly's own Stripe balance; it assumes a US Stripe account, since cross-border payouts are offered to US platforms. Do this in the sandbox first.
+
+1. In **Connect → Get started**, set Savorly up as a platform whose connected accounts receive payouts, with **Express** accounts. Fill in the platform profile and, in **Settings → Connect → Branding**, the name, icon and color creators see during onboarding.
+2. In **Settings → Connect → Onboarding options**, allow the countries in `payoutCountries` (`services/api/internal/app/creator_fund.go`). Creators outside the US are onboarded with the **recipient** service agreement, which needs cross-border payouts: enable them under Connect settings if Stripe asks. Creators can only receive transfers; they never take payments.
+3. In **Workbench → Webhooks**, create a **second** destination for events from **Connected accounts** (not "Your account"), subscribed to `account.updated`, at `https://savorly.cooking/api/v1/payouts/webhook` (or the API origin you use, as for the billing webhook). Reveal its signing secret and set `STRIPE_CONNECT_WEBHOOK_SECRET=whsec_...`; it's not the billing webhook's secret. Locally:
+
+```sh
+stripe listen --forward-connect-to localhost:8080/v1/payouts/webhook
+```
+
+4. Set `CREATOR_FUND=true` (and optionally `CREATOR_FUND_SHARE`, at most `0.20`) with `PAID_PLANS=true` and the Stripe keys. `/v1/capabilities` then reports `creatorFund`, and My kitchen shows **Creator earnings** to cooks with published recipes.
+5. Transfers draw on the platform's **available** USD balance. If the account pays its balance out to the bank automatically, keep enough there for creator payouts (**Settings → Payouts**: a payout schedule or minimum balance), or transfers fail and are retried a day later. In the sandbox, add available funds with the test card `4000 0000 0000 0077`.
+6. From the web app as a creator with a published recipe, choose **Set up payouts**, finish the Express onboarding with Stripe's test data, and come back: **Payouts are on** shows once `account.updated` arrives. To test a payout, close a month for a test creator with at least $10 of earnings (the API's creator-fund loop does it on the 1st, UTC) and check the transfer under **Connect → Transfers**.
+
+**Done when:** a sandbox creator finishes onboarding, the Connect webhook deliveries return 2xx, and a test transfer reaches their Express account. Replace the Connect webhook secret with the live destination's when moving to live mode.
 
 ## 7. Expo / EAS — native builds
 
@@ -324,6 +343,16 @@ The server sends push notifications through Expo's push service: new recipes fro
 Until steps 2 and 3 are done, a phone that turns notifications on reports that it couldn't be set up for them; everything else works.
 
 **Check:** in a development build, sign in, open My kitchen → Notifications, turn them on and allow them. Send a test from [expo.dev/notifications](https://expo.dev/notifications), or review one of the account's recipes from another account. Tapping a recipe notification opens the recipe; a pantry reminder opens the pantry.
+
+## 13. Instacart — ordering groceries (optional)
+
+The grocery list and recipe pages can hand their ingredients to Instacart, whose page matches each line to products at a store the cook picks; the order and payment happen at Instacart (`services/api/internal/app/grocery_checkout.go`). Instacart delivers in the United States and Canada, so the app offers it only where the device's locale says the cook is (en-US, fr-CA…); everyone can share the list as text.
+
+1. Apply to the [Instacart Developer Platform](https://www.instacart.com/company/business/developers). As of October 2026 its page says it isn't taking new applications; until it does, leave the key unset and the app only shares lists.
+2. Create a development key, set `INSTACART_API_KEY` and `INSTACART_API_URL=https://connect.dev.instacart.tools`, and check a list and a recipe open a page. Then request a production key, and set it with the default URL.
+3. For commissions, finish Instacart's affiliate onboarding (through Impact) for the partner account; the links the API returns then carry the affiliate parameters by themselves. Nothing else is needed in Savorly.
+
+**Check:** with a key set, `GET /v1/capabilities` answers `"groceryCheckout": "instacart"`; on a US English device, Planner → Groceries shows **Order with Instacart**, and a recipe shows **Get the ingredients delivered**.
 
 ## Account settings in the app
 

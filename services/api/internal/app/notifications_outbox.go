@@ -579,16 +579,18 @@ func (n *notifier) pantryPass(ctx context.Context) (int64, error) {
 	if e != nil {
 		return 0, e
 	}
+	// A household's pantry is everyone's: each member hears about its items, once per item.
 	r, e := tx.Exec(ctx, `WITH due AS (
-  SELECT p.id,p.user_id,p.name,p.expires_on FROM pantry p JOIN users u ON u.id=p.user_id AND u.suspended_at IS NULL
-  WHERE p.expires_on BETWEEN $1::date AND $1::date+2
+  SELECT p.id,u.id AS recipient,p.name,p.expires_on FROM pantry p
+  JOIN users u ON u.id=ANY(CASE WHEN p.household_id IS NULL THEN ARRAY[p.user_id] ELSE ARRAY(SELECT m.user_id FROM household_members m WHERE m.household_id=p.household_id) END)
+  WHERE p.expires_on BETWEEN $1::date AND $1::date+2 AND u.suspended_at IS NULL
    AND NOT EXISTS (SELECT 1 FROM pantry_reminders x WHERE x.pantry_id=p.id AND x.expires_on=p.expires_on)
-   AND EXISTS (SELECT 1 FROM push_tokens t WHERE t.user_id=p.user_id)
+   AND EXISTS (SELECT 1 FROM push_tokens t WHERE t.user_id=u.id)
    AND (u.preferences->'notifications'->'pantry') IS DISTINCT FROM 'false'::jsonb),
- noted AS (INSERT INTO pantry_reminders(pantry_id,expires_on) SELECT id,expires_on FROM due
+ noted AS (INSERT INTO pantry_reminders(pantry_id,expires_on) SELECT DISTINCT id,expires_on FROM due
   ON CONFLICT (pantry_id) DO UPDATE SET expires_on=excluded.expires_on,created_at=now())
 INSERT INTO notification_outbox(kind,recipient_id,detail)
-SELECT 'pantry',user_id,jsonb_build_object('items',jsonb_agg(name ORDER BY expires_on,name)) FROM due GROUP BY user_id`, day)
+SELECT 'pantry',recipient,jsonb_build_object('items',jsonb_agg(name ORDER BY expires_on,name)) FROM due GROUP BY recipient`, day)
 	if e != nil {
 		return 0, e
 	}

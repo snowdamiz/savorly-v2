@@ -1,6 +1,15 @@
 import { useI18n } from '../lib/i18n';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  AppState,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import {
   BookOpen,
   CalendarDays,
@@ -17,7 +26,8 @@ import {
 } from '../components/icons';
 import { useApp } from '../lib/store';
 import { api } from '../lib/api';
-import { GroceryMerge, Kitchen, Plan, Recipe, Screen } from '../lib/types';
+import { GroceryMerge, Kitchen, PantryMatch, Plan, Recipe, Screen } from '../lib/types';
+import { joinNames } from '../lib/food';
 import { useShelf } from '../lib/shelf';
 import { color, font, maxFontScale, radius, s } from '../lib/theme';
 import {
@@ -36,8 +46,9 @@ import {
   Segmented,
   useChrome,
 } from '../components/ui';
-import { RecipeGrid } from '../components/RecipeCard';
+import { RecipeGrid, RecipeRow } from '../components/RecipeCard';
 import { AskCard } from '../components/SousChef';
+import { GroceryCheckout } from '../components/GroceryCheckout';
 import { DatePicker } from '../components/DatePicker';
 import { CookbookSettings, useShareCookbook } from '../components/CookbookSettings';
 import { DangerButton } from '../components/DangerButton';
@@ -296,12 +307,24 @@ function MealSlot({
   onRemove: () => void;
 }) {
   const { t: tr, locale } = useI18n();
+  const app = useApp();
+  // Another household member's private recipe is only its name here: it doesn't open.
+  const teaser = !!plan?.recipe.teaser;
+  const by = plan?.plannedBy && plan.plannedBy.id !== app.user?.id ? plan.plannedBy.name : '';
   return plan ? (
     <View style={[s.card, s.row, { padding: 10, gap: 12, flex: 1 }]}>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={tr('View {{v0}}', { v0: plan.recipe.title })}
-        onPress={() => onOpen(plan.recipe)}
+        accessibilityLabel={
+          teaser
+            ? tr('{{v0}}’s private recipe: {{v1}}', { v0: by, v1: plan.recipe.title })
+            : tr('View {{v0}}', { v0: plan.recipe.title })
+        }
+        onPress={() =>
+          teaser
+            ? app.notify(tr('Only {{v0}} can open this recipe; it’s private.', { v0: by }))
+            : onOpen(plan.recipe)
+        }
         style={[s.row, { gap: 12, flex: 1 }]}
       >
         <FoodImage uri={plan.recipe.image} style={{ width: 56, height: 56, borderRadius: 18 }} />
@@ -310,7 +333,11 @@ function MealSlot({
           <Text numberOfLines={1} style={[s.h3, { fontSize: 15 }]}>
             {plan.recipe.title}
           </Text>
-          <Text style={s.small}>{tr('servingCount', { count: plan.servings })}</Text>
+          <Text numberOfLines={1} style={s.small}>
+            {by
+              ? `${tr('servingCount', { count: plan.servings })} · ${tr('Planned by {{v0}}', { v0: by })}`
+              : tr('servingCount', { count: plan.servings })}
+          </Text>
         </View>
       </Pressable>
       <IconButton
@@ -413,6 +440,31 @@ function useWeekPlans(from: string, to: string, today: string, userId: string | 
     reload,
   };
 }
+/**
+ * Others in the household change the same kitchen, so while it's on screen it's asked for again
+ * every 20 seconds, and as the app comes back to the foreground. A kitchen of one changes only
+ * when its cook does, and isn't polled.
+ */
+function useLiveKitchen(shared: boolean, refresh: () => Promise<unknown>) {
+  const latest = useRef(refresh);
+  useEffect(() => {
+    latest.current = refresh;
+  });
+  useEffect(() => {
+    if (!shared) return;
+    const hidden = () =>
+      Platform.OS === 'web' && typeof document !== 'undefined' && document.hidden;
+    const tick = () => {
+      if (AppState.currentState === 'active' && !hidden()) void latest.current().catch(() => {});
+    };
+    const timer = setInterval(tick, 20_000);
+    const back = AppState.addEventListener('change', (state) => state === 'active' && tick());
+    return () => {
+      clearInterval(timer);
+      back.remove();
+    };
+  }, [shared]);
+}
 export function Planner({
   onOpen,
   onAsk,
@@ -447,10 +499,11 @@ export function Planner({
   const shared = household.supported && !!household.household;
   const groceries = app.kitchen.groceries;
   const checked = groceries.filter((g) => g.checked).length;
-  // Others add to a shared list too, so opening it shows their latest.
+  // Others add to a shared list too, so opening it shows their latest, and it keeps up.
   useEffect(() => {
     if (tab === 'groceries' && shared) void refreshKitchen().catch(() => {});
   }, [tab, shared, refreshKitchen]);
+  useLiveKitchen(shared, () => Promise.all([refreshKitchen(), week.reload()]));
   const moveWeek = (n: number) => {
     setOffset(n);
     const next = weekDays(n, firstDay);
@@ -467,14 +520,17 @@ export function Planner({
     if (busy) return;
     setBusy(true);
     await app.act(async () => {
+      // What the pantry has, and kitchen basics like salt and oil, stay off the list.
       const result = await api<GroceryMerge>('/planner/groceries', {
         method: 'POST',
-        body: { from, to },
+        body: { from, to, skipPantry: true },
       });
       await refreshKitchen();
+      const skipped = new Set((result?.skipped ?? []).map((n) => n.trim().toLowerCase())).size;
       const said = [
         result?.added > 0 ? tr('weekGroceriesAdded', { count: result.added }) : '',
         result?.merged > 0 ? tr('weekGroceriesMerged', { count: result.merged }) : '',
+        skipped > 0 ? tr('weekGroceriesSkipped', { count: skipped }) : '',
       ].filter(Boolean);
       app.notify(said.length ? said.join(' ') : tr('Nothing new to add from this week.'));
     });
@@ -772,6 +828,7 @@ export function Planner({
               />
             </View>
           </View>
+          <GroceryCheckout />
           {!groceries.length ? (
             <Empty
               title={tr('Your basket is empty')}
@@ -902,6 +959,83 @@ export function Planner({
     </View>
   );
 }
+/**
+ * The recipes the pantry goes furthest toward (GET /kitchen/pantry-recipes), read by what each
+ * ingredient is rather than its spelling, asked again whenever the pantry changes. Older servers
+ * have no such route, and the section stays empty.
+ */
+function usePantryMatches() {
+  const app = useApp();
+  const pantryKey = app.kitchen.pantry.map((p) => `${p.name}:${p.expiresOn ?? ''}`).join('\n');
+  // Allergies and diets change what fits, so a profile change asks again too.
+  const asking =
+    app.user && pantryKey
+      ? `${app.user.id}\n${JSON.stringify(app.user.avoid ?? null)}\n${pantryKey}`
+      : '';
+  // Matches are kept with what they were asked for, so a stale answer never shows.
+  const [answer, setAnswer] = useState<{ asking: string; matches: PantryMatch[] }>();
+  useEffect(() => {
+    if (!asking) return;
+    let current = true;
+    api<{ matches: PantryMatch[] }>('/kitchen/pantry-recipes?limit=6')
+      .then(
+        (r) =>
+          current && setAnswer({ asking, matches: Array.isArray(r?.matches) ? r.matches : [] }),
+      )
+      .catch(() => current && setAnswer({ asking, matches: [] }));
+    return () => {
+      current = false;
+    };
+  }, [asking]);
+  return asking && answer?.asking === asking ? answer.matches : [];
+}
+function PantryMatchRow({ match, onOpen }: { match: PantryMatch; onOpen: (r: Recipe) => void }) {
+  const { t: tr, language } = useI18n();
+  const app = useApp();
+  const [busy, setBusy] = useState(false);
+  const { recipe, missing, expiring } = match;
+  return (
+    <View style={{ gap: 8 }}>
+      <RecipeRow recipe={recipe} onOpen={onOpen} />
+      <View style={[s.row, { gap: 8, flexWrap: 'wrap', paddingHorizontal: 6 }]}>
+        <Text style={[s.small, { flexShrink: 1 }]}>
+          {missing.length
+            ? tr('Missing: {{v0}}', { v0: joinNames(missing, language) })
+            : tr('You have everything for this.')}
+        </Text>
+        {expiring.length > 0 && (
+          <Pill
+            title={tr('Uses {{v0}}', { v0: joinNames(expiring, language) })}
+            icon={Leaf}
+            tone="warning"
+          />
+        )}
+        {missing.length > 0 && (
+          <Button
+            small
+            variant="secondary"
+            icon={ShoppingBasket}
+            title={tr('Add what’s missing')}
+            busy={busy}
+            onPress={() => {
+              if (busy) return;
+              setBusy(true);
+              void app
+                .act(async () => {
+                  await api<GroceryMerge>(`/recipes/${recipe.id}/groceries`, {
+                    method: 'POST',
+                    body: { servings: recipe.servings, skipPantry: true },
+                  });
+                  await app.refreshKitchen();
+                }, 'Added what’s missing to your grocery list.')
+                .finally(() => setBusy(false));
+            }}
+          />
+        )}
+      </View>
+    </View>
+  );
+}
 export function Pantry({
   onOpen,
   onAsk,
@@ -926,24 +1060,12 @@ export function Pantry({
     const date = parseDay(day);
     return date ? daysBetween(now, date) : null;
   };
-  const matching = useMemo(
-    () =>
-      app.recipes
-        .map((r) => ({
-          recipe: r,
-          count: r.ingredients.filter((i) =>
-            app.kitchen.pantry.some(
-              (p) =>
-                i.name.toLowerCase().includes(p.name.toLowerCase()) ||
-                p.name.toLowerCase().includes(i.name.toLowerCase()),
-            ),
-          ).length,
-        }))
-        .filter((r) => r.count > 0)
-        .sort((a, b) => b.count - a.count)
-        .slice(0, 6),
-    [app.recipes, app.kitchen.pantry],
-  );
+  const matching = usePantryMatches();
+  // A household shares the pantry: it says who added what, and keeps up with the others.
+  const household = useHousehold(app.user?.id ?? null);
+  const shared = household.supported && !!household.household;
+  const [sharing, setSharing] = useState(false);
+  useLiveKitchen(shared, app.refreshKitchen);
   const ask = (
     <AskCard
       title={tr('What can I make with this?')}
@@ -1000,6 +1122,9 @@ export function Pantry({
       />
     </View>
   );
+  const entry = household.supported && household.ready && (
+    <HouseholdEntry household={household.household} onPress={() => setSharing(true)} />
+  );
   const stock = (
     <>
       {app.kitchen.pantry.length ? (
@@ -1042,6 +1167,7 @@ export function Pantry({
                       ? tr(' · best before {{v0}}', { v0: formatDay(p.expiresOn, locale) })
                       : ''}
                   </Text>
+                  {p.addedBy && p.addedBy.id !== app.user?.id && <AddedBy name={p.addedBy.name} />}
                 </View>
                 {expired ? (
                   <Pill title={tr('Expired')} tone="error" />
@@ -1072,12 +1198,14 @@ export function Pantry({
         />
       )}
       {matching.length > 0 && (
-        <View>
+        <View style={{ gap: 12 }}>
           <SectionTitle
             title={tr('You’re partway there')}
-            subtitle={tr('Recipes that use what you have.')}
+            subtitle={tr('Recipes your pantry goes furthest toward, using what expires first.')}
           />
-          <RecipeGrid recipes={matching.map((m) => m.recipe)} onOpen={onOpen} />
+          {matching.map((m) => (
+            <PantryMatchRow key={m.recipe.id} match={m} onOpen={onOpen} />
+          ))}
         </View>
       )}
     </>
@@ -1100,6 +1228,7 @@ export function Pantry({
           <View style={{ width: 380, gap: 16 }}>
             {ask}
             {add}
+            {entry}
           </View>
           <View style={{ flex: 1, gap: 22 }}>{stock}</View>
         </View>
@@ -1107,9 +1236,11 @@ export function Pantry({
         <>
           {ask}
           {add}
+          {entry}
           {stock}
         </>
       )}
+      <HouseholdSheet visible={sharing} onClose={() => setSharing(false)} state={household} />
     </View>
   );
 }

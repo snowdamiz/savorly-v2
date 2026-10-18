@@ -39,6 +39,7 @@ import {
   useRun,
   useSearch,
 } from './parts';
+import { MemberFund } from './Fund';
 
 const filters = [
   { value: 'all', label: 'All' },
@@ -375,6 +376,7 @@ export function MemberDialog({ id, onClose }: { id: string; onClose: () => void 
                 ))}
               </>
             )}
+            <MemberFund id={m.id} name={m.name} locked={locked} nav={nav} />
             {m.history.length > 0 && (
               <>
                 <SectionLabel>Admin history</SectionLabel>

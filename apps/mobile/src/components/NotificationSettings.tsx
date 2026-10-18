@@ -26,7 +26,7 @@ const everything: NotificationPreferences = {
 };
 
 /** A setting that is on or off: the whole row is the switch. */
-function SwitchRow({
+export function SwitchRow({
   title,
   text,
   value,

@@ -57,6 +57,8 @@ type App struct {
 	oidcOnce  sync.Once
 	verifiers map[string]*oidc.IDTokenVerifier
 	throttles accountThrottles
+	// translations shares and limits recipe translations (translations.go).
+	translations translationWork
 }
 
 // errorHandler answers in JSON. requestId lets support find the request's log lines.
@@ -152,11 +154,17 @@ func NewWithContext(ctx context.Context, db *pgxpool.Pool, config Config) *fiber
 			"textAI": a.AI.TextEnabled(), "recipeModel": a.AI.RecipeModel, "agentModel": a.AI.AgentModel,
 			"imageAI": a.AI.TextEnabled(), "imageModel": a.AI.ImageModel, "imageEditModel": a.AI.ImageEditModel,
 			"videoAI": a.AI.VideoEnabled(), "videoProvider": "reAPI", "videoModel": a.AI.VideoModel, "videoEstimateUSD": 1.005,
+			"recipeTranslation": a.AI.TextEnabled(), "translationModel": a.AI.TranslationModel,
 			"passwordRecovery": emailEnabled(),
 			"turnstileSiteKey": turnstileSiteKey(),
 			"plans":            paidPlans(), "billing": billingEnabled(), "appleSignIn": len(oauthAudiences("apple")) > 0, "googleSignIn": len(oauthAudiences("google")) > 0,
+			"creatorFund": creatorFundEnabled(),
+			// Ordering the grocery list or a recipe's ingredients (grocery_checkout.go): "instacart" or "".
+			"groceryCheckout": groceryCheckoutProvider(),
 			// Public client identifiers the sign-in SDKs need; none of these are secrets.
 			"auth": fiber.Map{"googleWebClientId": os.Getenv("GOOGLE_WEB_CLIENT_ID"), "googleIosClientId": os.Getenv("GOOGLE_IOS_CLIENT_ID"), "appleServicesId": os.Getenv("APPLE_SERVICES_ID"), "appleRedirectUri": os.Getenv("APPLE_REDIRECT_URI")},
+			// Hands-free cooking's "Chef, …" questions (POST /recipes/:id/ask); its commands need nothing.
+			"cookingQuestions": a.AI.TextEnabled(),
 		})
 	})
 	// Each sign-in route has its own budget, so a few mistyped passwords don't also block a reset.
@@ -226,5 +234,11 @@ func NewWithContext(ctx context.Context, db *pgxpool.Pool, config Config) *fiber
 	a.socialRoutes(v)
 	a.engagementRoutes(v)
 	a.adminRoutes(v)
+	a.foodRoutes(v)
+	a.translationRoutes(v)
+	a.creatorFundRoutes(v)
+	a.handsFreeRoutes(v)
+	a.groceryCheckoutRoutes(v)
+	a.equipmentRoutes(v)
 	return f
 }

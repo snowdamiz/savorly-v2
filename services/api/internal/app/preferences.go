@@ -8,12 +8,15 @@ import (
 
 // Preferences live in users.preferences next to the diets and allergies that PATCH /me sets:
 // units (metric or imperial; empty follows the device), language (one of the app's nine; empty
-// follows the device), which is also the language of push notifications, and which
-// notifications to send. Each writer merges its own keys, so neither undoes the other.
+// follows the device), which is also the language of push notifications, which notifications to
+// send, translateRecipes, whether recipes in other languages open translated into the app's
+// (translations.go), and shareDiet, whether the member's household sees their diets and
+// allergies, so recipes warn about them for everyone (food_index.go). Each writer merges its own
+// keys, so neither undoes the other.
 
 // preferencesJSON is the member's preferences (alias u) with every key filled in: units and
-// language empty, and every notification on, until changed.
-const preferencesJSON = `(jsonb_build_object('diets','[]'::jsonb,'allergies','[]'::jsonb,'units','','language','') || u.preferences
+// language empty, recipes as written, and every notification on, until changed.
+const preferencesJSON = `(jsonb_build_object('diets','[]'::jsonb,'allergies','[]'::jsonb,'units','','language','','translateRecipes',false,'shareDiet',false) || u.preferences
  || jsonb_build_object('notifications',jsonb_build_object('follows',true,'pantry',true,'reviews',true,'comments',true)
   || CASE WHEN jsonb_typeof(u.preferences->'notifications')='object' THEN u.preferences->'notifications' ELSE '{}'::jsonb END))`
 
@@ -27,7 +30,7 @@ func (a *App) updatePreferences(c fiber.Ctx) error {
 	if e := decode(c, &in); e != nil {
 		return e
 	}
-	top := map[string]string{}
+	top := map[string]any{}
 	if raw, ok := in["units"]; ok {
 		var units string
 		if json.Unmarshal(raw, &units) != nil || (units != "" && units != "metric" && units != "imperial") {
@@ -45,6 +48,20 @@ func (a *App) updatePreferences(c fiber.Ctx) error {
 			return fiber.NewError(400, "Choose a supported language.")
 		}
 		top["language"] = code
+	}
+	if raw, ok := in["translateRecipes"]; ok {
+		var on bool
+		if json.Unmarshal(raw, &on) != nil || string(raw) == "null" {
+			return fiber.NewError(400, "Turn automatic translation on or off.")
+		}
+		top["translateRecipes"] = on
+	}
+	if raw, ok := in["shareDiet"]; ok {
+		var on bool
+		if json.Unmarshal(raw, &on) != nil || string(raw) == "null" {
+			return fiber.NewError(400, "Turn sharing with your household on or off.")
+		}
+		top["shareDiet"] = on
 	}
 	var notifications []byte // nil: unchanged
 	if raw, ok := in["notifications"]; ok {

@@ -6,6 +6,7 @@
 export type { LucideIcon, LucideProps } from 'lucide-react-native';
 
 export { default as AlertTriangle } from 'lucide-react-native/icons/triangle-alert';
+export { default as ArrowDown } from 'lucide-react-native/icons/arrow-down';
 export { default as ArrowLeft } from 'lucide-react-native/icons/arrow-left';
 export { default as ArrowRight } from 'lucide-react-native/icons/arrow-right';
 export { default as ArrowUp } from 'lucide-react-native/icons/arrow-up';
@@ -40,12 +41,14 @@ export { default as ExternalLink } from 'lucide-react-native/icons/external-link
 export { default as Eye } from 'lucide-react-native/icons/eye';
 export { default as EyeOff } from 'lucide-react-native/icons/eye-off';
 export { default as Film } from 'lucide-react-native/icons/film';
+export { default as Fish } from 'lucide-react-native/icons/fish';
 export { default as Flag } from 'lucide-react-native/icons/flag';
 export { default as Flame } from 'lucide-react-native/icons/flame';
 export { default as Gauge } from 'lucide-react-native/icons/gauge';
 export { default as GitFork } from 'lucide-react-native/icons/git-fork';
 export { default as Globe } from 'lucide-react-native/icons/globe';
 export { default as Hand } from 'lucide-react-native/icons/hand';
+export { default as HandCoins } from 'lucide-react-native/icons/hand-coins';
 export { default as Heart } from 'lucide-react-native/icons/heart';
 export { default as History } from 'lucide-react-native/icons/rotate-ccw-clock';
 export { default as House } from 'lucide-react-native/icons/house';
@@ -71,6 +74,7 @@ export { default as MilkOff } from 'lucide-react-native/icons/milk-off';
 export { default as Minimize2 } from 'lucide-react-native/icons/minimize-2';
 export { default as Minus } from 'lucide-react-native/icons/minus';
 export { default as Moon } from 'lucide-react-native/icons/moon';
+export { default as NutOff } from 'lucide-react-native/icons/nut-off';
 export { default as Pause } from 'lucide-react-native/icons/pause';
 export { default as PenLine } from 'lucide-react-native/icons/pen-line';
 export { default as Pencil } from 'lucide-react-native/icons/pencil';

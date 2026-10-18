@@ -63,6 +63,19 @@ test('the cook’s text is escaped, and only web photos are shown', () => {
   expect(texts(doc, 'footer p')[0]).toBe('<a href="https://evil.example">x</a>');
 });
 
+test('what else to get out prints between the ingredients and the method', () => {
+  const doc = parse(
+    printPage({
+      ...recipe,
+      equipmentTitle: 'Il vous faut',
+      equipment: ['Grande casserole', 'Mixeur <plongeant>'],
+    }),
+  );
+  expect(texts(doc, 'h2')).toEqual(['Ingrédients', 'Il vous faut', 'Préparation']);
+  expect(texts(doc, '.equipment')).toEqual(['Grande casserole · Mixeur <plongeant>']);
+  expect(parse(printPage({ ...recipe, equipment: [] })).querySelector('.equipment')).toBeNull();
+});
+
 test('empty parts are left out', () => {
   const doc = parse(
     printPage({ ...recipe, description: '', image: '', ingredients: [], steps: [], credits: [] }),

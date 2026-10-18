@@ -2,8 +2,20 @@ import { api } from './api';
 import { useApp } from './store';
 import { User } from './types';
 
-/** Diets the sous-chef can cook for; stored and sent as these English identifiers. */
-export const dietOptions = ['Vegetarian', 'Vegan', 'Gluten free', 'Dairy free', 'High protein'];
+/**
+ * Diets the sous-chef can cook for; stored and sent as these English identifiers. The server reads
+ * the ones about ingredients (dietGroups in services/api/internal/app/food.go) to warn on recipes.
+ */
+export const dietOptions = [
+  'Vegetarian',
+  'Vegan',
+  'Pescatarian',
+  'Gluten free',
+  'Dairy free',
+  'Nut free',
+  'Halal',
+  'High protein',
+];
 
 export type ProfileChanges = Partial<
   Pick<User, 'name' | 'bio' | 'avatar' | 'handle' | 'preferences'>

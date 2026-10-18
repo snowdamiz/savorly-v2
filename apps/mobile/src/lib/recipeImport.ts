@@ -35,9 +35,48 @@ const refusals: Record<number, string> = {
   502: 'We couldn’t open that page.',
   503: unreadable,
 };
+// A video or photo post's refusals say more than their status does, so they keep the server's
+// words (which the catalogs translate too).
+const explained = new Set([
+  'We couldn’t find a recipe in that post’s caption. Try the link to the full recipe if the creator shared one.',
+  'We couldn’t open that post. It may be private or no longer available.',
+]);
 /** A failed import, as the cook should read it. */
 export const importError = (e: unknown) =>
-  (e instanceof ApiError && refusals[e.status]) || (e as Error).message;
+  (e instanceof ApiError && (explained.has(e.message) ? e.message : refusals[e.status])) ||
+  (e as Error).message;
+
+/**
+ * The platform a link to a video or photo post is on ("TikTok"), as the server recognises them,
+ * or '' for any other page.
+ */
+export function postPlatform(url: string | null | undefined) {
+  let host = '';
+  try {
+    host = new URL((url || '').trim()).hostname.toLowerCase().replace(/\.$/, '');
+  } catch {
+    return '';
+  }
+  const within = (...domains: string[]) =>
+    domains.some((domain) => host === domain || host.endsWith(`.${domain}`));
+  if (within('tiktok.com')) return 'TikTok';
+  if (within('instagram.com', 'instagr.am')) return 'Instagram';
+  if (within('youtube.com', 'youtu.be')) return 'YouTube';
+  if (within('facebook.com', 'fb.watch')) return 'Facebook';
+  if (
+    within('pin.it') ||
+    /^(?:[\w-]+\.)*pinterest\.(?:com|[a-z]{2}|co\.[a-z]{2}|com\.[a-z]{2})$/.test(host)
+  )
+    return 'Pinterest';
+  return '';
+}
+
+/** The creator a post's own address names, as a TikTok's does ("@chefjo"), or ''. */
+export function postCreator(url: string | null | undefined) {
+  if (postPlatform(url) !== 'TikTok') return '';
+  const handle = /^\/@([\w.]+)\/(?:video|photo)\//.exec(new URL((url || '').trim()).pathname)?.[1];
+  return handle ? `@${handle}` : '';
+}
 
 /** How long to wait for the sous-chef to read a page before leaving it to the history. */
 export const IMPORT_WAIT = 3 * 60_000;
@@ -92,6 +131,7 @@ export async function importRecipe(
     }
     if (!live()) return null;
   }
-  if (job.status === 'failed' || !job.result?.recipe) throw new Error(unreadable);
+  if (job.status === 'failed' || !job.result?.recipe)
+    throw new Error(explained.has(job.error) ? job.error : unreadable);
   return { recipe: seeded(job.result.recipe, url), method: 'ai' };
 }

@@ -23,7 +23,7 @@ func TestBudgetSumsUseCreatedAtIndexes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	found, plan := planIndexes(t, db, budgetSumsSQL, "u7")
+	found, plan := planIndexes(t, db, budgetSumsSQL, []string{"u7"})
 	for _, index := range []string{"ai_jobs_created", "voice_actions_created", "narration_usage_created", "voice_sessions_created", "ai_jobs_user_created", "narration_usage_user_created", "voice_sessions_user_created"} {
 		if !found[index] {
 			t.Errorf("budget sums don't use %s", index)
@@ -31,7 +31,7 @@ func TestBudgetSumsUseCreatedAtIndexes(t *testing.T) {
 	}
 	t.Logf("budget sums:\n%s", plan)
 	var mine, free, total float64
-	if err := db.QueryRow(ctx, budgetSumsSQL, "u7").Scan(&mine, &free, &total); err != nil || mine <= 0 || total <= 0 || free != total {
+	if err := db.QueryRow(ctx, budgetSumsSQL, []string{"u7"}).Scan(&mine, &free, &total); err != nil || mine <= 0 || total <= 0 || free != total {
 		t.Fatalf("sums %v %v %v: %v", mine, free, total, err)
 	}
 }

@@ -2,7 +2,8 @@
   "ios": {
     "CFBundleDisplayName": "Savorly",
     "NSCameraUsageDescription": "料理アシスタント用のレシピ撮影とプロフィール写真の撮影のため、Savorlyにカメラの使用を許可してください。",
-    "NSMicrophoneUsageDescription": "レシピを説明する間、Savorlyにマイクの使用を許可してください。",
-    "NSPhotoLibraryUsageDescription": "レシピに写真や動画を追加したり、プロフィール写真を設定したりするため、Savorlyに写真へのアクセスを許可してください。"
+    "NSMicrophoneUsageDescription": "レシピを説明するときやハンズフリーで料理するとき、Savorlyにマイクの使用を許可してください。",
+    "NSPhotoLibraryUsageDescription": "レシピに写真や動画を追加したり、プロフィール写真を設定したりするため、Savorlyに写真へのアクセスを許可してください。",
+    "NSSpeechRecognitionUsageDescription": "ハンズフリーで料理するとき、「次へ」など話した言葉をSavorlyが認識できるようにしてください。"
   }
 }

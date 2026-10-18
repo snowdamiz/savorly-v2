@@ -197,6 +197,8 @@ func (a *App) processJob(parent context.Context, id, owner, kind, prompt, source
 	defer cancel()
 	var result json.RawMessage
 	var err error
+	// Whether the provider was asked: an import that never reached it cost nothing at all.
+	called := true
 	switch kind {
 	case "image":
 		var b []byte
@@ -221,6 +223,10 @@ func (a *App) processJob(parent context.Context, id, owner, kind, prompt, source
 			}
 		}
 	case "recipe":
+		if !a.AI.TextEnabled() {
+			called, err = false, errors.New("text AI is not configured")
+			break
+		}
 		result, err = a.AI.Recipe(ctx, prompt)
 		if err == nil {
 			var out struct {
@@ -230,8 +236,13 @@ func (a *App) processJob(parent context.Context, id, owner, kind, prompt, source
 			if err == nil {
 				out.Recipe.AIGenerated = true
 				out.Recipe.Published = false
-				// An import credits its page; nothing a model writes sets an original.
+				// An import credits its page or post; nothing a model writes sets an original.
 				out.Recipe.SourceURL, out.Recipe.DerivedFrom = importedFrom(prompt), RecipeRef{}
+				if out.Recipe.SourceURL != nil {
+					creditImport(prompt, &out.Recipe)
+				}
+				// A page can list more equipment, or longer names, than a recipe holds.
+				out.Recipe.Equipment = fitEquipment(out.Recipe.Equipment)
 				err = out.Recipe.Validate()
 				result = jsonBytes(out)
 			}
@@ -249,9 +260,16 @@ func (a *App) processJob(parent context.Context, id, owner, kind, prompt, source
 		message := "The generation did not complete. Check your provider connection or balance, then try again."
 		if errors.Is(err, errNoRecipe) {
 			message = noRecipeOnPage
+			if strings.HasPrefix(prompt, captionPrefix) {
+				message = captionNoRecipe
+			}
 		}
 		if parent.Err() != nil {
 			message = jobInterrupted // The worker is stopping.
+		}
+		if kind == "recipe" && importedFrom(prompt) != nil {
+			a.failImport(parent, id, message, called)
+			return
 		}
 		a.finishJob(parent, id, nil, message)
 		return

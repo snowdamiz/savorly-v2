@@ -35,6 +35,9 @@ func TestCapabilitiesExposeConfiguredModels(t *testing.T) {
 	if body["cookingNarration"] != true || body["cookingNarrationModel"] != "elevenlabs/eleven-v4-turbo" {
 		t.Fatal("OpenRouter alone should enable ElevenLabs narration")
 	}
+	if body["cookingQuestions"] != true {
+		t.Fatal("OpenRouter should enable hands-free cooking questions")
+	}
 	for _, field := range settings {
 		if body[field] != "configured-"+field {
 			t.Errorf("%s did not reflect runtime configuration: %v", field, body[field])

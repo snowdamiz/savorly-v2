@@ -21,6 +21,8 @@ type Client struct {
 	RecipeModel, AgentModel, ImageModel, VideoModel  string
 	// Retouches photos people already have.
 	ImageEditModel string
+	// Translates recipes for readers in other languages (translate.go).
+	TranslationModel string
 }
 
 func env(k, d string) string {
@@ -40,22 +42,28 @@ func New() *Client {
 		ImageModel:     env("OPENROUTER_IMAGE_MODEL", DefaultImageModel),
 		ImageEditModel: env("OPENROUTER_IMAGE_EDIT_MODEL", DefaultImageEditModel),
 		VideoModel:     env("REAPI_VIDEO_MODEL", "doubao-seedance-2.5-eco"),
+		// Its own setting, so translations can move to a cheaper model than the agent's.
+		TranslationModel: env("OPENROUTER_TRANSLATION_MODEL", DefaultTranslationModel),
 	}
 }
 func (c *Client) TextEnabled() bool  { return c.OpenRouterKey != "" }
 func (c *Client) VideoEnabled() bool { return c.VideoKey != "" }
+
+// ErrNotSent marks a call that failed before it reached the provider, so it cost nothing.
+var ErrNotSent = errors.New("provider request not sent")
+
 func (c *Client) request(ctx context.Context, method, url, key string, payload, out any) error {
 	var body io.Reader
 	if payload != nil {
 		b, e := json.Marshal(payload)
 		if e != nil {
-			return e
+			return fmt.Errorf("%w: %v", ErrNotSent, e)
 		}
 		body = bytes.NewReader(b)
 	}
 	req, e := http.NewRequestWithContext(ctx, method, url, body)
 	if e != nil {
-		return e
+		return fmt.Errorf("%w: %v", ErrNotSent, e)
 	}
 	req.Header.Set("Authorization", "Bearer "+key)
 	req.Header.Set("Content-Type", "application/json")
@@ -72,7 +80,7 @@ func (c *Client) request(ctx context.Context, method, url, key string, payload, 
 }
 
 const recipeInstructions = "Return only a JSON object with a recipe key. " + recipeSchema
-const recipeSchema = `The recipe must contain title (string), description (string), cuisine (string), minutes (integer 1–1440), servings (integer 1–100), difficulty (Easy/Medium/Advanced), image (empty string), video (empty string), tags (array of strings), calories (integer estimated per serving), ingredients (array of {name, amount: number, unit, category}), steps (array of {title, text, seconds: integer, use 0 if no timer}), aiGenerated: true, published: false. Include at least one ingredient and step. Do not invent media URLs.`
+const recipeSchema = `The recipe must contain title (string), description (string), cuisine (string), minutes (integer 1–1440), servings (integer 1–100), difficulty (Easy/Medium/Advanced), image (empty string), video (empty string), tags (array of strings), calories (integer estimated per serving), ingredients (array of {name, amount: number, unit, category}), steps (array of {title, text, seconds: integer, use 0 if no timer}), equipment (array of up to 20 short names, up to 60 characters each, of the pots, pans, appliances and tools it needs, as the recipe names them, such as "Large pot" or "Blender"; empty if none), aiGenerated: true, published: false. Include at least one ingredient and step. Do not invent media URLs.`
 
 // Recipe writes a complete recipe from prompt, as JSON with a recipe key: an import job reads
 // one from a page's text. It takes the recipe model's reasoning and output throughput.
