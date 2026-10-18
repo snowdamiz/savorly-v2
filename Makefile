@@ -1,4 +1,4 @@
-.PHONY: setup db services api web check test build
+.PHONY: setup hooks db services api web check test build
 
 # `make check` runs every Go test suite, including the database and object-storage ones, against
 # the local services (`make services`). They use isolated schemas and their own objects, so the
@@ -18,6 +18,11 @@ setup:
 	npm --prefix infra/cloudflare ci
 	cd services/api && go mod download
 	@test -f .env || cp .env.example .env
+	@$(MAKE) --no-print-directory hooks
+
+# The pre-push hook runs the browser tests, which CI doesn't (.githooks/pre-push).
+hooks:
+	git config core.hooksPath .githooks
 
 db: services
 
