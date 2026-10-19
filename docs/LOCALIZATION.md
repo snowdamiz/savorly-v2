@@ -4,7 +4,7 @@ Savorly shares its translations across web, iOS and Android. The interface suppo
 
 ## Choosing a language
 
-Open **My kitchen → Language**. This works without signing in. The default, **Use device language**, chooses the first supported language from the browser/device's ordered preferences. Regional variants such as `fr-CA`, `de-AT` and `pt-PT` retain their regional date and number formatting. If none match, the app uses English. Traditional Chinese locales are not treated as Simplified Chinese; the next supported preference, or English, is used.
+Open **Settings → Language** (the gear in My kitchen, or beside your name in the desktop sidebar). This works without signing in. The default, **Use device language**, chooses the first supported language from the browser/device's ordered preferences. Regional variants such as `fr-CA`, `de-AT` and `pt-PT` retain their regional date and number formatting. If none match, the app uses English. Traditional Chinese locales are not treated as Simplified Chinese; the next supported preference, or English, is used.
 
 An explicit selection takes priority over the system and is stored locally in AsyncStorage under `savorly.language`. It survives reloads, app restarts and sign-out on this device. Choose automatic again to follow the system. Browser language changes and returning from native settings refresh detection. Failed storage access does not block the interface; a failed write explains that the choice could not be saved.
 

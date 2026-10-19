@@ -59,12 +59,12 @@ func englishLetter(kind letterKind, d letterData) letter {
 	case letterPasswordChanged:
 		return letter{"Your Savorly password was changed", "The password of your Savorly account was just changed, and your other devices were signed out.\n\nIf you made this change, there's nothing else to do. If you didn't, choose a new password with Forgot password on the sign-in screen right away." + sign}
 	case letterNewSignIn:
-		return letter{"New sign-in to your Savorly account", "Your Savorly account was just signed in on a new device: " + d.Device + ", at " + d.When.UTC().Format("2 January 2006, 15:04 UTC") + ".\n\nIf this was you, there's nothing to do. If it wasn't, change your password and sign out your other devices in My kitchen." + sign}
+		return letter{"New sign-in to your Savorly account", "Your Savorly account was just signed in on a new device: " + d.Device + ", at " + d.When.UTC().Format("2 January 2006, 15:04 UTC") + ".\n\nIf this was you, there's nothing to do. If it wasn't, change your password and sign out your other devices in Settings, under Account and security." + sign}
 	case letterAccountDeleted:
 		return letter{"Your Savorly account was deleted", "Your Savorly account and everything in it, including your recipes, reviews, cookbooks and plans, have been deleted as you asked. Any subscription was cancelled.\n\nThank you for cooking with us." + sign}
 	case letterRenewal:
 		day := d.When.UTC().Format("2 January 2006")
-		return letter{"Your Savorly " + d.Plan + " plan renews on " + day, "Your yearly Savorly " + d.Plan + " plan renews on " + day + ", and " + d.Amount + " will be charged for another year.\n\nTo keep it, there's nothing to do. To cancel, open Savorly, go to My kitchen, tap Cancel plan under Your plan, and confirm: two taps. You keep " + d.Plan + " until " + day + ", and nothing more is charged.\n\nIf it renews and you change your mind, you can get a full refund in the same place within 14 days of the renewal." + sign}
+		return letter{"Your Savorly " + d.Plan + " plan renews on " + day, "Your yearly Savorly " + d.Plan + " plan renews on " + day + ", and " + d.Amount + " will be charged for another year.\n\nTo keep it, there's nothing to do. To cancel, open Savorly, go to Settings, tap Cancel plan under Your plan, and confirm: two taps. You keep " + d.Plan + " until " + day + ", and nothing more is charged.\n\nIf it renews and you change your mind, you can get a full refund in the same place within 14 days of the renewal." + sign}
 	}
 	return letter{}
 }

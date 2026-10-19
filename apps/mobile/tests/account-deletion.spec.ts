@@ -1,7 +1,7 @@
 import { expect, Page, test } from '@playwright/test';
 import { alex, empty, failure, mockApi, recipe, recipeCard } from './mockApi';
 
-// My kitchen → Delete my account: the password confirmation, DELETE /me, a refused password, and
+// Settings → Delete my account: the password confirmation, DELETE /me, a refused password, and
 // the guest the app returns to.
 
 const password = 'my real password';
@@ -23,7 +23,7 @@ async function kitchen(page: Page) {
   return api;
 }
 const openDeletion = async (page: Page) => {
-  await page.goto('/?page=profile');
+  await page.goto('/?page=settings');
   await page.getByRole('button', { name: 'Delete my account', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Delete your account?' })).toBeVisible();
   await expect(
@@ -37,9 +37,11 @@ const confirmButton = (page: Page) =>
   page.getByRole('button', { name: 'Permanently delete my account', exact: true });
 const passwordField = (page: Page) =>
   page.getByRole('textbox', { name: 'Your password', exact: true });
-/** After a refusal: the kitchen behind the dialog is still Alex's, and the dialog keeps the try. */
+/** After a refusal: the settings behind the dialog are still Alex's, and the dialog keeps the try. */
 const stillSignedIn = async (page: Page) => {
-  await expect(page.getByRole('button', { name: 'Edit your profile', exact: true })).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'Account and security', exact: true }),
+  ).toBeVisible();
   await expect(passwordField(page)).toHaveValue('not my password');
   await expect(page.getByRole('heading', { name: 'Delete your account?' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Welcome back' })).toHaveCount(0);
@@ -95,6 +97,7 @@ test('a mistyped password doesn’t sign the cook out or empty the kitchen', asy
   await stillSignedIn(page);
   await page.getByRole('button', { name: 'Close dialog', exact: true }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Open my kitchen', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Edit your profile', exact: true })).toBeVisible();
   await expect(recipeCard(page, 'Lemon toast')).toBeVisible();
   expect(api.sentTo('/me')).toEqual([['DELETE', { password: 'not my password' }]]);

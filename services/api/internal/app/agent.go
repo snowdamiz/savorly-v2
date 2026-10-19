@@ -44,7 +44,11 @@ var draftRecipe = object([]string{"title", "description", "cuisine", "minutes", 
 })
 var none = object(nil, props{})
 var editableRecipe = object(nil, draftRecipe["properties"].(props))
-var pages = []string{"discover", "explore", "saved", "planner", "pantry", "profile", "community"}
+
+// pages are the app pages go_to opens. Settings came later: apps report the pages they have
+// (studioView.Pages), and one that doesn't is older and gets the page it had them on instead.
+var pages = []string{"discover", "explore", "saved", "planner", "pantry", "profile", "settings", "community"}
+var laterPages = map[string]string{"settings": "profile"}
 var languages = []string{"system", "en", "fr", "de", "ru", "es", "it", "pt", "zh", "ja"}
 
 func tool(name, description string, parameters map[string]any) ai.Tool {
@@ -801,7 +805,7 @@ func (t *toolTurn) rememberKitchenNote() string {
 	}
 	var n kitchenNote
 	_ = json.Unmarshal(b, &n)
-	t.run.note(effect{Kind: "kitchen_note", Title: n.Note, Page: "profile", Undo: jsonBytes(fiber.Map{"id": n.ID})})
+	t.run.note(effect{Kind: "kitchen_note", Title: n.Note, Page: t.appPage("settings"), Undo: jsonBytes(fiber.Map{"id": n.ID})})
 	return string(jsonBytes(fiber.Map{"kept": n.Note}))
 }
 
@@ -988,14 +992,18 @@ func (t *toolTurn) updateProfile() string {
 	// Diets and allergies decide what's safe to suggest, and the name and bio are public, so
 	// each change waits for the user's yes to exactly what it says.
 	changes := []string{}
+	// The name and bio are on My kitchen; diets and allergies alone are in Settings.
+	page := t.appPage("settings")
 	// A name can't be blank, so a blank one isn't a change; a blank bio clears it.
 	if p.Name != nil && strings.TrimSpace(*p.Name) != "" && strings.TrimSpace(*p.Name) != me.Name {
 		me.Name = strings.TrimSpace(*p.Name)
 		changes = append(changes, fmt.Sprintf("your name to “%s”", me.Name))
+		page = "profile"
 	}
 	if p.Bio != nil && strings.TrimSpace(*p.Bio) != me.Bio {
 		me.Bio = strings.TrimSpace(*p.Bio)
 		changes = append(changes, "your bio")
+		page = "profile"
 	}
 	if p.Diets != nil && !slices.Equal(*p.Diets, me.Preferences.Diets) {
 		me.Preferences.Diets = *p.Diets
@@ -1015,7 +1023,7 @@ func (t *toolTurn) updateProfile() string {
 	if status >= 300 {
 		return t.result(status, b)
 	}
-	t.run.note(effect{Kind: "profile", Page: "profile"})
+	t.run.note(effect{Kind: "profile", Page: page})
 	// The handler answers with the whole account; the model only needs what changed.
 	return string(jsonBytes(fiber.Map{"saved": fiber.Map{"name": me.Name, "bio": me.Bio, "diets": me.Preferences.Diets, "allergies": me.Preferences.Allergies}}))
 }
@@ -1070,7 +1078,7 @@ func (t *toolTurn) appAction() string {
 		if !slices.Contains(pages, t.in.Page) {
 			return toolError("Choose one of the listed pages.")
 		}
-		act["page"] = t.in.Page
+		act["page"] = t.appPage(t.in.Page)
 	case "set_language":
 		if !slices.Contains(languages, t.in.Language) {
 			return toolError("Choose one of the listed languages.")
@@ -1088,6 +1096,24 @@ func (t *toolTurn) appAction() string {
 		t.run.say = strings.TrimSpace(t.run.say + " " + say)
 	}
 	return `{"ok":true,"note":"This happens on the user's screen when your reply arrives."}`
+}
+
+// appPage is the page the member's app opens for one of pages: itself, or for a page added since
+// their app was made, the page that held what it holds then.
+func (t *toolTurn) appPage(page string) string {
+	instead, later := laterPages[page]
+	if !later {
+		return page
+	}
+	var view studioView
+	var reported []byte
+	if t.a.DB.QueryRow(t.ctx, `SELECT context FROM voice_projects WHERE id=$1`, t.run.state.ID).Scan(&reported) == nil {
+		_ = json.Unmarshal(reported, &view)
+	}
+	if slices.Contains(view.Pages, page) {
+		return page
+	}
+	return instead
 }
 
 func (t *toolTurn) draftAction() string {

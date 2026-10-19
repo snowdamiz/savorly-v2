@@ -31,7 +31,7 @@ A step is known by its text: a hash of its words, ignoring case and spacing (`co
 ## Privacy
 
 - **Nobody's own shows.** A step's numbers need 5 sessions, the finish rate 20, and a question 3 cooks asking it; questions show only reworded. Cooks never see where others gave up, only the author does, and also only from 5 sessions.
-- **Share how my cooking goes** in My kitchen → **Your cooking** (`preferences.shareCooking`, on until turned off) keeps a member's cooking out. Turning it off also deletes their step events and the questions they asked, and queues those recipes to be read again; their verified cooks stay, since they pay creators and count for cook times.
+- **Share how my cooking goes** in Settings → **Your cooking** (`preferences.shareCooking`, on until turned off) keeps a member's cooking out. Turning it off also deletes their step events and the questions they asked, and queues those recipes to be read again; their verified cooks stay, since they pay creators and count for cook times.
 - **Kept for a while, then gone.** Step events go after 180 days. A session that didn't become a verified cook goes after two days as before, unless it has step events (where cooks give up is part of what the author sees), then after 180 days. Cooks' questions go after 90 days, and a grouped question the sous-chef answered goes 90 days after nobody asks it any more; one its author answered stays. A year of pass records is kept.
 - **The member's data.** `GET /v1/me/export` has each session's `stepEvents` and the member's `cookQuestions`, and deleting the account deletes them.
 

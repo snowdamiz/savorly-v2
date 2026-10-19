@@ -106,7 +106,7 @@ test('a yearly plan says what it costs, cancels in two taps and is kept in one',
     'Renews Mar 2, 2027 at $159.99 a year. We’ll remind you a week before.',
     { exact: true },
   );
-  await page.goto('/?page=profile');
+  await page.goto('/?page=settings');
   await expect(renews).toBeVisible();
   // Usage against each allowance, and when a used-up one frees up.
   await expect(page.getByText('Used up · more from Nov 4', { exact: true })).toBeVisible();
@@ -165,7 +165,7 @@ test('a refund shows its amount and last day, and asks before it ends the plan',
     state.billing = free;
     return json(free);
   });
-  await page.goto('/?page=profile');
+  await page.goto('/?page=settings');
   await expect(
     page.getByText('Changed your mind? Get the full $172.79 back until Oct 29, 2026.', {
       exact: true,
@@ -197,7 +197,7 @@ test('a refund shows its amount and last day, and asks before it ends the plan',
 
 test('a refund Stripe couldn’t price still says until when', async ({ page }) => {
   await kitchen(page, yearlyPro({ refund: { until: '2026-10-29T10:00:00Z' } }));
-  await page.goto('/?page=profile');
+  await page.goto('/?page=settings');
   await expect(
     page.getByText('Changed your mind? Get this year’s payment back in full until Oct 29, 2026.', {
       exact: true,
@@ -219,7 +219,7 @@ test('a plan Savorly gave offers nothing to cancel or refund', async ({ page }) 
       cancelable: false,
     }),
   );
-  await page.goto('/?page=profile');
+  await page.goto('/?page=settings');
   await expect(
     page.getByText('Savorly gave you this plan, so there’s nothing to pay.', { exact: true }),
   ).toBeVisible();
@@ -235,7 +235,7 @@ test('renewal reminders have their own switch while plans are on', async ({ page
     preferences.notifications = { ...preferences.notifications, ...notifications };
     return json(api.state.user);
   });
-  await page.goto('/?page=profile');
+  await page.goto('/?page=settings');
   await page.getByRole('button', { name: 'Notifications', exact: true }).click();
   const renewals = page.getByRole('switch', { name: 'Renewal reminders', exact: true });
   await expect(renewals).toHaveAttribute('aria-checked', 'true');

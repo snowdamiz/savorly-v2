@@ -24,7 +24,7 @@ Pasting two or more links into Add a recipe → Import from a link changes its b
 
 ## A creator's own site
 
-Founding creators are offered an import of the recipes they already published (`/?page=own-site`, also My kitchen → **Import from my site**, and Add a recipe → "From your own site"). The creator pastes the links of their recipe pages: one site at a time (`www.` aside), so links on other sites wait in the box for their own import. Before importing they tick the permission statement, shown in their language: the recipes are their own, published on their own site (named), and Savorly may import them into their kitchen, each linking back to its page. The batch keeps the English statement naming the site, and when they agreed; it stays as long as the account does (the janitor leaves own-site batches alone) and is in their data export (`imports[].permission`).
+Founding creators are offered an import of the recipes they already published (`/?page=own-site`, also Add a recipe → Import from a link → "From your own site"). The creator pastes the links of their recipe pages: one site at a time (`www.` aside), so links on other sites wait in the box for their own import. Before importing they tick the permission statement, shown in their language: the recipes are their own, published on their own site (named), and Savorly may import them into their kitchen, each linking back to its page. The batch keeps the English statement naming the site, and when they agreed; it stays as long as the account does (the janitor leaves own-site batches alone) and is in their data export (`imports[].permission`).
 
 Their recipes come in like any import, with two differences. The page's recipe photo (the recipe data's `image`, else `og:image`) is copied into the creator's own storage, since they confirmed it's theirs; an ordinary import keeps only photos a recipe may show from where they are, which in production leaves out the page's own site. And every recipe links back to its page through `sourceUrl`, which the recipe page shows ("From cook.example", opening the page) and printing credits. The drafts stay private until the creator checks and publishes them; while the creator fund is on, the page says that every verified cook of a published recipe earns them a share. Step photos aren't copied.
 
@@ -42,7 +42,7 @@ Finished batches other than own-site ones are deleted after 90 days (`janitor.go
 
 ## The export as files
 
-My kitchen → **Download my data** offers **Download as files** beside the JSON file. It's one ZIP (`GET /me/export/files`, or a single-use link from `POST /me/export-link` with `{ "format": "files" }`, which the apps and the web both open so the browser saves it itself), written while it downloads and never held whole in memory:
+Settings → **Download my data** offers **Download as files** beside the JSON file. It's one ZIP (`GET /me/export/files`, or a single-use link from `POST /me/export-link` with `{ "format": "files" }`, which the apps and the web both open so the browser saves it itself), written while it downloads and never held whole in memory:
 
 - `savorly-export.json`: the JSON export as it is (everything the account holds), indented.
 - `recipes/001-lemon-pasta/`: a folder for each of the member's recipes, drafts included, with `recipe.md` (title, photo, facts, source, ingredients, equipment, method with timers, to read or print), `recipe.json`, and the cover, gallery photos, video, step photos and step clips copied from storage.

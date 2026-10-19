@@ -160,7 +160,7 @@ func (a *App) checkout(c fiber.Ctx) error {
 		"mode": {"subscription"}, "customer": {*customer}, "client_reference_id": {owner},
 		"line_items[0][price]": {price}, "line_items[0][quantity]": {"1"},
 		"subscription_data[metadata][user_id]": {owner}, "allow_promotion_codes": {"true"},
-		"success_url": {appURL(a.Config) + "/?page=profile&plan=welcome"}, "cancel_url": {appURL(a.Config) + "/?page=profile"},
+		"success_url": {appURL(a.Config) + "/?page=settings&plan=welcome"}, "cancel_url": {appURL(a.Config) + "/?page=settings"},
 	}
 	if os.Getenv("STRIPE_AUTOMATIC_TAX") == "true" {
 		form.Set("automatic_tax[enabled]", "true")
@@ -182,7 +182,7 @@ func (a *App) billingPortal(c fiber.Ctx) error {
 		return fiber.NewError(404, "There's no subscription to manage yet.")
 	}
 	var session struct{ URL string }
-	if e := stripeCall(c.Context(), "POST", "/billing_portal/sessions", "", url.Values{"customer": {*customer}, "return_url": {appURL(a.Config) + "/?page=profile"}}, &session); e != nil {
+	if e := stripeCall(c.Context(), "POST", "/billing_portal/sessions", "", url.Values{"customer": {*customer}, "return_url": {appURL(a.Config) + "/?page=settings"}}, &session); e != nil {
 		return e
 	}
 	return c.JSON(fiber.Map{"url": session.URL})

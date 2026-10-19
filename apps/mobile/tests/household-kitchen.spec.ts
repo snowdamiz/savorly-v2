@@ -145,7 +145,7 @@ test('a plan shared by a housemate says whose it is', async ({ page }) => {
       sharedWith: 1,
     }),
   );
-  await page.goto('/?page=profile');
+  await page.goto('/?page=settings');
   await expect(
     page.getByText(
       'Ana shares this plan with your household. Allowances are for everyone on it and cover the last 30 days.',

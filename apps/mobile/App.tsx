@@ -30,8 +30,10 @@ import {
   ChevronRight,
   Compass,
   House,
+  HouseHeart,
   Leaf,
   Plus,
+  Settings as SettingsIcon,
   ShieldCheck,
   Sparkles,
   UserRound,
@@ -104,6 +106,7 @@ import { Cookbooks, Pantry, Planner } from './src/screens/Kitchen';
 import { MealCookingHost } from './src/components/MealCookMode';
 import { CookbookPage } from './src/screens/CookbookPage';
 import { Community, CreatorDialog, Profile } from './src/screens/Profile';
+import { HouseholdHost } from './src/components/HouseholdSheet';
 // Loaded the first time they're needed, so a first visit (often a shared recipe) doesn't download
 // them: on the web each becomes a chunk of its own (Metro splits import()), fetched from the
 // content-hashed /_expo/static/js/web/ path the Worker caches for good; phones have them in the app.
@@ -111,6 +114,9 @@ import { Community, CreatorDialog, Profile } from './src/screens/Profile';
 const Admin = lazy(chunk(() => import('./src/screens/admin').then((m) => ({ default: m.Admin }))));
 const Editor = lazy(
   chunk(() => import('./src/screens/Editor').then((m) => ({ default: m.Editor }))),
+);
+const Settings = lazy(
+  chunk(() => import('./src/screens/Settings').then((m) => ({ default: m.Settings }))),
 );
 // The pages for switching to Savorly: Mealime's members, and creators importing their own site.
 const switching = chunk(() => import('./src/screens/Switching'));
@@ -134,13 +140,17 @@ const tabs = [
   { key: 'saved', title: 'Saved', icon: Bookmark },
   { key: 'profile', title: 'My kitchen', icon: UserRound },
 ] as const;
+// The desktop sidebar: finding recipes and cooks, then the cook's own kitchen (with the household
+// that shares it, whose sheet opens over the page).
 const navigation = [
   { key: 'discover', title: 'Discover', icon: House },
   { key: 'explore', title: 'Explore recipes', icon: Compass },
+  { key: 'community', title: 'Community', icon: Users },
+] as const;
+const kitchenNavigation = [
   { key: 'saved', title: 'My cookbooks', icon: Bookmark },
   { key: 'planner', title: 'Meal planner', icon: CalendarDays },
   { key: 'pantry', title: 'My pantry', icon: Leaf },
-  { key: 'community', title: 'Community', icon: Users },
 ] as const;
 const screenNames: Record<Screen, string> = {
   discover: 'Discover',
@@ -149,6 +159,7 @@ const screenNames: Record<Screen, string> = {
   planner: 'Meal planner',
   pantry: 'My pantry',
   profile: 'My kitchen',
+  settings: 'Settings',
   create: 'Share a recipe',
   community: 'Community',
   admin: 'Admin console',
@@ -220,6 +231,10 @@ function Shell({ onReady }: { onReady: (ready: boolean) => void }) {
     null,
   );
   const [creating, setCreating] = useState(false);
+  // The household's sheet, from the desktop sidebar.
+  const [household, setHousehold] = useState(false);
+  // The planner's first tab: the grocery list when opened from My kitchen's Groceries.
+  const [plannerTab, setPlannerTab] = useState<'week' | 'groceries'>('week');
   const welcoming = useWelcomePending();
   // Signing in, from the welcome or anywhere else, counts as having been welcomed.
   useEffect(() => {
@@ -290,6 +305,7 @@ function Shell({ onReady }: { onReady: (ready: boolean) => void }) {
     setCookbook(null);
     setScreen(next);
     setQuery('');
+    setPlannerTab('week');
     if (next === 'create') {
       setEditor(undefined);
       setEditorKey((v) => v + 1);
@@ -299,6 +315,10 @@ function Shell({ onReady }: { onReady: (ready: boolean) => void }) {
   };
   // Every "create" entry point opens the Add a recipe sheet; writing by hand is one of its choices.
   const navigate = (next: Screen) => (next === 'create' ? setCreating(true) : go(next));
+  const openGroceries = () => {
+    go('planner');
+    setPlannerTab('groceries');
+  };
   const create = (choice: StudioMode | 'write') => {
     setCreating(false);
     if (choice === 'write') go('create');
@@ -499,7 +519,9 @@ function Shell({ onReady }: { onReady: (ready: boolean) => void }) {
       {screen === 'saved' && (
         <Cookbooks onOpen={open} navigate={navigate} onOpenCookbook={openCookbook} />
       )}
-      {screen === 'planner' && <Planner onOpen={open} onAsk={askSousChef} />}
+      {screen === 'planner' && (
+        <Planner onOpen={open} onAsk={askSousChef} initialTab={plannerTab} />
+      )}
       {screen === 'pantry' && <Pantry onOpen={open} onAsk={askSousChef} />}
       {screen === 'create' && (
         <Suspense fallback={<PageLoading />}>
@@ -514,7 +536,14 @@ function Shell({ onReady }: { onReady: (ready: boolean) => void }) {
           />
         </Suspense>
       )}
-      {screen === 'profile' && <Profile onOpen={open} navigate={navigate} onRecipe={edit} />}
+      {screen === 'profile' && (
+        <Profile onOpen={open} navigate={navigate} onRecipe={edit} onGroceries={openGroceries} />
+      )}
+      {screen === 'settings' && (
+        <Suspense fallback={<PageLoading />}>
+          <Settings navigate={navigate} />
+        </Suspense>
+      )}
       {screen === 'community' && <Community onCreator={setCreator} />}
       {switchingPage && (
         <Suspense fallback={<PageLoading />}>
@@ -629,6 +658,26 @@ function Shell({ onReady }: { onReady: (ready: boolean) => void }) {
                   onPress={() => navigate(item.key)}
                 />
               ))}
+            </View>
+            <Text style={[s.label, { marginTop: 26, marginBottom: 8, marginLeft: 16 }]}>
+              {tr('Your kitchen')}
+            </Text>
+            <View style={{ gap: 4 }}>
+              {kitchenNavigation.map((item) => (
+                <NavItem
+                  key={item.key}
+                  title={tr(item.title)}
+                  icon={item.icon}
+                  active={screen === item.key}
+                  onPress={() => navigate(item.key)}
+                />
+              ))}
+              <NavItem
+                title={tr('Household')}
+                icon={HouseHeart}
+                active={household}
+                onPress={() => app.requireUser(() => setHousehold(true))}
+              />
               {app.user?.admin && (
                 <NavItem
                   title={tr('Admin console')}
@@ -663,21 +712,30 @@ function Shell({ onReady }: { onReady: (ready: boolean) => void }) {
                 style={{ marginTop: 6 }}
               />
             </View>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={tr('Open my kitchen')}
-              onPress={() => navigate('profile')}
-              style={[s.row, { gap: 10, paddingHorizontal: 6 }]}
-            >
-              <Avatar name={app.user?.name || ''} uri={app.user?.avatar} size={38} />
-              <View style={{ flex: 1 }}>
-                <Text numberOfLines={1} style={[s.h3, { fontSize: 14 }]}>
-                  {app.user?.name || tr('Your kitchen')}
-                </Text>
-                <Text style={s.small}>{app.user ? tr('My kitchen') : tr('Sign in to join')}</Text>
-              </View>
-              <ChevronRight size={16} color={color.muted} />
-            </Pressable>
+            <View style={[s.row, { gap: 4 }]}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={tr('Open my kitchen')}
+                onPress={() => navigate('profile')}
+                style={[s.row, { flex: 1, gap: 10, paddingHorizontal: 6 }]}
+              >
+                <Avatar name={app.user?.name || ''} uri={app.user?.avatar} size={38} />
+                <View style={{ flex: 1 }}>
+                  <Text numberOfLines={1} style={[s.h3, { fontSize: 14 }]}>
+                    {app.user?.name || tr('Your kitchen')}
+                  </Text>
+                  <Text style={s.small}>{app.user ? tr('My kitchen') : tr('Sign in to join')}</Text>
+                </View>
+              </Pressable>
+              <IconButton
+                icon={SettingsIcon}
+                label={tr('Settings')}
+                selected={screen === 'settings'}
+                plain={screen !== 'settings'}
+                size={40}
+                onPress={() => navigate('settings')}
+              />
+            </View>
           </View>
         )}
         <View style={{ flex: 1 }}>
@@ -984,6 +1042,7 @@ function Shell({ onReady }: { onReady: (ready: boolean) => void }) {
       </TopBanners>
       <AppToast hidden={!!selected} />
       <AuthDialog />
+      {household && <HouseholdHost onClose={() => setHousehold(false)} />}
       <RecipeStart
         visible={creating}
         onClose={() => setCreating(false)}

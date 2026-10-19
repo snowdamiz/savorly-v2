@@ -41,10 +41,9 @@ test('an email and password sign in, and the kitchen shows who is signed in', as
   await fillSignIn(page, email, password);
   await expect(page.getByText('Welcome back to your kitchen.', { exact: true })).toBeVisible();
   await expect(page.getByRole('dialog')).toHaveCount(0);
-  // My kitchen is Alex's now: the profile, the account's sign-in methods, and the header avatar.
+  // My kitchen is Alex's now: the profile and the header avatar.
   await expect(page.getByRole('button', { name: 'Edit your profile', exact: true })).toBeVisible();
   await expect(page.getByText('@alex', { exact: true })).toBeVisible();
-  await expect(page.getByText('Sign-in methods', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'My profile', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Sign in or join' })).toHaveCount(0);
   expect(api.sentTo('/auth/login')).toEqual([
@@ -151,17 +150,19 @@ test('a reset code sets a new password, and a wrong code says so', async ({ page
   expect(api.sentTo('/auth/login')).toEqual([]);
 });
 
-test('signing out from My kitchen ends the session and leaves a guest', async ({ page }) => {
+test('signing out from Settings ends the session and leaves a guest', async ({ page }) => {
   const toast = recipe({ id: 'toast', title: 'Lemon toast', author: alex });
   const api = await mockApi(page, { library: { recipes: [toast] } });
   await page.goto('/?page=profile');
   await expect(recipeCard(page, 'Lemon toast')).toBeVisible();
+  await page.getByRole('button', { name: 'Settings', exact: true }).first().click();
   await page.getByRole('button', { name: 'Sign out', exact: true }).click();
   await expect(
     page.getByText('You’ve signed out. See you at the table.', { exact: true }),
   ).toBeVisible();
   await expectGuest(page);
   // The kitchen's own recipes went with the session.
+  await page.getByRole('button', { name: 'Open my kitchen', exact: true }).click();
   await expect(recipeCard(page, 'Lemon toast')).toHaveCount(0);
   expect(api.sentTo('/auth/logout')).toEqual([['POST', undefined]]);
   // The server ended the session, so a reload is still a guest's.

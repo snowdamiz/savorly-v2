@@ -198,15 +198,15 @@ func formatMoney(cents int64, currency, language string) string {
 // renewalTexts are the renewal notification in the app's nine languages: {plan} is Plus or Pro,
 // {date} the day it renews (written with date, a Go layout) and {amount} what it will cost.
 var renewalTexts = map[string]struct{ title, body, date string }{
-	"en": {"Your {plan} plan renews on {date}", "{amount} for another year. To cancel, tap Cancel plan under Your plan in My kitchen, then confirm.", "2 January 2006"},
-	"fr": {"Votre abonnement {plan} se renouvelle le {date}", "{amount} pour une année de plus. Pour résilier, touchez Résilier l’abonnement sous Votre abonnement dans Ma cuisine, puis confirmez.", "02/01/2006"},
-	"de": {"Dein {plan}-Abo verlängert sich am {date}", "{amount} für ein weiteres Jahr. Zum Kündigen tippe in Meine Küche unter Dein Abo auf Abo kündigen und bestätige.", "02.01.2006"},
-	"ru": {"Тариф {plan} продлится {date}", "{amount} за ещё один год. Чтобы отменить, нажмите «Отменить тариф» в разделе «Ваш тариф» на странице «Моя кухня» и подтвердите.", "02.01.2006"},
-	"es": {"Tu plan {plan} se renueva el {date}", "{amount} por un año más. Para cancelarlo, toca Cancelar plan en Tu plan, dentro de Mi cocina, y confirma.", "02/01/2006"},
-	"it": {"Il tuo piano {plan} si rinnova il {date}", "{amount} per un altro anno. Per annullarlo, tocca Annulla piano in Il tuo piano, nella sezione La mia cucina, e conferma.", "02/01/2006"},
-	"pt": {"Seu plano {plan} será renovado em {date}", "{amount} por mais um ano. Para cancelar, toque em Cancelar plano em Seu plano, na Minha cozinha, e confirme.", "02/01/2006"},
-	"zh": {"你的 {plan} 方案将于 {date} 续订", "续订一年需 {amount}。如需取消，请在“我的厨房”的“你的方案”中点按“取消方案”，然后确认。", "2006年1月2日"},
-	"ja": {"{plan}プランは{date}に更新されます", "1年分で{amount}です。解約するには、マイキッチンの「ご利用のプラン」で「プランを解約」をタップして確定してください。", "2006年1月2日"},
+	"en": {"Your {plan} plan renews on {date}", "{amount} for another year. To cancel, tap Cancel plan under Your plan in Settings, then confirm.", "2 January 2006"},
+	"fr": {"Votre abonnement {plan} se renouvelle le {date}", "{amount} pour une année de plus. Pour résilier, touchez Résilier l’abonnement sous Votre abonnement dans Réglages, puis confirmez.", "02/01/2006"},
+	"de": {"Dein {plan}-Abo verlängert sich am {date}", "{amount} für ein weiteres Jahr. Zum Kündigen tippe in den Einstellungen unter Dein Abo auf Abo kündigen und bestätige.", "02.01.2006"},
+	"ru": {"Тариф {plan} продлится {date}", "{amount} за ещё один год. Чтобы отменить, нажмите «Отменить тариф» в разделе «Ваш тариф» в «Настройках» и подтвердите.", "02.01.2006"},
+	"es": {"Tu plan {plan} se renueva el {date}", "{amount} por un año más. Para cancelarlo, toca Cancelar plan en Tu plan, dentro de Ajustes, y confirma.", "02/01/2006"},
+	"it": {"Il tuo piano {plan} si rinnova il {date}", "{amount} per un altro anno. Per annullarlo, tocca Annulla piano in Il tuo piano, nella sezione Impostazioni, e conferma.", "02/01/2006"},
+	"pt": {"Seu plano {plan} será renovado em {date}", "{amount} por mais um ano. Para cancelar, toque em Cancelar plano em Seu plano, em Configurações, e confirme.", "02/01/2006"},
+	"zh": {"你的 {plan} 方案将于 {date} 续订", "续订一年需 {amount}。如需取消，请在“设置”的“你的方案”中点按“取消方案”，然后确认。", "2006年1月2日"},
+	"ja": {"{plan}プランは{date}に更新されます", "1年分で{amount}です。解約するには、設定の「ご利用のプラン」で「プランを解約」をタップして確定してください。", "2006年1月2日"},
 }
 
 // renewalNoticeText is a renewal notification's title and body in language (English when it

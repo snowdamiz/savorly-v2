@@ -441,7 +441,7 @@ export function KitchenSetup() {
         <>
           <Heading
             title={tr('How do you like to eat?')}
-            text={tr('Your sous-chef keeps this in mind. You can change it anytime in My kitchen.')}
+            text={tr('Your sous-chef keeps this in mind. You can change it anytime in Settings.')}
           />
           <View style={[s.wrap, { gap: 8 }]}>
             {dietOptions.map((d) => (

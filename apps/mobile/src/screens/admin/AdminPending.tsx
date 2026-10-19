@@ -1,4 +1,4 @@
-// Shown on My kitchen as well as in the console, so it lives apart from the console itself: that
+// Shown in Settings as well as in the console, so it lives apart from the console itself: that
 // loads only when opened (a separate chunk on the web). Operator text, so English only.
 import React from 'react';
 import { Text, View } from 'react-native';
@@ -15,7 +15,7 @@ export function AdminPending() {
     <View style={{ gap: 10 }}>
       <Notice
         tone="warning"
-        text={`${app.user.email} is an admin address, but it isn’t verified yet, so the admin console stays closed. Verify it by resetting your password from the sign-in screen (sign out first) or by connecting Google with this same address below.`}
+        text={`${app.user.email} is an admin address, but it isn’t verified yet, so the admin console stays closed. Verify it by resetting your password from the sign-in screen (sign out first) or by connecting Google with this same address in Account and security below.`}
       />
       {app.capabilities?.passwordRecovery === false && (
         <Text style={[s.small, { color: color.muted }]}>

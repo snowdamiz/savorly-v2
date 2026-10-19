@@ -13,7 +13,7 @@ The Android and iOS apps receive JavaScript, styling, translation and image chan
 
 1. At launch the app asks its channel for a newer update and downloads it in the background, without delaying startup. It asks again whenever it returns to the foreground (at most once a minute), since phones rarely relaunch an app.
 2. Once downloaded, a banner says **A new version of Savorly is ready** with **Restart**. Without a restart, the update runs from the next launch.
-3. **My kitchen → App updates** shows the running version: the date it was published, or **Installed version** for the code built into the app, plus the channel and the first characters of the update ID as listed on expo.dev. Tapping it checks now, or restarts into a downloaded update.
+3. **Settings → App updates** shows the running version: the date it was published, or **Installed version** for the code built into the app, plus the channel and the first characters of the update ID as listed on expo.dev. Tapping it checks now, or restarts into a downloaded update.
 
 If an update crashes the app on launch, expo-updates goes back to the previous working update by itself. Development builds, Expo Go and the web load code from the bundler, so all of this is off there.
 
@@ -39,7 +39,7 @@ The EAS CLI version is pinned: `eas-version` in [ci.yml](../.github/workflows/ci
 ## Try it on staging
 
 1. **Get a build with updates in it.** Builds made before EAS Update was set up never receive updates. Push `main` to `staging` (`git push origin main:staging`). The new fingerprint makes CI queue a staging build, or start one yourself with `npx eas-cli@24.14.0 build --platform android --profile staging` in `apps/mobile`.
-2. **Install it** from the build page on expo.dev, over the old Savorly Staging. **My kitchen → App updates** reads **Installed version** and the `staging` channel.
+2. **Install it** from the build page on expo.dev, over the old Savorly Staging. **Settings → App updates** reads **Installed version** and the `staging` channel.
 3. **Change some JavaScript** (a string, a color), merge it to `main`, and push `main:staging` again. In the GitHub run, **Ship Android app** says it ships as an update; the update appears on expo.dev under **Updates**, on the `staging` branch.
 4. **Open the app** (or bring it back to the foreground). Within a few seconds the banner offers **Restart**. Afterwards **App updates** shows the update's date and ID.
 

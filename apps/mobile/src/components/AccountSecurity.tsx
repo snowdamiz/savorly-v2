@@ -34,7 +34,7 @@ const passwordFits = (p: string) => p.length >= 12 && p.length <= 72;
 const looksLikeEmail = (e: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e.trim());
 
 /**
- * Account and security in My kitchen: the email address (changed with a code sent to the new one),
+ * Account and security in Settings: the email address (changed with a code sent to the new one),
  * the password (changed, or set for a kitchen made with Apple or Google), and the devices signed in.
  */
 export function AccountSecurity() {
@@ -102,11 +102,42 @@ export function AccountSecurity() {
             onPress={() => start('password')}
           />
         </View>
+        <SignInMethods />
         <Devices />
       </Dialog>
       {flow === 'password' && <PasswordDialog confirmation={confirmation} onClose={done} />}
       {flow === 'email' && <EmailDialog confirmation={confirmation} onClose={done} />}
     </>
+  );
+}
+
+/** The ways into the kitchen (a password, Apple, Google), and connecting the ones it lacks. */
+function SignInMethods() {
+  const { t } = useI18n();
+  const app = useApp();
+  // An app can update before the API does, so missing account fields mean "none".
+  const identities = app.user?.identities ?? [];
+  return (
+    <View style={{ gap: 10 }}>
+      <Text style={s.label}>{t('Sign-in methods')}</Text>
+      <View style={[s.wrap, { gap: 6 }]}>
+        {app.user?.hasPassword && <Pill title={t('Email and password')} icon={Check} />}
+        {identities.map((p) => (
+          <Pill key={p} title={providerName(p)} icon={Check} />
+        ))}
+      </View>
+      <SocialButtons
+        only={(['apple', 'google'] as const).filter((p) => !identities.includes(p))}
+        purpose="connect"
+        onError={app.notify}
+        onToken={(token) =>
+          void app.act(async () => {
+            await api('/auth/oauth', { method: 'POST', body: token });
+            await app.refreshUser();
+          }, 'Connected. You can sign in with it from now on.')
+        }
+      />
+    </View>
   );
 }
 

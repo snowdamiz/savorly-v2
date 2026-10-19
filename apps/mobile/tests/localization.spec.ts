@@ -274,16 +274,16 @@ test('Russian plural forms, interpolation and English fallback', () => {
   );
 });
 
-for (const [locale, heading, profile, setting] of [
-  ['en-GB', 'What would you like to cook today?', 'Open my kitchen', 'Language settings'],
-  ['fr-CA', 'Que voulez-vous cuisiner aujourd’hui ?', 'Ouvrir ma cuisine', 'Paramètres de langue'],
-  ['de-DE', 'Was möchtest du heute kochen?', 'Meine Küche öffnen', 'Spracheinstellungen'],
-  ['ru-RU', 'Что приготовим сегодня?', 'Открыть мою кухню', 'Настройки языка'],
-  ['es-MX', '¿Qué te gustaría cocinar hoy?', 'Abrir mi cocina', 'Ajustes de idioma'],
-  ['it-IT', 'Cosa vuoi cucinare oggi?', 'Apri la mia cucina', 'Impostazioni lingua'],
-  ['pt-PT', 'O que você quer cozinhar hoje?', 'Abrir minha cozinha', 'Configurações de idioma'],
-  ['zh-CN', '今天想做什么菜？', '打开我的厨房', '语言设置'],
-  ['ja-JP', '今日は何を作りますか？', 'マイキッチンを開く', '言語設定'],
+for (const [locale, heading, settings, setting] of [
+  ['en-GB', 'What would you like to cook today?', 'Settings', 'Language settings'],
+  ['fr-CA', 'Que voulez-vous cuisiner aujourd’hui ?', 'Réglages', 'Paramètres de langue'],
+  ['de-DE', 'Was möchtest du heute kochen?', 'Einstellungen', 'Spracheinstellungen'],
+  ['ru-RU', 'Что приготовим сегодня?', 'Настройки', 'Настройки языка'],
+  ['es-MX', '¿Qué te gustaría cocinar hoy?', 'Ajustes', 'Ajustes de idioma'],
+  ['it-IT', 'Cosa vuoi cucinare oggi?', 'Impostazioni', 'Impostazioni lingua'],
+  ['pt-PT', 'O que você quer cozinhar hoje?', 'Configurações', 'Configurações de idioma'],
+  ['zh-CN', '今天想做什么菜？', '设置', '语言设置'],
+  ['ja-JP', '今日は何を作りますか？', '設定', '言語設定'],
 ]) {
   test.describe(locale, () => {
     test.use({ locale });
@@ -294,7 +294,8 @@ for (const [locale, heading, profile, setting] of [
       await page.goto('/');
       await expect(page.getByText(heading, { exact: true })).toBeVisible();
       await expect(page.locator('html')).toHaveAttribute('lang', locale);
-      await page.getByRole('button', { name: profile, exact: true }).click();
+      // The sidebar's gear, beside the cook's name.
+      await page.getByRole('button', { name: settings, exact: true }).click();
       await page.getByRole('button', { name: setting, exact: true }).click();
       await expect(page.getByRole('radio', { name: 'Français', exact: true })).toBeVisible();
       expect(errors).toEqual([]);
@@ -308,7 +309,7 @@ test.describe('French browser', () => {
     page,
   }) => {
     await mockAPI(page);
-    await page.goto('/?page=profile');
+    await page.goto('/?page=settings');
     await page.getByRole('button', { name: 'Paramètres de langue' }).click();
     await page.getByRole('radio', { name: 'Русский', exact: true }).click();
     await expect(page.getByRole('radio', { name: 'Русский' })).toBeChecked();
@@ -322,7 +323,7 @@ test.describe('French browser', () => {
     await expect(page.locator('html')).toHaveAttribute('lang', 'fr-FR');
     await page.reload();
     await expect(page.getByRole('button', { name: 'Paramètres de langue' })).toBeVisible();
-    await expect(page).toHaveTitle('Ma cuisine · Savorly');
+    await expect(page).toHaveTitle('Réglages · Savorly');
   });
   test('localized cuisines keep canonical API filters and user content stays original', async ({
     page,
@@ -372,7 +373,7 @@ test('unsupported locale falls back safely and mobile language selection fits', 
     localStorage.setItem('savorly.language', 'not-a-language');
   });
   await mockAPI(page);
-  await page.goto('/?page=profile');
+  await page.goto('/?page=settings');
   await page.getByRole('button', { name: 'Language settings' }).click();
   await page.getByRole('radio', { name: 'Deutsch', exact: true }).click();
   await expect(page.getByText('Erkannte Sprache: English', { exact: true })).toBeVisible();
@@ -382,7 +383,7 @@ test('unsupported locale falls back safely and mobile language selection fits', 
 
 test('automatic mode follows browser changes while an explicit choice wins', async ({ page }) => {
   await mockAPI(page);
-  await page.goto('/?page=profile');
+  await page.goto('/?page=settings');
   await expect(page.getByRole('button', { name: 'Language settings' })).toBeVisible();
   await page.evaluate(() => {
     Object.defineProperty(navigator, 'languages', { configurable: true, get: () => ['ja-JP'] });
@@ -462,7 +463,7 @@ test('blocked storage does not prevent language changes and reports failure to s
     };
   });
   await mockAPI(page);
-  await page.goto('/?page=profile');
+  await page.goto('/?page=settings');
   await page.getByRole('button', { name: 'Language settings' }).click();
   await page.getByRole('radio', { name: 'Français', exact: true }).click();
   await expect(page.locator('html')).toHaveAttribute('lang', 'fr-FR');

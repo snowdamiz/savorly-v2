@@ -56,7 +56,7 @@ export function PlanSettings() {
     });
     if (Platform.OS === 'web' && new URLSearchParams(window.location.search).get('plan')) {
       notify('Welcome to your new plan. Thank you for supporting Savorly!');
-      window.history.replaceState({}, '', '/?page=profile');
+      window.history.replaceState({}, '', '/?page=settings');
     }
     return () => sub.remove();
   }, [load, refreshUser, notify]);

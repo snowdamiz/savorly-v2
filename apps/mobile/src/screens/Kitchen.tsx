@@ -515,16 +515,19 @@ function useLiveKitchen(shared: boolean, refresh: () => Promise<unknown>) {
 export function Planner({
   onOpen,
   onAsk,
+  initialTab = 'week',
 }: {
   onOpen: (r: Recipe) => void;
   /** Opens the sous-chef's conversation with a message. */
   onAsk: (message: string) => void;
+  /** Which tab it opens on: the week, or the grocery list (My kitchen's Groceries). */
+  initialTab?: 'week' | 'groceries';
 }) {
   const { t: tr, locale } = useI18n();
   const app = useApp();
   const { refreshKitchen } = app;
   const { compact } = useChrome();
-  const [tab, setTab] = useState<'week' | 'groceries'>('week');
+  const [tab, setTab] = useState(initialTab);
   const [offset, setOffset] = useState(0);
   const [selectedDay, setSelectedDay] = useState(localDate(new Date()));
   const [pick, setPick] = useState<{ day: string; meal: string } | null>(null);
