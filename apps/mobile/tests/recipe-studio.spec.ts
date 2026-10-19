@@ -480,9 +480,8 @@ test('a draft the sous-chef saved says it is private, and its cook publishes it'
   await composer.fill('Two slices, for two people.');
   await page.getByRole('button', { name: 'Send message' }).click();
   await page.getByRole('button', { name: 'Open recipe', exact: true }).click();
-  const draft = page.getByText('Private draft. It stays private until you publish it.', {
-    exact: true,
-  });
+  // A capsule floating on the photo says so.
+  const draft = page.getByText('Private draft', { exact: true });
   await expect(draft).toBeVisible();
   // Nothing goes out until the cook says so.
   expect(publishes).toEqual([]);

@@ -66,6 +66,7 @@ import {
   FoodImage,
   GlassSurface,
   IconButton,
+  frost,
   Pill,
   Press,
   Segmented,
@@ -1145,12 +1146,28 @@ export function RecipeDetail({
       )}
     </View>
   );
-  // The page looks as it will once published, so a draft says it's private, by its way out.
-  const draftLine = mine && !recipe.published && (
-    <View style={[s.row, { gap: 10 }, wide && { maxWidth: 620 }]}>
-      <Lock size={16} color={color.ink} strokeWidth={1.9} />
-      <Text style={[s.small, { flex: 1, color: color.ink }]}>
-        {tr('Private draft. It stays private until you publish it.')}
+  // The page looks as it will once published, so a draft says it's private in a capsule floating
+  // on the bottom of its photo, by its way out.
+  const draftPill = mine && !recipe.published && (
+    <GlassSurface
+      flat={[
+        {
+          backgroundColor: 'rgba(255,255,255,0.86)',
+          borderWidth: 1,
+          borderColor: 'rgba(255,255,255,0.5)',
+          boxShadow: '0px 6px 20px rgba(0,0,0,0.18)',
+        },
+        frost(14),
+      ]}
+      style={[s.row, { gap: 10, padding: 4, paddingLeft: 14, borderRadius: radius.pill }]}
+    >
+      <Lock size={15} color={color.ink} strokeWidth={1.9} />
+      <Text
+        accessibilityLabel={tr('Private draft. It stays private until you publish it.')}
+        maxFontSizeMultiplier={maxFontScale}
+        style={{ fontFamily: font.semibold, fontSize: 13, color: color.ink }}
+      >
+        {tr('Private draft')}
       </Text>
       <Button
         title={tr('Publish')}
@@ -1160,7 +1177,7 @@ export function RecipeDetail({
         busy={busy.publish}
         onPress={() => (waiting.length ? setAsking(true) : publish())}
       />
-    </View>
+    </GlassSurface>
   );
   const lineage = <Lineage recipe={recipe} onOpen={onOpen} onCreator={onCreator} />;
   // The author's view of how cooks get on with their recipe, once it's out there.
@@ -1325,16 +1342,23 @@ export function RecipeDetail({
             </View>
             <View style={{ flexDirection: split ? 'row' : 'column', gap: split ? 48 : 28 }}>
               <View style={split ? { flex: 1.1, gap: 12 } : { gap: 12 }}>
-                <FoodImage
-                  uri={photos[photo] || ''}
-                  label={reading.title}
-                  priority="high"
-                  style={{
-                    width: '100%',
-                    aspectRatio: split ? 4 / 3 : 16 / 9,
-                    borderRadius: radius.xl,
-                  }}
-                />
+                <View>
+                  <FoodImage
+                    uri={photos[photo] || ''}
+                    label={reading.title}
+                    priority="high"
+                    style={{
+                      width: '100%',
+                      aspectRatio: split ? 4 / 3 : 16 / 9,
+                      borderRadius: radius.xl,
+                    }}
+                  />
+                  {draftPill && (
+                    <View style={{ position: 'absolute', bottom: 16, alignSelf: 'center' }}>
+                      {draftPill}
+                    </View>
+                  )}
+                </View>
                 {photos.length > 1 && (
                   <View style={[s.row, { gap: 10, flexWrap: 'wrap' }]}>
                     {photos.map((uri, i) => (
@@ -1377,7 +1401,6 @@ export function RecipeDetail({
                 )}
                 {translationBar}
                 {byline}
-                {draftLine}
                 {lineage}
                 {facts}
                 <CookTested
@@ -1450,7 +1473,9 @@ export function RecipeDetail({
               width={width}
               height={heroHeight}
               motion={heroMotion}
-            />
+            >
+              {draftPill}
+            </Gallery>
           </View>
           <View
             style={{
@@ -1476,7 +1501,6 @@ export function RecipeDetail({
                   {reading.title}
                 </Text>
                 {byline}
-                {draftLine}
                 {!!reading.description && (
                   <Text style={[s.muted, { fontSize: 15, lineHeight: 23 }]}>
                     {reading.description}
@@ -1639,16 +1663,19 @@ function ScrollStatusBar({ y, past }: { y: Animated.Value; past: number }) {
   return <StatusBar barStyle={dark ? 'dark-content' : 'light-content'} animated />;
 }
 // The cover and any extra photos side by side; a white dot glides over the dim ones as you swipe.
+// Anything passed as children floats under the dots, just above the sheet's edge.
 function Gallery({
   photos,
   width,
   height,
   motion,
+  children,
 }: {
   photos: string[];
   width: number;
   height: number;
   motion?: object;
+  children?: React.ReactNode;
 }) {
   const { t: tr } = useI18n();
   const [x] = useState(() => new Animated.Value(0));
@@ -1690,67 +1717,79 @@ function Gallery({
           }}
         />
       </Animated.View>
-      {many && (
-        // A small capsule keeps the dots readable over bright photos.
-        <GlassSurface
-          dark
-          tint="rgba(0,0,0,0.32)"
-          flat={{ backgroundColor: 'rgba(0,0,0,0.28)' }}
-          style={{
-            position: 'absolute',
-            bottom: radius.xl + 12,
-            alignSelf: 'center',
-            padding: 4,
-            borderRadius: radius.pill,
-          }}
-        >
-          <View style={{ flexDirection: 'row' }}>
-            {shown.map((_, i) => (
-              <Pressable
-                key={i}
-                accessibilityRole="button"
-                accessibilityLabel={tr('Show photo {{v0}} of {{v1}}', {
-                  v0: i + 1,
-                  v1: shown.length,
-                })}
-                hitSlop={6}
-                onPress={() => list.current?.scrollTo({ x: i * width, animated: true })}
-                style={{ width: step, height: 12, alignItems: 'center', justifyContent: 'center' }}
-              >
-                <View
+      <View
+        style={{
+          position: 'absolute',
+          left: 0,
+          right: 0,
+          bottom: radius.xl + 12,
+          alignItems: 'center',
+          gap: 10,
+          pointerEvents: 'box-none',
+        }}
+      >
+        {many && (
+          // A small capsule keeps the dots readable over bright photos.
+          <GlassSurface
+            dark
+            tint="rgba(0,0,0,0.32)"
+            flat={{ backgroundColor: 'rgba(0,0,0,0.28)' }}
+            style={{ padding: 4, borderRadius: radius.pill }}
+          >
+            <View style={{ flexDirection: 'row' }}>
+              {shown.map((_, i) => (
+                <Pressable
+                  key={i}
+                  accessibilityRole="button"
+                  accessibilityLabel={tr('Show photo {{v0}} of {{v1}}', {
+                    v0: i + 1,
+                    v1: shown.length,
+                  })}
+                  hitSlop={6}
+                  onPress={() => list.current?.scrollTo({ x: i * width, animated: true })}
                   style={{
-                    width: 6,
-                    height: 6,
-                    borderRadius: 3,
-                    backgroundColor: 'rgba(255,255,255,0.45)',
+                    width: step,
+                    height: 12,
+                    alignItems: 'center',
+                    justifyContent: 'center',
                   }}
-                />
-              </Pressable>
-            ))}
-            <Animated.View
-              style={{
-                position: 'absolute',
-                top: 3,
-                left: 3,
-                width: 6,
-                height: 6,
-                borderRadius: 3,
-                backgroundColor: color.white,
-                pointerEvents: 'none',
-                transform: [
-                  {
-                    translateX: x.interpolate({
-                      inputRange: [0, width * (shown.length - 1)],
-                      outputRange: [0, step * (shown.length - 1)],
-                      extrapolate: 'clamp',
-                    }),
-                  },
-                ],
-              }}
-            />
-          </View>
-        </GlassSurface>
-      )}
+                >
+                  <View
+                    style={{
+                      width: 6,
+                      height: 6,
+                      borderRadius: 3,
+                      backgroundColor: 'rgba(255,255,255,0.45)',
+                    }}
+                  />
+                </Pressable>
+              ))}
+              <Animated.View
+                style={{
+                  position: 'absolute',
+                  top: 3,
+                  left: 3,
+                  width: 6,
+                  height: 6,
+                  borderRadius: 3,
+                  backgroundColor: color.white,
+                  pointerEvents: 'none',
+                  transform: [
+                    {
+                      translateX: x.interpolate({
+                        inputRange: [0, width * (shown.length - 1)],
+                        outputRange: [0, step * (shown.length - 1)],
+                        extrapolate: 'clamp',
+                      }),
+                    },
+                  ],
+                }}
+              />
+            </View>
+          </GlassSurface>
+        )}
+        {children}
+      </View>
     </>
   );
 }
