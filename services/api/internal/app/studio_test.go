@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"savorly/api/internal/ai"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -502,6 +503,62 @@ func asked(t *testing.T, a *App, p, text string) {
 	}
 	if e != nil {
 		t.Fatal(e)
+	}
+}
+
+// Settings came after the first apps: one that lists it among its pages opens it, and an older
+// one, which doesn't, goes to My kitchen, where its settings are. Receipts follow the same rule.
+func TestGoToSettingsFollowsTheApp(t *testing.T) {
+	a, p := studioFixture(t)
+	f := studioServer(a)
+	ctx := context.Background()
+	report := func(body map[string]any) {
+		t.Helper()
+		if status, b := studioReq(t, f, "PUT", "/studio/"+p+"/context", "cook", "", body); status != 204 {
+			t.Fatalf("context %d %s", status, b)
+		}
+	}
+	goTo := func(page string) any {
+		t.Helper()
+		run := agentTurn(t, a, p)
+		if out := a.agentTool(ctx, run, "app_action", jsonBytes(map[string]any{"action": "go_to", "page": page})); !strings.Contains(out, `"ok":true`) {
+			t.Fatalf("go_to %s: %s", page, out)
+		}
+		return run.actions[0]["page"]
+	}
+	noteGoesTo := func() string {
+		t.Helper()
+		run := agentTurn(t, a, p)
+		a.agentTool(ctx, run, "remember_kitchen_note", jsonBytes(map[string]any{"note": "My oven runs hot"}))
+		if len(run.effects) != 1 {
+			t.Fatalf("effects %#v", run.effects)
+		}
+		return run.effects[0].Page
+	}
+	report(map[string]any{"screen": "discover"})
+	if page := goTo("settings"); page != "profile" {
+		t.Fatalf("an older app opened %v", page)
+	}
+	if page := noteGoesTo(); page != "profile" {
+		t.Fatalf("an older app's kitchen note points at %s", page)
+	}
+	if page := goTo("planner"); page != "planner" {
+		t.Fatalf("planner became %v", page)
+	}
+	// Pages the server doesn't know, or twice, are dropped; the app's own screens are all sent.
+	report(map[string]any{"screen": "settings", "pages": []string{"discover", "settings", "settings", "admin", "nowhere"}})
+	var reported []byte
+	_ = a.DB.QueryRow(ctx, `SELECT context FROM voice_projects WHERE id=$1`, p).Scan(&reported)
+	var view studioView
+	_ = json.Unmarshal(reported, &view)
+	if view.Screen != "settings" || !slices.Equal(view.Pages, []string{"discover", "settings"}) {
+		t.Fatalf("context %s", reported)
+	}
+	if page := goTo("settings"); page != "settings" {
+		t.Fatalf("an app with Settings opened %v", page)
+	}
+	if page := noteGoesTo(); page != "settings" {
+		t.Fatalf("a kitchen note points at %s", page)
 	}
 }
 func TestAssistantSeesScreenAndLocalTime(t *testing.T) {

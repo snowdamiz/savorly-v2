@@ -172,7 +172,7 @@ test('signing out takes the kitchen’s own copies off the device', async ({ pag
   await expect(page.getByText(/Good (morning|afternoon|evening), Alex/)).toBeVisible();
   await expect.poll(() => kept(page, 'snapshot')).toContain('Saved stew');
   expect(await kept(page, 'snapshot')).toContain('alex@example.test');
-  await page.getByRole('button', { name: 'Open my kitchen', exact: true }).click();
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await page.getByRole('button', { name: 'Sign out', exact: true }).click();
   await expect(
     page.getByText('You’ve signed out. See you at the table.', { exact: true }),

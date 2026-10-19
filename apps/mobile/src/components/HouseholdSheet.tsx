@@ -154,6 +154,18 @@ export function HouseholdEntry({
   );
 }
 
+/**
+ * The household's sheet for a way in that doesn't otherwise know about it, like the desktop
+ * sidebar: mounted when pressed, it asks for the household and opens once it has the answer.
+ */
+export function HouseholdHost({ onClose }: { onClose: () => void }) {
+  const app = useApp();
+  const state = useHousehold(app.user?.id ?? null);
+  return (
+    <HouseholdSheet visible={state.ready && state.supported} onClose={onClose} state={state} />
+  );
+}
+
 type Step = 'create' | 'join' | 'invite' | 'leave' | 'remove';
 
 /**

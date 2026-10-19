@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { Text, View } from 'react-native';
-import { Check, ChevronRight, Languages } from './icons';
+import { Text } from 'react-native';
+import { Check, Languages } from './icons';
 import { languages, useI18n } from '../lib/i18n';
 import { color, s } from '../lib/theme';
+import { SettingsRow } from './SettingsRow';
 import { Dialog, Press } from './ui';
 
 export function LanguageSettings() {
@@ -13,19 +14,13 @@ export function LanguageSettings() {
   const selectedName = options.find((item) => item.code === preference)!.name;
   return (
     <>
-      <Press
-        accessibilityRole="button"
-        accessibilityLabel={t('Language settings')}
+      <SettingsRow
+        icon={Languages}
+        title={t('Language')}
+        text={selectedName}
+        label={t('Language settings')}
         onPress={() => setOpen(true)}
-        style={[s.card, s.row, { gap: 14, padding: 14 }]}
-      >
-        <Languages size={24} color={color.ink} />
-        <View style={{ flex: 1, gap: 3 }}>
-          <Text style={s.h3}>{t('Language')}</Text>
-          <Text style={s.small}>{selectedName}</Text>
-        </View>
-        <ChevronRight size={18} color={color.soft} />
-      </Press>
+      />
       <Dialog visible={open} onClose={() => setOpen(false)} title={t('Language')}>
         <Text style={s.muted}>
           {t('Choose your language, or follow this device. Your choice is saved on this device.')}

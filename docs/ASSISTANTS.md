@@ -142,7 +142,7 @@ scope="cookbooks planner groceries"` before the tool runs, and `403` with
 that challenge, which ChatGPT shows as a sign-in. An invalid or expired token is always `401`
 (`error="invalid_token"`), and the client refreshes.
 
-**Connected apps** in My kitchen lists each link (`GET /v1/me/connected-apps`): the app, when it
+**Connected apps** in Settings lists each link (`GET /v1/me/connected-apps`): the app, when it
 was linked and last used, and **Disconnect** (`DELETE /v1/me/connected-apps/:id`), which stops its
 tokens at once. A member who links the same app twice, say from two ChatGPT accounts, sees two
 links.

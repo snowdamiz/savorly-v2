@@ -145,9 +145,9 @@ test('a member who keeps their cooking out sends no step events', async ({ page 
   expect(api.sentTo('/cook-sessions/session-1/events')).toEqual([]);
 });
 
-test('the switch in My kitchen keeps a member’s cooking out', async ({ page }) => {
+test('the switch in Settings keeps a member’s cooking out', async ({ page }) => {
   const api = await mockApi(page);
-  await page.goto('/?page=profile');
+  await page.goto('/?page=settings');
   await page.getByRole('button', { name: 'Your cooking', exact: true }).click();
   const toggle = page.getByRole('switch', { name: /Share how my cooking goes/ });
   await expect(toggle).toBeChecked();

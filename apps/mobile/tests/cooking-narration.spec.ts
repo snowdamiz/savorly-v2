@@ -440,7 +440,7 @@ test('signing out takes the narration kept on the device away', async ({ page })
   await page.getByRole('button', { name: 'Stop reading', exact: true }).click();
   await closeCooking(page);
   await page.getByRole('button', { name: 'Back', exact: true }).click();
-  await page.getByRole('button', { name: 'Open my kitchen', exact: true }).click();
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await page.getByRole('button', { name: 'Sign out', exact: true }).click();
   await expect(
     page.getByText('You’ve signed out. See you at the table.', { exact: true }),

@@ -90,6 +90,11 @@ describe('parseRoute', () => {
       screen: 'mealime',
     });
     expect(parseRoute('/?page=own-site')).toEqual({ type: 'page', screen: 'own-site' });
+    // Settings, apart from My kitchen; Stripe returns there after a plan changes.
+    expect(parseRoute('/?page=settings&plan=welcome')).toEqual({
+      type: 'page',
+      screen: 'settings',
+    });
   });
 
   test('the app scheme, in each way it is written', () => {

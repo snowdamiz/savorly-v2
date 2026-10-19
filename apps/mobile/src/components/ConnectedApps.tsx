@@ -10,7 +10,7 @@ import { ErrorNote, SettingsRow } from './SettingsRow';
 import { Button, Dialog } from './ui';
 
 /**
- * Connected apps in My kitchen: the assistants (ChatGPT, Claude) linked to this kitchen, when each
+ * Connected apps in Settings: the assistants (ChatGPT, Claude) linked to this kitchen, when each
  * was linked and last used, and Disconnect, which stops it at once (docs/ASSISTANTS.md).
  */
 export function ConnectedApps() {

@@ -20,7 +20,7 @@ export function externalLink(url: string): object {
     : { onPress: () => void Linking.openURL(url).catch(() => {}) };
 }
 
-/** The privacy policy, the terms and the account-deletion page, at the foot of My kitchen. */
+/** The privacy policy, the terms and the account-deletion page, at the foot of Settings. */
 export function LegalLinks() {
   const { t } = useI18n();
   const links = [

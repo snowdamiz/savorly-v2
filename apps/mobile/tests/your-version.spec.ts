@@ -143,7 +143,7 @@ test('a member keeps a change for themselves from the composer', async ({ page }
     ]);
 });
 
-test('kitchen notes in My kitchen', async ({ page }) => {
+test('kitchen notes in Settings', async ({ page }) => {
   const api = await mockApi(page);
   api.on('GET', '/me/kitchen-notes', () =>
     json({ notes: [{ id: 'n1', note: 'We like it mild', source: 'typed', createdAt: '' }] }),
@@ -152,7 +152,7 @@ test('kitchen notes in My kitchen', async ({ page }) => {
     json({ id: 'n2', note: (body as { note: string }).note, source: 'typed', createdAt: '' }, 201),
   );
   api.on('DELETE', '/me/kitchen-notes/n1', () => ({ status: 204 }));
-  await page.goto('/?page=profile');
+  await page.goto('/?page=settings');
   await page.getByRole('button', { name: 'Your cooking', exact: true }).click();
   await expect(page.getByText('We like it mild', { exact: true })).toBeVisible();
   await page.getByLabel('A kitchen note').fill('My oven runs hot');

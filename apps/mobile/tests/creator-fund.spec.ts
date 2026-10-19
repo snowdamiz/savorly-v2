@@ -147,7 +147,9 @@ test('a held creator is told, and nobody else sees the card', async ({ page }) =
     const other = await page.context().newPage();
     const quiet = await mockApi(other, options);
     await other.goto('/?page=profile');
-    await expect(other.getByText('Sign-in methods', { exact: true })).toBeVisible();
+    await expect(
+      other.getByRole('button', { name: 'Edit your profile', exact: true }),
+    ).toBeVisible();
     await expect(other.getByRole('heading', { name: 'Creator earnings' })).toHaveCount(0);
     expect(quiet.requests.some((r) => r.path === '/me/earnings')).toBe(false);
     await other.close();

@@ -231,7 +231,8 @@ test('admins review reports and change operator settings', async ({ page }) => {
     .toEqual({ status: 'dismissed', note: 'Checked: it is original.' });
   await expect(page.getByText('Nothing to review. The queue is clear.')).toBeVisible();
 
-  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  // The console's own Settings, after the sidebar's gear for the member's.
+  await page.getByRole('button', { name: 'Settings', exact: true }).last().click();
   await page.getByRole('switch', { name: 'Pause all AI features' }).click();
   // Overrides stop at ten times the server's default.
   await page.getByLabel('Daily AI budget for everyone (USD)').fill('300');

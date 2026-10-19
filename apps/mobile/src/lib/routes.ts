@@ -17,6 +17,7 @@ export const screens: readonly Screen[] = [
   'planner',
   'pantry',
   'profile',
+  'settings',
   'create',
   'community',
   'admin',

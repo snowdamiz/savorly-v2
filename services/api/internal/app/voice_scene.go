@@ -57,7 +57,7 @@ const sceneKeySQL = `p.context::text||COALESCE((SELECT md5(concat_ws('|',r.title
 
 var sceneLanguages = map[string]string{"en": "English", "fr": "French", "de": "German", "ru": "Russian", "es": "Spanish", "it": "Italian", "pt": "Portuguese", "zh": "Chinese", "ja": "Japanese"}
 
-var scenePages = map[string]string{"discover": "Discover", "explore": "Explore recipes", "saved": "My cookbooks", "planner": "Meal planner, with the grocery list", "pantry": "My pantry", "profile": "My kitchen", "create": "Create a recipe", "community": "Community"}
+var scenePages = map[string]string{"discover": "Discover", "explore": "Explore recipes", "saved": "My cookbooks", "planner": "Meal planner, with the grocery list", "pantry": "My pantry", "profile": "My kitchen", "settings": "Settings: the plan, account and security, food preferences, measurements, language and notifications", "create": "Create a recipe", "community": "Community"}
 
 func (a *App) voiceScene(ctx context.Context, project, owner string) (voiceScene, error) {
 	var s voiceScene

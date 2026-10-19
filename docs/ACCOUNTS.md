@@ -333,7 +333,7 @@ The secret turns the check on: `/v1/capabilities` then reports the site key, and
 
 ## 12. Push notifications — Expo, APNs and FCM
 
-The server sends push notifications through Expo's push service: new recipes from the cooks someone follows, reviews and comments on their recipes, and pantry items about to expire. Each phone registers its Expo push token with the API after the cook allows notifications (My kitchen → **Notifications**; the app never asks at launch), registers it again at each launch, and withdraws it when signing out. The web has the same switches but receives nothing itself.
+The server sends push notifications through Expo's push service: new recipes from the cooks someone follows, reviews and comments on their recipes, and pantry items about to expire. Each phone registers its Expo push token with the API after the cook allows notifications (Settings → **Notifications**; the app never asks at launch), registers it again at each launch, and withdraws it when signing out. The web has the same switches but receives nothing itself.
 
 1. **Expo project:** `extra.eas.projectId` in `app.json` names the EAS project the tokens belong to (section 7). Keep it.
 2. **iOS:** with the paid Apple Developer account, answer yes when `eas build` offers to set up push notifications and create an APNs key, or add one with `npx eas-cli@24.14.0 credentials` (iOS → Push Notifications). The `expo-notifications` plugin in `app.json` adds the push entitlement.
@@ -342,7 +342,7 @@ The server sends push notifications through Expo's push service: new recipes fro
 
 Until steps 2 and 3 are done, a phone that turns notifications on reports that it couldn't be set up for them; everything else works.
 
-**Check:** in a development build, sign in, open My kitchen → Notifications, turn them on and allow them. Send a test from [expo.dev/notifications](https://expo.dev/notifications), or review one of the account's recipes from another account. Tapping a recipe notification opens the recipe; a pantry reminder opens the pantry.
+**Check:** in a development build, sign in, open Settings → Notifications, turn them on and allow them. Send a test from [expo.dev/notifications](https://expo.dev/notifications), or review one of the account's recipes from another account. Tapping a recipe notification opens the recipe; a pantry reminder opens the pantry.
 
 ## 13. Instacart — ordering groceries (optional)
 
@@ -356,14 +356,13 @@ The grocery list and recipe pages can hand their ingredients to Instacart, whose
 
 ## Account settings in the app
 
-What members find in My kitchen once these services are set up:
+Settings is its own page (`/?page=settings`), opened from the gear in My kitchen or beside the member's name in the desktop sidebar. It groups the plan and **Account**, then **Food and cooking**, then **App**, with signing out and deleting the account at the end. What members find there once these services are set up:
 
-- **Account and security:** the email address, changed with a 6-digit code sent to the new address (the change happens when the code is entered, and the old address is told); the password, changed with the current one or, for a kitchen made with Apple or Google, set after signing in once more with that account (either way the other devices are signed out); and the signed-in devices, this one first, each of the others with **Sign out**, plus **Sign out everywhere else**. Email changes need the email setup in section 1.
-- **Confirm your email address:** while a new kitchen's address is unconfirmed (and email is set up), a banner asks for the code sign-up sent, and can send a new one.
+- **Account and security:** the sign-in methods (password, Apple, Google) with buttons to connect the missing ones; the email address, changed with a 6-digit code sent to the new address (the change happens when the code is entered, and the old address is told); the password, changed with the current one or, for a kitchen made with Apple or Google, set after signing in once more with that account (either way the other devices are signed out); and the signed-in devices, this one first, each of the others with **Sign out**, plus **Sign out everywhere else**. Email changes need the email setup in section 1.
 - **Download my data:** everything the account holds, as files (a ZIP with a folder for each recipe to read or print, its photos and clips, and the lists as spreadsheets) or as one JSON file. The web saves the JSON file directly; the files, and both from the apps, come through a single-use link, valid for ten minutes, that the browser opens ([switching](SWITCHING.md#the-export-as-files)).
-- **Import from my site:** a creator's import of the recipes on their own site, with their photos and their permission ([switching](SWITCHING.md#a-creators-own-site)).
-- **Measurements** (as written, metric or imperial), **Notifications** (new recipes, pantry reminders, reviews, comments) and the **Language**, which notifications are written in, are saved with the account.
-- The **Privacy policy**, **Terms of use** and **Delete your account** pages (the static pages the Worker serves at `/privacy`, `/terms` and `/account-deletion`) are linked at the foot of My kitchen, and the sign-up form links the terms and the privacy policy.
+- **Food preferences** (diets and allergies, which recipe pages warn about; apart from the profile's name, username, bio and photo), **Measurements** (as written, metric or imperial), **Your cooking**, **Notifications** (new recipes, pantry reminders, reviews, comments) and the **Language**, which notifications are written in, are saved with the account.
+- **Confirm your email address:** while a new kitchen's address is unconfirmed (and email is set up), a banner in My kitchen asks for the code sign-up sent, and can send a new one.
+- The **Privacy policy**, **Terms of use** and **Delete your account** pages (the static pages the Worker serves at `/privacy`, `/terms` and `/account-deletion`) are linked at the foot of Settings, and the sign-up form links the terms and the privacy policy.
 
 ## Final handoff and checks
 

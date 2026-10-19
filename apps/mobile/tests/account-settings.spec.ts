@@ -2,7 +2,7 @@
 import { expect, Page, test } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 
-// My kitchen's account settings against a mocked API: security (password, email, devices, email
+// Settings' account rows against a mocked API: security (password, email, devices, email
 // confirmation), data export, preferences, legal links, and the sign-up form's Turnstile check.
 
 type Options = {
@@ -176,7 +176,7 @@ async function kitchen(page: Page, options: Options = {}) {
 }
 
 const security = async (page: Page) => {
-  await page.goto('/?page=profile');
+  await page.goto('/?page=settings');
   await page.getByRole('button', { name: 'Account and security', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Account and security' })).toBeVisible();
 };
@@ -239,7 +239,7 @@ test('a kitchen made with Google sets a password after confirming with Google', 
   await page.getByRole('button', { name: 'Continue with Google' }).click();
   // Google's page sends the browser back, to the same step.
   await expect(page.getByText('Confirmed with Google', { exact: true })).toBeVisible();
-  expect(new URL(page.url()).search).toBe('?page=profile');
+  expect(new URL(page.url()).search).toBe('?page=settings');
   await page
     .getByRole('textbox', { name: 'New password', exact: true })
     .fill('a much longer secret');
@@ -344,7 +344,7 @@ test('devices: this one first, others signed out one at a time or all together',
 
 test('Download my data saves the export as a dated JSON file', async ({ page }) => {
   await kitchen(page);
-  await page.goto('/?page=profile');
+  await page.goto('/?page=settings');
   await page.getByRole('button', { name: 'Download my data', exact: true }).click();
   const sheet = page.getByRole('dialog');
   await expect(sheet.getByRole('heading', { name: 'Download my data' })).toBeVisible();
@@ -358,7 +358,7 @@ test('Download my data saves the export as a dated JSON file', async ({ page }) 
 
 test('measurements, notifications and the language are saved to the account', async ({ page }) => {
   const { sent, user } = await kitchen(page);
-  await page.goto('/?page=profile');
+  await page.goto('/?page=settings');
   await page.getByRole('button', { name: 'Measurement settings', exact: true }).click();
   await page.getByRole('radio', { name: 'Metric', exact: true }).click();
   await expect(page.getByRole('radio', { name: 'Metric', exact: true })).toBeChecked();
@@ -386,9 +386,9 @@ test('measurements, notifications and the language are saved to the account', as
   ]);
 });
 
-test('the legal pages open from My kitchen and from the sign-up form', async ({ page }) => {
+test('the legal pages open from Settings and from the sign-up form', async ({ page }) => {
   await kitchen(page, { signedIn: false });
-  await page.goto('/?page=profile');
+  await page.goto('/?page=settings');
   const origin = new URL(page.url()).origin;
   for (const [name, path] of [
     ['Privacy policy', '/privacy'],
