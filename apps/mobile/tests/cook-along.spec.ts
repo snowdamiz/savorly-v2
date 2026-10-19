@@ -103,7 +103,7 @@ test('the cook-along has its own notification switch', async ({ page }) => {
     };
     return json(api.state.user);
   });
-  await page.goto('/?page=profile');
+  await page.goto('/?page=settings');
   await page.getByRole('button', { name: 'Notifications', exact: true }).click();
   const toggle = page.getByRole('switch', { name: 'Weekly cook-along', exact: true });
   await expect(toggle).toBeChecked();

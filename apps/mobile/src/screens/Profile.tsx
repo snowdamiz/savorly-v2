@@ -1,36 +1,33 @@
-import { LanguageSettings } from '../components/LanguageSettings';
-import { UpdateSettings } from '../components/AppUpdates';
 import { useI18n } from '../lib/i18n';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import {
-  Bookmark,
   CalendarDays,
   Check,
-  ChevronRight,
-  Globe,
+  HouseHeart,
   Leaf,
-  LogOut,
+  LucideIcon,
+  PencilLine,
   Plus,
-  Settings2,
+  Settings,
   ShieldCheck,
+  ShoppingBasket,
   Sparkles,
-  Trash2,
   Users,
 } from '../components/icons';
 import { useApp } from '../lib/store';
 import { useShelf } from '../lib/shelf';
 import { BrandMark } from '../components/Brand';
-import { api, persistSession } from '../lib/api';
+import { api } from '../lib/api';
 import { Creator, Recipe, RecipeInput, Screen } from '../lib/types';
-import { color, font, radius, s } from '../lib/theme';
+import { color, s } from '../lib/theme';
 import {
   Avatar,
   Button,
-  Chip,
   Dialog,
   Empty,
   Field,
+  IconButton,
   PageHeading,
   Pill,
   Press,
@@ -40,67 +37,14 @@ import {
 import { RecipeGrid, RecipeRow } from '../components/RecipeCard';
 import { CreatorCookbooks } from '../components/CreatorCookbooks';
 import { SousChefHistory } from '../components/SousChef';
-import { PlanSettings } from '../components/PlanSettings';
 import { CreatorEarnings } from '../components/CreatorEarnings';
-import { SocialButtons } from '../components/SocialButtons';
 import { HandleField, useHandle } from '../components/Username';
 import { PhotoButton, ProfilePhoto } from '../components/ProfilePhoto';
-import { dietOptions, useSaveProfile } from '../lib/profile';
-import { DangerButton } from './Kitchen';
+import { useSaveProfile } from '../lib/profile';
 import { foodIcon } from '../lib/icons';
-import { AdminPending } from './admin/AdminPending';
-import { AccountSecurity } from '../components/AccountSecurity';
-import { DataExport } from '../components/DataExport';
-import { ConnectedApps } from '../components/ConnectedApps';
-import { YourCooking } from '../components/YourVersion';
-import { LegalLinks } from '../components/Legal';
-import { NotificationSettings } from '../components/NotificationSettings';
+import { HouseholdSheet, useHousehold } from '../components/HouseholdSheet';
 import { FoundingMark } from '../components/FoundingMark';
-import { UnitSettings } from '../components/UnitSettings';
 import { VerifyEmail } from '../components/VerifyEmail';
-function MenuRow({
-  icon: Icon,
-  title,
-  text,
-  onPress,
-  danger,
-}: {
-  icon: typeof Plus;
-  title: string;
-  text?: string;
-  onPress: () => void;
-  danger?: boolean;
-}) {
-  return (
-    <Press
-      accessibilityRole="button"
-      accessibilityLabel={title}
-      onPress={onPress}
-      scale={0.98}
-      style={[s.card, s.row, { gap: 14, padding: 14 }]}
-    >
-      <View
-        style={{
-          width: 42,
-          height: 42,
-          borderRadius: 21,
-          backgroundColor: danger ? color.errorBg : color.bg,
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
-        <Icon size={18} color={danger ? color.error : color.ink} strokeWidth={1.9} />
-      </View>
-      <View style={{ flex: 1, gap: 2 }}>
-        <Text style={[s.h3, { fontSize: 15, color: danger ? color.error : color.ink }]}>
-          {title}
-        </Text>
-        {text && <Text style={[s.small, { fontFamily: font.medium }]}>{text}</Text>}
-      </View>
-      {!danger && <ChevronRight size={18} color={color.soft} />}
-    </Press>
-  );
-}
 export function Community({ onCreator }: { onCreator: (c: Creator) => void }) {
   const { t: tr } = useI18n();
   const app = useApp();
@@ -213,14 +157,80 @@ export function CreatorDialog({
     </Dialog>
   );
 }
+/** One of the kitchen's places in My kitchen: the planner, the grocery list, the household… */
+type Place = {
+  key: string;
+  icon: LucideIcon;
+  title: string;
+  text: string;
+  /** What a screen reader says, when it should differ from the title. */
+  label?: string;
+  onPress: () => void;
+};
+function PlaceTile({ place }: { place: Place }) {
+  const { icon: Icon } = place;
+  return (
+    <Press
+      accessibilityRole="button"
+      accessibilityLabel={place.label || place.title}
+      onPress={place.onPress}
+      scale={0.97}
+      style={[s.card, { flexGrow: 1, flexBasis: 150, padding: 14, gap: 12 }]}
+    >
+      <View style={styles.badge}>
+        <Icon size={18} color={color.white} strokeWidth={2} />
+      </View>
+      <View style={{ gap: 1 }}>
+        <Text numberOfLines={1} style={[s.h3, { fontSize: 14, lineHeight: 19 }]}>
+          {place.title}
+        </Text>
+        <Text numberOfLines={1} style={[s.small, { fontSize: 11 }]}>
+          {place.text}
+        </Text>
+      </View>
+    </Press>
+  );
+}
+/**
+ * The household's tile: its name once there is one, or the invitation to share the kitchen, and
+ * the sheet to start, join or manage it. Hidden on a server without households.
+ */
+function HouseholdTile() {
+  const { t: tr } = useI18n();
+  const app = useApp();
+  const state = useHousehold(app.user?.id ?? null);
+  const [open, setOpen] = useState(false);
+  if (!state.supported) return null;
+  const { household } = state;
+  return (
+    <>
+      <PlaceTile
+        place={{
+          key: 'household',
+          icon: HouseHeart,
+          title: tr('Household'),
+          text: household ? household.name : tr('Share your kitchen'),
+          label: household
+            ? tr('Shared kitchen: {{v0}}', { v0: household.name })
+            : tr('Share your kitchen'),
+          onPress: () => setOpen(true),
+        }}
+      />
+      <HouseholdSheet visible={open} onClose={() => setOpen(false)} state={state} />
+    </>
+  );
+}
 export function Profile({
   onOpen,
   navigate,
   onRecipe,
+  onGroceries,
 }: {
   onOpen: (r: Recipe) => void;
   navigate: (s: Screen) => void;
   onRecipe: (r: RecipeInput) => void;
+  /** Opens the meal planner on its grocery list. */
+  onGroceries: () => void;
 }) {
   const { t: tr } = useI18n();
   const app = useApp();
@@ -228,16 +238,12 @@ export function Profile({
   const [name, setName] = useState(app.user?.name || '');
   const [bio, setBio] = useState(app.user?.bio || '');
   const [avatar, setAvatar] = useState(app.user?.avatar || '');
-  const [diets, setDiets] = useState<string[]>(app.user?.preferences.diets || []);
-  const [allergies, setAllergies] = useState(app.user?.preferences.allergies?.join(', ') || '');
   const handle = useHandle(app.user?.handle || '');
   const [edit, setEdit] = useState(false);
-  const [remove, setRemove] = useState(false);
   const [history, setHistory] = useState(false);
   // The photo sheet either saves the profile photo at once, or fills in the Edit profile form.
   const [photo, setPhoto] = useState<'profile' | 'form' | null>(null);
   const saveProfile = useSaveProfile();
-  const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   // The cook's own recipes, drafts too, a page at a time; the count of published ones is whole.
   const own = useShelf('mine');
@@ -245,75 +251,72 @@ export function Profile({
   const shared = app.library.publishedCount ?? mine.filter((r) => r.published).length;
   const saved = app.library.savedIds.length;
   const following = app.library.followingIds.length;
-  // An app can update before the API does, so missing account fields mean "none".
-  const identities = app.user?.identities ?? [];
-  // Deleting also cancels any subscription; a kitchen without a password confirms by signing in.
-  const deleteAccount = (body: object) => {
-    setBusy(true);
-    return app
-      .act(async () => {
-        await api('/me', { method: 'DELETE', body });
-        await persistSession(null);
-        setRemove(false);
-        setPassword('');
-        await app.load();
-        navigate('discover');
-      }, 'Your account has been deleted.')
-      .finally(() => setBusy(false));
-  };
-  const menu = [
+  const toBuy = app.kitchen.groceries.filter((g) => !g.checked).length;
+  // A desktop's sidebar already leads to the planner, the pantry, the household and the community.
+  const places: (Place & { inSidebar?: boolean })[] = [
+    {
+      key: 'planner',
+      icon: CalendarDays,
+      title: tr('Meal planner'),
+      text: tr('Your week'),
+      inSidebar: true,
+      onPress: () => navigate('planner'),
+    },
+    {
+      key: 'groceries',
+      icon: ShoppingBasket,
+      title: tr('Groceries'),
+      text: toBuy ? tr('toBuyCount', { count: toBuy }) : tr('Your shopping list'),
+      onPress: onGroceries,
+    },
+    {
+      key: 'pantry',
+      icon: Leaf,
+      title: tr('Pantry'),
+      text: tr('What you have'),
+      inSidebar: true,
+      onPress: () => navigate('pantry'),
+    },
+    {
+      key: 'history',
+      icon: Sparkles,
+      title: tr('Sous-chef history'),
+      text: tr('What you asked for'),
+      onPress: () => setHistory(true),
+    },
+    {
+      key: 'community',
+      icon: Users,
+      title: tr('Community'),
+      text: tr('Cooks to follow'),
+      inSidebar: true,
+      onPress: () => navigate('community'),
+    },
     ...(app.user?.admin
       ? [
           {
+            key: 'admin',
             icon: ShieldCheck,
             title: tr('Admin console'),
+            // The console is English only (docs/ADMIN.md).
+            text: 'Moderation and members',
             inSidebar: true,
-            text: 'Moderation, members, AI spend and settings',
-            go: () => navigate('admin'),
+            onPress: () => navigate('admin'),
           },
         ]
       : []),
-    {
-      icon: CalendarDays,
-      title: tr('Meal planner'),
-      inSidebar: true,
-      text: 'Plan the week and shop for it',
-      go: () => navigate('planner'),
-    },
-    {
-      icon: Leaf,
-      title: tr('Pantry'),
-      inSidebar: true,
-      text: 'What you have, and what to cook with it',
-      go: () => navigate('pantry'),
-    },
-    {
-      icon: Bookmark,
-      title: tr('Saved recipes'),
-      inSidebar: true,
-      text: 'Favorites and cookbooks',
-      go: () => navigate('saved'),
-    },
-    {
-      icon: Sparkles,
-      title: tr('Sous-chef history'),
-      text: 'Recipes, swaps and answers you asked for',
-      go: () => app.requireUser(() => setHistory(true)),
-    },
-    {
-      icon: Globe,
-      title: tr('Import from my site'),
-      text: 'Your published recipes, with their photos',
-      go: () => navigate('own-site'),
-    },
-    {
-      icon: Users,
-      title: tr('Community'),
-      inSidebar: true,
-      text: 'Cooks to follow',
-      go: () => navigate('community'),
-    },
-  ];
+  ].filter((p) => !desktop || !p.inSidebar);
+  const kitchen = app.user && (
+    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+      {places.slice(0, 3).map((p) => (
+        <PlaceTile key={p.key} place={p} />
+      ))}
+      {!desktop && <HouseholdTile />}
+      {places.slice(3).map((p) => (
+        <PlaceTile key={p.key} place={p} />
+      ))}
+    </View>
+  );
   const identity = !app.user ? (
     <View style={[s.card, { alignItems: 'center', gap: 10, paddingVertical: 32 }]}>
       <View
@@ -382,79 +385,20 @@ export function Profile({
       <Button
         title={tr('Edit profile')}
         label={tr('Edit your profile')}
-        icon={Settings2}
+        icon={PencilLine}
         variant="secondary"
         small
         onPress={() => {
           setName(app.user?.name || '');
           setBio(app.user?.bio || '');
           setAvatar(app.user?.avatar || '');
-          setDiets(app.user?.preferences.diets || []);
-          setAllergies(app.user?.preferences.allergies?.join(', ') || '');
           handle.setValue(app.user?.handle || '');
           setEdit(true);
         }}
       />
     </View>
   );
-  const account = (
-    <>
-      <VerifyEmail />
-      <AdminPending />
-      {app.user && app.capabilities?.plans && <PlanSettings />}
-      {app.user && app.capabilities?.creatorFund && shared > 0 && <CreatorEarnings />}
-      {app.user && (
-        <View style={[s.card, { gap: 12 }]}>
-          <Text style={s.h3}>{tr('Sign-in methods')}</Text>
-          <View style={[s.wrap, { gap: 6 }]}>
-            {app.user.hasPassword && <Pill title={tr('Email and password')} icon={Check} />}
-            {identities.map((p) => (
-              <Pill key={p} title={p === 'apple' ? 'Apple' : 'Google'} icon={Check} />
-            ))}
-          </View>
-          <SocialButtons
-            only={(['apple', 'google'] as const).filter((p) => !identities.includes(p))}
-            purpose="connect"
-            onError={app.notify}
-            onToken={(t) =>
-              void app.act(async () => {
-                await api('/auth/oauth', { method: 'POST', body: t });
-                await app.refreshUser();
-              }, 'Connected. You can sign in with it from now on.')
-            }
-          />
-        </View>
-      )}
-      {app.user && (
-        <View style={{ gap: 8 }}>
-          <AccountSecurity />
-          <ConnectedApps />
-          <DataExport />
-          <YourCooking />
-        </View>
-      )}
-    </>
-  );
-  // A desktop's sidebar already leads to the planner, pantry, cookbooks and community.
-  const settings = (
-    <View style={{ gap: 8 }}>
-      <LanguageSettings />
-      <UnitSettings />
-      <NotificationSettings />
-      <UpdateSettings />
-      {menu
-        .filter((m) => !desktop || !m.inSidebar)
-        .map((m) => (
-          <MenuRow
-            key={m.title}
-            icon={m.icon}
-            title={tr(m.title)}
-            text={tr(m.text)}
-            onPress={m.go}
-          />
-        ))}
-    </View>
-  );
+  const earnings = app.user && app.capabilities?.creatorFund && shared > 0 && <CreatorEarnings />;
   const recipes = app.user && (
     <View>
       <SectionTitle
@@ -490,40 +434,40 @@ export function Profile({
       )}
     </View>
   );
-  const leave = app.user && (
-    <View style={{ gap: 8 }}>
-      <MenuRow icon={LogOut} title={tr('Sign out')} onPress={() => void app.act(app.signOut)} />
-      <MenuRow
-        icon={Trash2}
-        title={tr('Delete my account')}
-        danger
-        onPress={() => setRemove(true)}
-      />
-    </View>
-  );
   return (
     <View style={{ gap: 22 }}>
-      <PageHeading title={tr('My kitchen')} />
+      {/* Settings have a page of their own; My kitchen is the cook, their kitchen and recipes. */}
+      <PageHeading title={tr('My kitchen')}>
+        {desktop ? (
+          <Button
+            title={tr('Settings')}
+            icon={Settings}
+            variant="secondary"
+            small
+            onPress={() => navigate('settings')}
+          />
+        ) : (
+          <IconButton icon={Settings} label={tr('Settings')} onPress={() => navigate('settings')} />
+        )}
+      </PageHeading>
       {desktop && app.user ? (
-        // Who you are and your account down the side; your recipes get the room.
+        // Who you are and your kitchen down the side; your recipes get the room.
         <View style={{ flexDirection: 'row', gap: 32, alignItems: 'flex-start' }}>
           <View style={{ width: 360, gap: 16 }}>
+            <VerifyEmail />
             {identity}
-            {account}
-            {settings}
-            {leave}
-            <LegalLinks />
+            {kitchen}
+            {earnings}
           </View>
           <View style={{ flex: 1 }}>{recipes}</View>
         </View>
       ) : (
         <View style={{ gap: 22, width: '100%', maxWidth: desktop ? 560 : undefined }}>
+          <VerifyEmail />
           {identity}
-          {account}
-          {settings}
+          {kitchen}
+          {earnings}
           {recipes}
-          {leave}
-          <LegalLinks />
         </View>
       )}
       <SousChefHistory visible={history} onClose={() => setHistory(false)} onRecipe={onRecipe} />
@@ -550,31 +494,6 @@ export function Profile({
           maxLength={1000}
           placeholder={tr('What do you love to cook?')}
         />
-        <Text style={s.label}>{tr('Food preferences')}</Text>
-        <View style={[s.wrap, { gap: 8 }]}>
-          {dietOptions.map((d) => (
-            <Chip
-              key={d}
-              title={tr(d)}
-              icon={foodIcon(d)}
-              active={diets.includes(d)}
-              onPress={() =>
-                setDiets(diets.includes(d) ? diets.filter((v) => v !== d) : [...diets, d])
-              }
-            />
-          ))}
-        </View>
-        <Field
-          label={tr('Allergies (comma separated)')}
-          value={allergies}
-          onChangeText={setAllergies}
-          placeholder={tr('Peanuts, shellfish…')}
-        />
-        <Text style={s.small}>
-          {tr(
-            'Recipe pages warn you about these, and the sous-chef leaves them out of its suggestions. Always check labels and cross-contact risks yourself.',
-          )}
-        </Text>
         <Button
           title={tr('Save profile')}
           icon={Check}
@@ -584,23 +503,8 @@ export function Profile({
             setBusy(true);
             void app
               .act(async () => {
-                await api('/me', {
-                  method: 'PATCH',
-                  body: {
-                    name,
-                    bio,
-                    avatar,
-                    handle: handle.value,
-                    preferences: {
-                      diets,
-                      allergies: allergies
-                        .split(',')
-                        .map((v) => v.trim())
-                        .filter(Boolean),
-                    },
-                  },
-                });
-                await app.refreshUser();
+                // Diets and allergies are Settings' (Food preferences); they stay as they are.
+                await saveProfile({ name, bio, avatar, handle: handle.value });
                 setEdit(false);
               }, 'Your profile is updated.')
               .finally(() => setBusy(false));
@@ -618,43 +522,16 @@ export function Profile({
           app.notify(url ? 'Your photo is updated.' : 'Your photo is removed.');
         }}
       />
-      <Dialog visible={remove} onClose={() => setRemove(false)} title={tr('Delete your account?')}>
-        <View style={{ backgroundColor: color.errorBg, borderRadius: radius.md, padding: 16 }}>
-          <Text style={[s.body, { color: color.error }]}>
-            {tr(
-              'This permanently deletes your account, recipes, reviews and kitchen lists. It can’t be undone.',
-            )}
-          </Text>
-        </View>
-        {app.user?.hasPassword !== false ? (
-          <>
-            <Field
-              label={tr('Your password')}
-              secureTextEntry
-              value={password}
-              onChangeText={setPassword}
-            />
-            <DangerButton
-              title={tr('Permanently delete my account')}
-              busy={busy}
-              disabled={!password}
-              onPress={() => void deleteAccount({ password })}
-            />
-          </>
-        ) : (
-          <>
-            <Text style={s.muted}>
-              {tr('To confirm it’s you, sign in once more with the account you use for Savorly.')}
-            </Text>
-            <SocialButtons
-              only={identities}
-              purpose="delete"
-              onError={app.notify}
-              onToken={(t) => void deleteAccount({ provider: t.provider, token: t.token })}
-            />
-          </>
-        )}
-      </Dialog>
     </View>
   );
 }
+const styles = StyleSheet.create({
+  badge: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: color.ink,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+});

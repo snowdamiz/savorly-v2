@@ -272,10 +272,10 @@ test('Download my data offers everything as files', async ({ page }) => {
       body: 'PK\u0005\u0006' + '\u0000'.repeat(18),
     }),
   );
-  await page.goto('/?page=profile');
+  await page.goto('/?page=settings');
   const sheet = page.getByRole('dialog');
   const download = sheet.getByRole('button', { name: 'Download as files', exact: true });
-  // Crossing between phone and desktop widths lays the profile out again, which closes the sheet
+  // Crossing between phone and desktop widths lays the page out again, which closes the sheet
   // a moment later. On a slow machine the sheet can still be on its way out when this looks, so
   // it opens the sheet until it is still there a second later, before shot waits on it.
   const open = () =>
@@ -296,7 +296,7 @@ test('Download my data offers everything as files', async ({ page }) => {
   await download.click();
   await fetched;
   await expect(page.getByText('Your data is downloading.', { exact: true })).toBeVisible();
-  await expect(page).toHaveURL(/\?page=profile$/);
+  await expect(page).toHaveURL(/\?page=settings$/);
   expect(api.sentTo('/me/export-link')).toEqual([['POST', { format: 'files' }]]);
 });
 

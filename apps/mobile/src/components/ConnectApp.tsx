@@ -137,7 +137,7 @@ export function ConnectApp({ query, onDone }: { query: string; onDone: () => voi
             </View>
           )}
           <Text style={s.small}>
-            {t('You’ll go back to {{host}}. You can disconnect it in My kitchen at any time.', {
+            {t('You’ll go back to {{host}}. You can disconnect it in Settings at any time.', {
               host: asking.redirectHost,
             })}
           </Text>

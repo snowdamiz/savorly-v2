@@ -435,6 +435,7 @@ export type Screen =
   | 'planner'
   | 'pantry'
   | 'profile'
+  | 'settings'
   | 'create'
   | 'community'
   | 'admin'

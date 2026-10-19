@@ -938,9 +938,12 @@ type studioView struct {
 	// Why the app opened the conversation, when it knows: "recipe" from Create a recipe, to add
 	// a new recipe of the user's own.
 	Purpose string `json:"purpose,omitempty"`
+	// The pages the app can open, among the ones go_to knows; older apps don't say, and have
+	// none of laterPages.
+	Pages []string `json:"pages,omitempty"`
 }
 
-var studioScreens = map[string]bool{"discover": true, "explore": true, "saved": true, "planner": true, "pantry": true, "profile": true, "create": true, "community": true}
+var studioScreens = map[string]bool{"discover": true, "explore": true, "saved": true, "planner": true, "pantry": true, "profile": true, "settings": true, "create": true, "community": true}
 
 func (a *App) studioContext(c fiber.Ctx) error {
 	var v studioView
@@ -965,6 +968,13 @@ func (a *App) studioContext(c fiber.Ctx) error {
 	if v.Purpose != "recipe" {
 		v.Purpose = ""
 	}
+	known := []string{}
+	for _, page := range v.Pages {
+		if slices.Contains(pages, page) && !slices.Contains(known, page) {
+			known = append(known, page)
+		}
+	}
+	v.Pages = known
 	r, e := a.DB.Exec(c.Context(), `UPDATE voice_projects SET context=$3 WHERE id=$1 AND user_id=$2 AND deleted_at IS NULL`, c.Params("id"), userID(c), jsonBytes(v))
 	if e != nil {
 		return e

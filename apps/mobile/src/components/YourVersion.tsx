@@ -260,7 +260,7 @@ export function KitchenNotes({ bare }: { bare?: boolean }) {
 }
 
 /**
- * My kitchen's row for how the member cooks in Savorly: their kitchen notes, and whether cooking
+ * Settings' row for how the member cooks in Savorly: their kitchen notes, and whether cooking
  * mode shares how their cooking goes (docs/COOK-TESTED.md), in one sheet.
  */
 export function YourCooking() {

@@ -859,6 +859,25 @@ test('on a phone, a typed chat steps aside for what the sous-chef opens', async 
   await expect(page.getByRole('textbox', { name: 'Message your sous-chef' })).toBeVisible();
 });
 
+test('the sous-chef opens Settings in an app that says it has them', async ({ page }) => {
+  const state = await mockStudio(page, true, false, () => ({
+    content: 'Your plan is in Settings.',
+    actions: [{ type: 'go_to', page: 'settings' }],
+  }));
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Ask your sous-chef' }).click();
+  // The server sends an app that doesn't list Settings to My kitchen instead.
+  await expect
+    .poll(() => (state.contexts.at(-1)?.pages as string[] | undefined) ?? [])
+    .toContain('settings');
+  await page
+    .getByRole('textbox', { name: 'Message your sous-chef' })
+    .fill('Where do I cancel my plan?');
+  await page.getByRole('button', { name: 'Send message' }).click();
+  await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();
+  await expect.poll(() => state.contexts.at(-1)).toMatchObject({ screen: 'settings' });
+});
+
 test('the sous-chef thinks in a bubble that becomes its reply', async ({ page }) => {
   const state = await mockStudio(page, true, false, () => null);
   await page.goto('/');

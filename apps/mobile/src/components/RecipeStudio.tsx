@@ -55,6 +55,7 @@ import { StudioVoiceBar } from './StudioVoiceBar';
 import { useSousChefDock } from './sousChefDock';
 import { fileForm } from '../lib/photos';
 import { requestKey } from '../lib/utils';
+import { screens } from '../lib/routes';
 import { openVoice } from '../lib/voice/transport';
 import { studioPollDelay } from '../lib/studioPace';
 import { VoiceConnection, VoiceEvent } from '../lib/voice/connection';
@@ -435,6 +436,8 @@ export function RecipeStudio({
         timeZone,
         language,
         purpose: writing ? 'recipe' : '',
+        // What it may open: the server sends an older app, without Settings, to My kitchen.
+        pages: screens,
       },
     }).catch(() => {});
   }, [project?.id, screen, viewing, cookingStep, attending, language, writing]);

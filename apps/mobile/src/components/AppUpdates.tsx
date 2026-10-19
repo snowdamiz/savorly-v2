@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { ActivityIndicator, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 import * as Updates from 'expo-updates';
-import { ChevronRight, RefreshCw, X } from './icons';
+import { RefreshCw, X } from './icons';
+import { SettingsRow } from './SettingsRow';
 import { useI18n } from '../lib/i18n';
 import { useApp } from '../lib/store';
 import { color, font, radius, s, shadow } from '../lib/theme';
@@ -108,26 +109,14 @@ export function UpdateSettings() {
       .catch(() => app.notify('Couldn’t check for updates. Try again later.'));
   };
   return (
-    <Press
-      accessibilityRole="button"
-      accessibilityLabel={t('App updates')}
+    <SettingsRow
+      icon={RefreshCw}
+      title={t('App updates')}
+      text={status}
+      // Channel and update ID, to match against the update list on expo.dev.
+      detail={[channel, updateId?.slice(0, 8)].filter(Boolean).join(' · ')}
+      busy={busy}
       onPress={press}
-      style={[s.card, s.row, { gap: 14, padding: 14 }]}
-    >
-      <RefreshCw size={24} color={color.ink} />
-      <View style={{ flex: 1, gap: 3 }}>
-        <Text style={s.h3}>{t('App updates')}</Text>
-        <Text style={s.small}>{status}</Text>
-        {/* Channel and update ID, to match against the update list on expo.dev. */}
-        <Text style={[s.small, { color: color.soft }]}>
-          {[channel, updateId?.slice(0, 8)].filter(Boolean).join(' · ')}
-        </Text>
-      </View>
-      {busy ? (
-        <ActivityIndicator color={color.soft} />
-      ) : (
-        <ChevronRight size={18} color={color.soft} />
-      )}
-    </Press>
+    />
   );
 }

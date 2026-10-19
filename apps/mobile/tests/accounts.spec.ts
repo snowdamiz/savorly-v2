@@ -198,12 +198,13 @@ test('the web offers Apple and Google sign-in, each bound to a fresh server nonc
       code: 'apple-code',
       name: 'Alex Cook',
     });
-  await expect(page.getByText('Your plan', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Edit your profile', exact: true })).toBeVisible();
 
   posts.length = 0;
   await page.evaluate(() => document.cookie);
-  await page.goto('/?page=profile');
-  // Signed in with Google already: the profile offers to connect Apple, not Google.
+  await page.goto('/?page=settings');
+  // Signed in with Google already: Account and security offers to connect Apple, not Google.
+  await page.getByRole('button', { name: 'Account and security', exact: true }).click();
   await expect(page.getByText('Sign-in methods', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Continue with Apple' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Continue with Google' })).toHaveCount(0);
@@ -229,7 +230,7 @@ test('Google sign-in goes to Google’s page and comes back with its ID token', 
       token: expect.stringMatching(/^google-id-token:nonce-\d+$/),
     });
   // Back where the button was pressed, with the token gone from the address bar.
-  await expect(page.getByText('Your plan', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Edit your profile', exact: true })).toBeVisible();
   expect(new URL(page.url()).search).toBe('?page=profile');
   expect(new URL(page.url()).hash).toBe('');
 });
@@ -350,7 +351,7 @@ test('an uploaded recipe photo can be touched up and compared before it is used'
 
 test('plans show usage and sell through Stripe checkout on the web', async ({ page }) => {
   const { posts } = await mockAccounts(page, true);
-  await page.goto('/?page=profile');
+  await page.goto('/?page=settings');
   await expect(page.getByText('Your plan', { exact: true })).toBeVisible();
   await expect(page.getByText('4 of 10')).toBeVisible();
   await expect(page.getByText('$79.99 a year')).toBeVisible();
@@ -366,7 +367,9 @@ test('plans show usage and sell through Stripe checkout on the web', async ({ pa
 
 test('plans stay hidden until the catalog is live', async ({ page }) => {
   await mockAccounts(page, true, false);
-  await page.goto('/?page=profile');
-  await expect(page.getByText('Sign-in methods', { exact: true })).toBeVisible();
+  await page.goto('/?page=settings');
+  await expect(
+    page.getByRole('button', { name: 'Account and security', exact: true }),
+  ).toBeVisible();
   await expect(page.getByText('Your plan', { exact: true })).toHaveCount(0);
 });

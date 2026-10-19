@@ -5,7 +5,7 @@ import { empty, failure, json, mockApi, recipe } from './mockApi';
 import { afterPageTimers, stopsMoving } from './waits';
 
 // Savorly in ChatGPT and Claude (docs/ASSISTANTS.md): the page where an assistant asks to connect
-// (/oauth/authorize), My kitchen → Connected apps, the "Cook it in Savorly" link (?cook=1), and
+// (/oauth/authorize), Settings → Connected apps, the "Cook it in Savorly" link (?cook=1), and
 // the recipe card the MCP server hands the assistant. Screenshots land in test-results/.
 
 const phone = { width: 390, height: 844 };
@@ -170,7 +170,7 @@ test('Connected apps lists the linked assistants and disconnects one', async ({ 
     apps = apps.filter((a) => a.id !== params[0]);
     return empty();
   });
-  await page.goto('/?page=profile');
+  await page.goto('/?page=settings');
   await page.getByRole('button', { name: 'Connected apps', exact: true }).click();
   await expect(page.getByText('ChatGPT', { exact: true })).toBeVisible();
   await expect(page.getByText('Recipe bot · bot.example.org', { exact: true })).toBeVisible();
@@ -198,7 +198,7 @@ test.describe('on a phone', () => {
     await page.goto(`/oauth/authorize?${query}`);
     await expect(page.getByRole('heading', { name: 'Connect ChatGPT to Savorly' })).toBeVisible();
     await shot(page, 'consent-phone');
-    await page.goto('/?page=profile');
+    await page.goto('/?page=settings');
     await page.getByRole('button', { name: 'Connected apps', exact: true }).click();
     await expect(page.getByText('Recipe bot · bot.example.org', { exact: true })).toBeVisible();
     await shot(page, 'connected-phone');
