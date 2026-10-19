@@ -160,6 +160,35 @@ export function StepClip({
   );
 }
 
+/** Whether a step's clip may start by itself here: not on iPhones, and not with reduced motion. */
+export const clipsPlayThemselves = () => playsByItself && !motionReduced();
+
+/**
+ * A step's clip behind cooking mode: muted, looping and filling the screen, with nothing to tap.
+ * Only where clips may play by themselves (`clipsPlayThemselves`).
+ */
+export function BackdropClip({ uri }: { uri: string }) {
+  const player = useVideoPlayer(uri, (p) => {
+    p.loop = true;
+    p.muted = true;
+    p.audioMixingMode = 'mixWithOthers';
+  });
+  const view = useRef<VideoView>(null);
+  const play = usePlay(player, view);
+  useEffect(() => play(), [play]);
+  return (
+    <VideoView
+      ref={view}
+      player={player}
+      style={StyleSheet.absoluteFill}
+      pointerEvents="none"
+      nativeControls={false}
+      contentFit="cover"
+      playsInline
+    />
+  );
+}
+
 function LoopingClip({
   uri,
   step,

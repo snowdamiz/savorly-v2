@@ -6,7 +6,17 @@ import { useI18n } from '../lib/i18n';
 import { useApp } from '../lib/store';
 import { Recipe } from '../lib/types';
 import { color, font, radius, s } from '../lib/theme';
-import { Check, ChevronDown, Eye, EyeOff, Hourglass, Pencil, Timer } from './icons';
+import type { StepNote } from './CookStep';
+import {
+  Check,
+  ChevronDown,
+  Eye,
+  EyeOff,
+  Hourglass,
+  MessageCircleQuestion,
+  Pencil,
+  Timer,
+} from './icons';
 import { SwitchRow } from './NotificationSettings';
 import { FixReview, fixTitle } from './RecipeFixes';
 import { Suggestion } from '../lib/recipeFixes';
@@ -79,6 +89,66 @@ export function StepQuestions({ insight, dark }: { insight?: StepInsight; dark?:
       })}
     </View>
   );
+}
+
+/**
+ * Cooking mode's sheet of the questions cooks keep asking at a step, each with its answer, opened
+ * from the quiet line under the step.
+ */
+export function StepQuestionsSheet({
+  insight,
+  visible,
+  onClose,
+}: {
+  insight?: StepInsight;
+  visible: boolean;
+  onClose: () => void;
+}) {
+  const { t: tr } = useI18n();
+  const questions = insight?.questions ?? [];
+  return (
+    <Dialog
+      visible={visible && !!questions.length}
+      onClose={onClose}
+      title={tr('Often asked here')}
+    >
+      <View style={{ gap: 18 }}>
+        {questions.map((q) => (
+          <View key={q.id} style={{ gap: 4 }}>
+            <Text style={s.h3}>{q.question}</Text>
+            <Text style={[s.body, { color: '#3A3A3A', fontFamily: font.regular }]}>{q.answer}</Text>
+            <Text style={[s.small, { fontSize: 11 }]}>
+              {q.checked ? tr('Answered by the cook') : tr('Answered by the sous-chef')}
+            </Text>
+          </View>
+        ))}
+      </View>
+    </Dialog>
+  );
+}
+
+/**
+ * Cooking mode's quiet lines from what cooks found at a step: how long they usually spend on one
+ * without a timer (steps with a timer say it under the timer), and a link to the questions they
+ * keep asking.
+ */
+export function useInsightNotes(insight: StepInsight | undefined, onQuestions: () => void) {
+  const { t: tr } = useI18n();
+  const notes: StepNote[] = [];
+  if (insight?.note?.kind === 'usual')
+    notes.push({
+      key: 'usual',
+      icon: Hourglass,
+      text: tr('stepNoteUsual', { count: insight.note.minutes }),
+    });
+  if (insight?.questions.length)
+    notes.push({
+      key: 'questions',
+      icon: MessageCircleQuestion,
+      text: tr('Often asked here'),
+      onPress: onQuestions,
+    });
+  return notes;
 }
 
 /**

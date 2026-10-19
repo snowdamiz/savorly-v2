@@ -1,18 +1,17 @@
 import { useI18n } from '../lib/i18n';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  Animated,
-  AppState,
-  Platform,
-  Pressable,
-  ScrollView,
-  StatusBar,
-  Text,
-  View,
-} from 'react-native';
+import { Animated, AppState, Platform, Pressable, StatusBar, Text, View } from 'react-native';
 import * as Speech from 'expo-speech';
-import { ArrowLeft, Check, Hourglass, Pause, Volume2, VolumeX, X } from './icons';
-import { HandsFree } from './HandsFree';
+import { ArrowLeft, Check, Hourglass, ImageIcon, Pause, Timer, Volume2, VolumeX } from './icons';
+import { HandsFreeNote, HandsFreeStatus, HandsFreeSwitch, useHandsFreeView } from './HandsFree';
+import {
+  CookBackdrop,
+  CookBar,
+  FittedStep,
+  StepEyebrow,
+  StepMedia,
+  StepMediaView,
+} from './CookStep';
 import { clockTime, DishDot, useHeat } from './CookTogether';
 import { say } from '../lib/handsFree/speech';
 import {
@@ -40,7 +39,7 @@ import { useScreenAwake } from '../lib/screenAwake';
 import { cancelTimerAlert, scheduleTimerAlert } from '../lib/timerAlerts';
 import type { Recipe } from '../lib/types';
 import { color, font, radius, s } from '../lib/theme';
-import { Button, IconButton, useChrome, useSlideOver, webPosition } from './ui';
+import { Button, IconButton, useChrome, useSheetOpen, useSlideOver, webPosition } from './ui';
 
 /** Shows cooking mode over everything while a meal cooked together is open. */
 export function MealCookingHost() {
@@ -77,7 +76,7 @@ function MealCookMode({
   const { t: tr, locale } = useI18n();
   const heat = useHeat();
   const page = useSlideOver(onClose);
-  const { insets, width, webPage } = useChrome();
+  const { insets, webPage } = useChrome();
   // Wet hands can't tap the screen awake again.
   useScreenAwake();
   const items = useMemo(() => mealItems(plan), [plan]);
@@ -271,10 +270,24 @@ function MealCookMode({
     setRun(undoItem);
   };
   const behind = () => setRun((r) => fallBehind(items, r, Date.now()));
+  // The step's picture fills the screen, or its dish's photo, blurred, until there's a step.
+  const shot =
+    current && !current.preheat ? recipeOf(current.recipeId)?.steps[current.step]?.image : '';
+  const media: StepMedia | null = shot
+    ? { kind: 'photo', uri: shot, step: (current?.step ?? 0) + 1 }
+    : null;
+  const [viewing, setViewing] = useState<string | null>(null);
+  const shown = !done && !!current && viewing === current.key && media;
+  const sheetOpen = useSheetOpen();
   // In a browser, Escape closes and the arrow keys move between steps, unless a field is in use.
   const keys = useRef({ close, next, previous });
   useEffect(() => {
-    keys.current = { close, next: done ? () => {} : next, previous };
+    keys.current = {
+      // A sheet takes Escape for itself, and the step's photo shown on its own goes back.
+      close: sheetOpen ? () => {} : shown ? () => setViewing(null) : close,
+      next: done ? () => {} : next,
+      previous,
+    };
   });
   useEffect(() => {
     if (Platform.OS !== 'web') return;
@@ -306,13 +319,33 @@ function MealCookMode({
   const last = left.length === 1 && !!current && current.wait <= 0;
   const startsTimer = !!current && current.wait > 0;
   const eatAt = Date.parse(plan.eatAt) + run.shift;
-  const big = width > 600;
   const recipe = current ? recipeOf(current.recipeId) : undefined;
   const lead = current ? Math.round((plannedAt(current, run) - now) / 60_000) : 0;
   const waits = current && current.wait > 0 ? Math.round(current.wait / 60) : 0;
   const upNext = current ? upcoming : nextItem(items, run, null);
   // Hands-free keeps listening between steps: questions and ingredients are then the next dish's.
   const voice = recipe ?? (upNext ? recipeOf(upNext.recipeId) : undefined) ?? recipes[0];
+  const handsFree = useHandsFreeView(voice, {
+    step: current?.step ?? upNext?.step ?? 0,
+    done,
+    reading: speaking,
+    // The dishes' timer that ends first, for pausing and resuming by voice.
+    timer: soonest
+      ? {
+          seconds: Math.round(soonest.timer.length / 1000),
+          remaining: timerLeft(soonest.timer, now),
+          running: soonest.timer.endAt !== null,
+        }
+      : { seconds: 0, remaining: 0, running: false },
+    next,
+    previous,
+    read,
+    stopReading: stop,
+    setTimer: (running) => {
+      if (soonest && running !== (soonest.timer.endAt !== null)) timerToggle(soonest.key);
+    },
+    meal: { position: run.finished.length, last, startsTimer },
+  });
   return (
     // The web page sits beside the sidebar, so cooking mode fixes itself over the whole window.
     <Animated.View aria-modal style={[page.style, webPosition('fixed')]}>
@@ -326,21 +359,14 @@ function MealCookMode({
           paddingHorizontal: 20,
         }}
       >
+        <CookBackdrop media={done ? null : media} cover={(recipe ?? voice)?.image} />
         <View style={{ flex: 1, width: '100%', maxWidth: 720, alignSelf: 'center', gap: 18 }}>
-          <View style={[s.between, { gap: 12 }]}>
-            <IconButton icon={X} dark label={tr('Close cooking mode')} onPress={close} />
-            <Text
-              numberOfLines={1}
-              style={{
-                flex: 1,
-                textAlign: 'center',
-                color: color.onInk,
-                fontFamily: font.semibold,
-                fontSize: 14,
-              }}
-            >
-              {tr('Eat at {{v0}}', { v0: clockTime(eatAt, locale) })}
-            </Text>
+          <CookBar
+            title={tr('Eat at {{v0}}', { v0: clockTime(eatAt, locale) })}
+            onClose={close}
+            status={[<HandsFreeStatus key="hands" view={handsFree} />]}
+          >
+            {!!voice && <HandsFreeSwitch view={handsFree} />}
             <IconButton
               icon={Hourglass}
               dark
@@ -348,34 +374,7 @@ function MealCookMode({
               disabled={done}
               onPress={behind}
             />
-          </View>
-          {voice && (
-            <HandsFree
-              recipe={voice}
-              cook={{
-                step: current?.step ?? upNext?.step ?? 0,
-                done,
-                reading: speaking,
-                // The dishes' timer that ends first, for pausing and resuming by voice.
-                timer: soonest
-                  ? {
-                      seconds: Math.round(soonest.timer.length / 1000),
-                      remaining: timerLeft(soonest.timer, now),
-                      running: soonest.timer.endAt !== null,
-                    }
-                  : { seconds: 0, remaining: 0, running: false },
-                next,
-                previous,
-                read,
-                stopReading: stop,
-                setTimer: (running) => {
-                  if (soonest && running !== (soonest.timer.endAt !== null))
-                    timerToggle(soonest.key);
-                },
-                meal: { position: run.finished.length, last, startsTimer },
-              }}
-            />
-          )}
+          </CookBar>
           {timers.length > 0 && (
             <View style={[s.row, { gap: 8, flexWrap: 'wrap' }]}>
               {timers.map(({ key, timer, item }) => (
@@ -467,16 +466,13 @@ function MealCookMode({
             </View>
           ) : (
             <>
-              <ScrollView
-                style={{ flex: 1 }}
-                contentContainerStyle={{ gap: 14, paddingVertical: 8 }}
-                showsVerticalScrollIndicator={false}
-              >
-                {current ? (
-                  <>
+              {current ? (
+                <FittedStep
+                  key={current.key}
+                  eyebrow={
                     <View style={[s.row, { gap: 8 }]}>
                       <DishDot index={current.dish} />
-                      <Text style={[s.label, { color: color.onInk, flexShrink: 1 }]}>
+                      <StepEyebrow>
                         {[
                           dishTitle(current),
                           tr('STEP {{v0}} OF {{v1}}', {
@@ -485,48 +481,44 @@ function MealCookMode({
                           }),
                           clockTime(plannedAt(current, run), locale),
                         ].join(' · ')}
-                      </Text>
+                      </StepEyebrow>
                     </View>
-                    <Text
-                      style={[
-                        s.display,
-                        { color: color.white, fontSize: big ? 38 : 30, lineHeight: big ? 44 : 36 },
-                      ]}
-                    >
-                      {stepTitle(current)}
-                    </Text>
-                    {!current.preheat && !!recipe?.steps[current.step]?.text && (
-                      <Text
-                        style={{
-                          color: 'rgba(255,255,255,0.86)',
-                          fontFamily: font.medium,
-                          fontSize: big ? 24 : 20,
-                          lineHeight: big ? 36 : 31,
-                        }}
-                      >
-                        {recipe.steps[current.step].text}
-                      </Text>
-                    )}
-                    {waits > 0 && (
-                      <Text style={[s.small, { color: color.onInk, fontSize: 14 }]}>
-                        {tr('thenOnItsOwn', { count: waits })}
-                      </Text>
-                    )}
-                    {lead >= 2 && (
-                      <Text style={[s.small, { color: color.onInk, fontSize: 14 }]}>
-                        {tr('freeFirst', { count: lead })}
-                      </Text>
-                    )}
-                  </>
-                ) : (
-                  <View style={{ gap: 10, paddingTop: 24 }}>
-                    <Text style={[s.display, { color: color.white }]}>{tr('Free for now')}</Text>
-                    <Text style={[s.small, { color: color.onInk, fontSize: 14 }]}>
-                      {tr('Nothing to do until a timer ends.')}
-                    </Text>
-                  </View>
-                )}
-              </ScrollView>
+                  }
+                  title={stepTitle(current)}
+                  text={current.preheat ? '' : (recipe?.steps[current.step]?.text ?? '')}
+                  notes={[
+                    ...(waits > 0
+                      ? [{ key: 'waits', icon: Timer, text: tr('thenOnItsOwn', { count: waits }) }]
+                      : []),
+                    ...(lead >= 2
+                      ? [{ key: 'lead', icon: Hourglass, text: tr('freeFirst', { count: lead }) }]
+                      : []),
+                    ...(media
+                      ? [
+                          {
+                            key: 'media',
+                            icon: ImageIcon,
+                            text: tr('See the photo'),
+                            onPress: () => setViewing(current.key),
+                          },
+                        ]
+                      : []),
+                  ]}
+                  below={
+                    handsFree.hands.problem || handsFree.hands.answer ? (
+                      <HandsFreeNote view={handsFree} />
+                    ) : null
+                  }
+                />
+              ) : (
+                <View style={{ flex: 1, gap: 10, paddingTop: 24 }}>
+                  <Text style={[s.display, { color: color.white }]}>{tr('Free for now')}</Text>
+                  <Text style={[s.small, { color: color.onInk, fontSize: 14 }]}>
+                    {tr('Nothing to do until a timer ends.')}
+                  </Text>
+                  <HandsFreeNote view={handsFree} />
+                </View>
+              )}
               {upNext && (
                 <View style={[s.row, { gap: 8 }]}>
                   <DishDot index={upNext.dish} />
@@ -581,6 +573,7 @@ function MealCookMode({
           )}
         </View>
       </View>
+      {shown && <StepMediaView media={shown} onClose={() => setViewing(null)} />}
     </Animated.View>
   );
 }
