@@ -25,8 +25,10 @@ import {
   Flag,
   Flame,
   Gauge,
+  Globe,
   Hourglass,
   Leaf,
+  Lock,
   Minus,
   Pencil,
   Plus,
@@ -78,7 +80,8 @@ import { CookMode } from './CookMode';
 import { AppToast } from './AppToast';
 import { StepVideo } from './VideoPlayer';
 import { useVoiceClip, VoiceLink } from './VoiceClip';
-import { stepVoice } from '../lib/family';
+import { agreeToRecordings, awaitingConsent, stepVoice } from '../lib/family';
+import { RecordingConsent } from './RecordingConsent';
 import { localDate } from '../lib/utils';
 import { foodIcon } from '../lib/icons';
 import { CuisineIcon } from './CuisineIcon';
@@ -114,7 +117,15 @@ const twists = (tr: (key: string) => string) => [
   ['Quicker', tr('Make a faster weeknight version of this recipe.')],
 ];
 // The page's account actions; each one spins only its own button while it runs.
-type Action = 'groceries' | 'review' | 'unreview' | 'plan' | 'cookbook' | 'report' | 'follow';
+type Action =
+  | 'groceries'
+  | 'review'
+  | 'unreview'
+  | 'plan'
+  | 'cookbook'
+  | 'report'
+  | 'follow'
+  | 'publish';
 export function RecipeDetail({
   recipe,
   onClose,
@@ -184,6 +195,10 @@ export function RecipeDetail({
   const [reason, setReason] = useState('');
   const [collections, setCollections] = useState(false);
   const [busy, setBusy] = useState<Partial<Record<Action, boolean>>>({});
+  // Publishing a draft that plays a family recording first asks whether the person agreed.
+  const [asking, setAsking] = useState(false);
+  const [agreeing, setAgreeing] = useState(false);
+  const [consentError, setConsentError] = useState('');
   const [titleBottom, setTitleBottom] = useState(0);
   // Written in another language, the recipe can show translated: `reading` is what the page shows
   // (the recipe, or its translation), while amounts, units and everything else stay the recipe's.
@@ -317,6 +332,33 @@ export function RecipeDetail({
     setBusy((b) => ({ ...b, [action]: true }));
     await app.act(fn, message);
     setBusy((b) => ({ ...b, [action]: false }));
+  };
+  // A private draft, such as one the sous-chef saved, goes out only when its cook publishes it:
+  // here, having read it, or from the editor.
+  const waiting = awaitingConsent(recipe);
+  const publish = () =>
+    void perform(
+      'publish',
+      async () => {
+        await api(`/recipes/${recipe.id}/published`, { method: 'PUT', body: { published: true } });
+        await Promise.all([app.refreshRecipes(), app.refreshPrivate()]);
+        onReload?.();
+      },
+      'Your recipe is at the table. Thanks for sharing.',
+    );
+  const agree = async () => {
+    setAgreeing(true);
+    setConsentError('');
+    try {
+      await agreeToRecordings(recipe.id);
+      setAsking(false);
+    } catch (e) {
+      setConsentError((e as Error).message);
+      return;
+    } finally {
+      setAgreeing(false);
+    }
+    publish();
   };
   const link = recipeUrl(recipe.id);
   // Desktop browsers mostly have no share sheet, so there the link goes to the clipboard. Closing
@@ -760,6 +802,13 @@ export function RecipeDetail({
   const overlays = (
     <>
       <CookSheets cooked={cooks} />
+      <RecordingConsent
+        speakers={asking ? waiting : []}
+        busy={agreeing || busy.publish}
+        error={consentError}
+        onAgree={() => void agree()}
+        onClose={() => setAsking(false)}
+      />
       {mine && (
         <CooksGetStuck
           recipe={reading}
@@ -1096,6 +1145,23 @@ export function RecipeDetail({
       )}
     </View>
   );
+  // The page looks as it will once published, so a draft says it's private, by its way out.
+  const draftLine = mine && !recipe.published && (
+    <View style={[s.row, { gap: 10 }, wide && { maxWidth: 620 }]}>
+      <Lock size={16} color={color.ink} strokeWidth={1.9} />
+      <Text style={[s.small, { flex: 1, color: color.ink }]}>
+        {tr('Private draft. It stays private until you publish it.')}
+      </Text>
+      <Button
+        title={tr('Publish')}
+        label={tr('Publish recipe')}
+        icon={Globe}
+        small
+        busy={busy.publish}
+        onPress={() => (waiting.length ? setAsking(true) : publish())}
+      />
+    </View>
+  );
   const lineage = <Lineage recipe={recipe} onOpen={onOpen} onCreator={onCreator} />;
   // The author's view of how cooks get on with their recipe, once it's out there.
   const stuckButton = mine && recipe.published && (
@@ -1311,6 +1377,7 @@ export function RecipeDetail({
                 )}
                 {translationBar}
                 {byline}
+                {draftLine}
                 {lineage}
                 {facts}
                 <CookTested
@@ -1409,6 +1476,7 @@ export function RecipeDetail({
                   {reading.title}
                 </Text>
                 {byline}
+                {draftLine}
                 {!!reading.description && (
                   <Text style={[s.muted, { fontSize: 15, lineHeight: 23 }]}>
                     {reading.description}

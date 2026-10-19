@@ -1096,8 +1096,9 @@ export function RecipeStudio({
           // Opening the panel puts the cursor straight in; a sheet waits for a tap.
           autoFocus={floating}
           multiline
-          // One line until it needs more; the web textarea doesn't grow on its own.
-          numberOfLines={1}
+          // One line until it needs more; the web textarea doesn't grow on its own. On phones
+          // numberOfLines caps the lines instead, so a long message would scroll out of sight.
+          numberOfLines={Platform.OS === 'web' ? 1 : undefined}
           onContentSizeChange={(e) => setInputHeight(Math.ceil(e.nativeEvent.contentSize.height))}
           maxLength={24000}
           style={{

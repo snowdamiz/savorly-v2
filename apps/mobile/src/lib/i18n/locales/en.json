@@ -2248,5 +2248,8 @@
   "toBuyCount_one": "{{count}} to buy",
   "toBuyCount_few": "{{count}} to buy",
   "toBuyCount_many": "{{count}} to buy",
-  "toBuyCount_other": "{{count}} to buy"
+  "toBuyCount_other": "{{count}} to buy",
+  "Publish recipe": "Publish recipe",
+  "Private draft. It stays private until you publish it.": "Private draft. It stays private until you publish it.",
+  "Say whether to publish the recipe or keep it private.": "Say whether to publish the recipe or keep it private."
 }

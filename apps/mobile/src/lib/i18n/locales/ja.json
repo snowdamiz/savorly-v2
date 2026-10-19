@@ -2248,5 +2248,8 @@
   "toBuyCount_one": "買うもの{{count}}点",
   "toBuyCount_few": "買うもの{{count}}点",
   "toBuyCount_many": "買うもの{{count}}点",
-  "toBuyCount_other": "買うもの{{count}}点"
+  "toBuyCount_other": "買うもの{{count}}点",
+  "Publish recipe": "レシピを公開",
+  "Private draft. It stays private until you publish it.": "非公開の下書きです。公開するまで非公開のままです。",
+  "Say whether to publish the recipe or keep it private.": "レシピを公開するか非公開のままにするかを指定してください。"
 }

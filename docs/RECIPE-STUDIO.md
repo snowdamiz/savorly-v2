@@ -39,6 +39,7 @@ It cannot change email, password, or sign-in, or delete the account; those stay 
 - The recipe is saved privately before its cover photo is queued. The photo attaches automatically and keeps being made after the sheet or microphone closes. A draft never gets step clips by itself: the cook asks for them, in the editor or here, once the recipe is as they want it.
 - A conversation active in the last six hours resumes when the sheet opens; older ones are in the history row, and **New chat** starts fresh. One conversation holds one draft at a time; starting a different recipe waits until the current draft's media has attached.
 - Recent conversations resume across devices. Corrections invalidate publication approval and old media revisions; manually editing the recipe also prevents an older AI photo from replacing those edits. Failed media can be retried explicitly, with a new generation charge. Photos and transcripts are not automatically published.
+- A draft stays private until its cook publishes it: by saying yes to its read-back, or with **Publish** on the recipe page, which says the draft is private ("Private draft. It stays private until you publish it.") until then.
 
 ## Configure
 
