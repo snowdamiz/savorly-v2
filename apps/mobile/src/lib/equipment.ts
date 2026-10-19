@@ -28,23 +28,121 @@ export function cleanEquipment(names: readonly string[]): string[] {
   return out.slice(0, EQUIPMENT_MAX);
 }
 
-type Shown = Pick<Recipe, 'equipment' | 'equipmentDetected' | 'equipmentGuess'>;
+type Shown = Pick<Recipe, 'equipment' | 'equipmentKinds' | 'equipmentDetected' | 'equipmentGuess'>;
+
+/**
+ * A piece of equipment as a recipe shows it: its name, what it names for its icon, and, for the
+ * sous-chef's guess, the 1-based steps that use it.
+ */
+export type ShownTool = { name: string; kind: string; steps?: number[] };
+
+/** Tools as a list keeps names: trimmed, without blanks or repeats (in any case), at most 20. */
+function cleanTools(tools: readonly ShownTool[]): ShownTool[] {
+  const seen = new Set<string>();
+  const out: ShownTool[] = [];
+  for (const tool of tools) {
+    const name = tool.name.trim();
+    if (!name || seen.has(same(name))) continue;
+    seen.add(same(name));
+    out.push({ ...tool, name });
+  }
+  return out.slice(0, EQUIPMENT_MAX);
+}
+
+const shown = (tools: ShownTool[], detected: boolean, guessed: boolean) => ({
+  tools,
+  names: tools.map((tool) => tool.name),
+  detected,
+  guessed,
+});
 
 /**
  * What a recipe shows as what you'll need: the cook's list, or else the sous-chef's guess, or else
  * what its method mentions, named by `name` ('' for a key this version of the app doesn't know,
- * which is left out). `detected` is anything but the cook's list, and `guessed` the guess.
+ * which is left out). Each tool carries what it names for its icon: for the cook's list, what the
+ * server read in each name (`equipmentKinds`). `detected` is anything but the cook's list, and
+ * `guessed` the guess.
  */
-export function shownEquipment(
-  recipe: Shown,
-  name: (key: string) => string,
-): { names: string[]; detected: boolean; guessed: boolean } {
-  const own = cleanEquipment(recipe.equipment ?? []);
-  if (own.length) return { names: own, detected: false, guessed: false };
-  const guess = cleanEquipment((recipe.equipmentGuess ?? []).map((use) => name(use.key)));
-  if (guess.length) return { names: guess, detected: true, guessed: true };
-  const names = cleanEquipment((recipe.equipmentDetected ?? []).map(name));
-  return { names, detected: names.length > 0, guessed: false };
+export function shownEquipment(recipe: Shown, name: (key: string) => string) {
+  const kinds = recipe.equipmentKinds ?? [];
+  const own = cleanTools(
+    (recipe.equipment ?? []).map((item, i) => ({ name: item, kind: kinds[i] ?? '' })),
+  );
+  if (own.length) return shown(own, false, false);
+  const guess = cleanTools(
+    (recipe.equipmentGuess ?? []).map((use) => ({
+      name: name(use.key),
+      kind: use.key,
+      steps: use.steps,
+    })),
+  );
+  if (guess.length) return shown(guess, true, true);
+  const found = cleanTools(
+    (recipe.equipmentDetected ?? []).map((key) => ({ name: name(key), kind: key })),
+  );
+  return shown(found, found.length > 0, false);
+}
+
+// How much a piece of equipment matters when only a few show: what a kitchen may not have first
+// (appliances), then special pans and tools, and anything the lexicon doesn't know (a pasta
+// machine, or every name from an older server), then everyday cookware, then everyday tools (a
+// bowl, a spoon).
+const appliances = [
+  'oven',
+  'grill',
+  'slow cooker',
+  'pressure cooker',
+  'air fryer',
+  'deep fryer',
+  'microwave',
+  'rice cooker',
+  'steamer',
+  'blender',
+  'immersion blender',
+  'food processor',
+  'stand mixer',
+  'hand mixer',
+];
+const special = [
+  'dutch oven',
+  'wok',
+  'griddle',
+  'roasting pan',
+  'loaf pan',
+  'cake pan',
+  'pie dish',
+  'muffin pan',
+  'mandoline',
+  'thermometer',
+  'kitchen scale',
+  'mortar and pestle',
+  'rolling pin',
+  'sieve',
+];
+const cookware = [
+  'pot',
+  'saucepan',
+  'frying pan',
+  'sheet pan',
+  'baking dish',
+  'whisk',
+  'grater',
+  'colander',
+];
+
+function importance(kind: string) {
+  if (appliances.includes(kind)) return 0;
+  if (!kind || special.includes(kind)) return 1;
+  if (cookware.includes(kind)) return 2;
+  return 3;
+}
+
+/** Tools by how much they matter, keeping the list's own order among equals. */
+export function byImportance(tools: readonly ShownTool[]): ShownTool[] {
+  return tools
+    .map((tool, i) => ({ tool, i, rank: importance(tool.kind) }))
+    .sort((a, b) => a.rank - b.rank || a.i - b.i)
+    .map(({ tool }) => tool);
 }
 
 /**
