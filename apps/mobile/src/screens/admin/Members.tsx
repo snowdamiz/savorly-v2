@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Text, View } from 'react-native';
 import {
+  ArrowUpDown,
   Award,
   Ban,
   Crown,
@@ -19,13 +20,16 @@ import { useApp } from '../../lib/store';
 import { PlanID } from '../../lib/types';
 import { color, s } from '../../lib/theme';
 import { Avatar, Button, Dialog, Field, Segmented } from '../../components/ui';
+import { SettingsGroup, SettingsRow } from '../../components/SettingsRow';
 import {
   Badge,
+  Choose,
   Confirm,
   Facts,
   Filters,
   followUp,
   Grid,
+  ListBar,
   ListState,
   Loading,
   Meter,
@@ -60,6 +64,11 @@ const sorts = [
   { value: 'oldest', label: 'Oldest' },
 ] as const;
 const planNames: Record<PlanID, string> = { free: 'Free', plus: 'Plus', pro: 'Pro' };
+const recordTabs = [
+  { value: 'account', label: 'Account' },
+  { value: 'activity', label: 'Activity' },
+  { value: 'manage', label: 'Manage' },
+] as const;
 
 /** The badges that say who a member is, wherever they're listed. */
 export function MemberBadges({ m }: { m: AdminMember }) {
@@ -101,7 +110,15 @@ export function Members() {
         placeholder="Search name, email, handle or ID"
       />
       <Filters options={[...filters]} value={filter} onChange={setFilter} />
-      <Filters label="Sort" options={[...sorts]} value={sort} onChange={setSort} />
+      <ListBar total={list.total} loading={list.loading} noun={['member', 'members']}>
+        <Choose
+          title="Sort members"
+          icon={ArrowUpDown}
+          options={sorts}
+          value={sort}
+          onChange={setSort}
+        />
+      </ListBar>
       <View style={{ gap: 8, opacity: list.loading && list.items.length ? 0.6 : 1 }}>
         {list.items.map((m) => (
           <Row
@@ -114,7 +131,7 @@ export function Members() {
             lines={[
               m.email,
               `Joined ${f.date(m.createdAt)} · ${m.lastSignInAt ? `signed in ${f.ago(m.lastSignInAt)}` : 'no sign-ins on record'}`,
-              `${m.publishedCount} of ${m.recipeCount} recipes published · ${f.money(m.spend30d)} AI spend in 30 days`,
+              `${m.publishedCount} of ${m.recipeCount} recipes published · ${f.money(m.spend30d)} on AI in 30 days`,
             ]}
           />
         ))}
@@ -142,6 +159,7 @@ export function MemberDialog({ id, onClose }: { id: string; onClose: () => void 
   const action = useRun();
   const [confirm, setConfirm] = useState<Pending>(null);
   const [editing, setEditing] = useState(false);
+  const [tab, setTab] = useState<(typeof recordTabs)[number]['value']>('account');
   // A plan picked but not applied yet; it resets whenever the record reloads.
   const [choice, setChoice] = useState<{ from: AdminMemberDetail | null; plan: PlanID } | null>(
     null,
@@ -165,7 +183,7 @@ export function MemberDialog({ id, onClose }: { id: string; onClose: () => void 
         ) : (
           <>
             <View style={[s.row, { gap: 14 }]}>
-              <Avatar name={m.name} uri={m.avatar} size={64} />
+              <Avatar name={m.name} uri={m.avatar} size={56} />
               <View style={{ flex: 1, gap: 4 }}>
                 <Text selectable style={s.h3}>
                   {m.email}
@@ -187,214 +205,353 @@ export function MemberDialog({ id, onClose }: { id: string; onClose: () => void 
             {action.result && (
               <Notice tone={action.result.ok ? 'success' : 'error'} text={action.result.text} />
             )}
-            {!!m.bio && <Text style={s.muted}>{m.bio}</Text>}
-            <Facts
-              rows={[
-                ['Joined', f.dateTime(m.createdAt)],
-                [
-                  'Last sign-in',
-                  m.lastSignInAt
-                    ? `${f.dateTime(m.lastSignInAt)} (${f.ago(m.lastSignInAt)})`
-                    : 'No sessions on record',
-                ],
-                ['Signed in on', `${m.activeSessions} device${m.activeSessions === 1 ? '' : 's'}`],
-                [
-                  'Sign-in methods',
-                  [
-                    m.hasPassword && 'Password',
-                    ...m.identities.map((p) => (p === 'apple' ? 'Apple' : 'Google')),
-                  ]
-                    .filter(Boolean)
-                    .join(', ') || 'None',
-                ],
-                ['Email', m.emailVerified ? 'Verified' : 'Not verified'],
-                [
-                  'Plan',
-                  `${planNames[m.plan]}${m.comped ? ' (complimentary)' : ''}${m.planStatus ? ` · ${m.planStatus}` : ''}${m.planInterval ? ` · ${m.planInterval}` : ''}${m.planRenewsAt ? ` · ${m.planCancels ? 'ends' : 'renews'} ${f.date(m.planRenewsAt)}` : ''}`,
-                ],
-                ...(m.planRefunds?.length
-                  ? [
-                      [
-                        'Refunds',
-                        m.planRefunds
-                          .map(
-                            (r) =>
-                              `${r.currency === 'usd' ? f.money(r.amountCents / 100) : `${(r.amountCents / 100).toFixed(2)} ${r.currency.toUpperCase()}`} ${r.completedAt ? `refunded ${f.date(r.completedAt)}` : `under way since ${f.dateTime(r.createdAt)} (finished when the member asks again)`}`,
-                          )
-                          .join('; '),
-                      ] as [string, string],
-                    ]
-                  : []),
-                ...(m.stripeCustomerId
-                  ? [['Stripe customer', m.stripeCustomerId] as [string, string]]
-                  : []),
-                ...(m.stripeSubscriptionId
-                  ? [['Subscription', m.stripeSubscriptionId] as [string, string]]
-                  : []),
-                ...(m.preferences.diets.length || m.preferences.allergies.length
-                  ? [
-                      [
-                        'Food',
-                        [
-                          ...m.preferences.diets,
-                          ...m.preferences.allergies.map((a) => `allergic: ${a}`),
-                        ].join(', '),
-                      ] as [string, string],
-                    ]
-                  : []),
-                ['Member ID', m.id],
-              ]}
-            />
-            <SectionLabel>AI use, last 30 days</SectionLabel>
-            {m.limits ? (
-              <View style={{ gap: 12 }}>
-                <Meter
-                  label="Sous-chef turns"
-                  used={m.usage.assistant}
-                  limit={m.limits.assistant}
-                  display={`${m.usage.assistant} of ${m.limits.assistant}`}
-                />
-                <Meter
-                  label="Voice minutes"
-                  used={m.usage.voiceSeconds / 60}
-                  limit={m.limits.voiceMinutes}
-                  display={`${Math.ceil(m.usage.voiceSeconds / 60)} of ${m.limits.voiceMinutes}`}
-                />
-                <Meter
-                  label="AI photos"
-                  used={m.usage.images}
-                  limit={m.limits.images}
-                  display={`${m.usage.images} of ${m.limits.images}`}
-                />
-                <Meter
-                  label="AI step clips"
-                  used={m.usage.videos}
-                  limit={m.limits.videos}
-                  display={`${m.usage.videos} of ${m.limits.videos}`}
-                />
-                <Meter
-                  label="Read-alouds"
-                  used={m.usage.narration}
-                  limit={m.limits.narration}
-                  display={`${m.usage.narration} of ${m.limits.narration}`}
-                />
-                <Meter
-                  label="Spend"
-                  used={m.spend30d}
-                  limit={m.limits.spendCap}
-                  display={`${f.money(m.spend30d)} of ${f.money(m.limits.spendCap)}`}
-                />
-              </View>
-            ) : (
-              <Facts
-                rows={[
-                  ['Sous-chef turns', f.number(m.usage.assistant)],
-                  ['Voice minutes', f.number(Math.ceil(m.usage.voiceSeconds / 60))],
-                  ['AI photos', f.number(m.usage.images)],
-                  ['AI step clips', f.number(m.usage.videos)],
-                  ['Read-alouds', f.number(m.usage.narration)],
-                  ['Spend', `${f.money(m.spend30d)} (no plan limits while paid plans are off)`],
-                ]}
-              />
-            )}
-            <SectionLabel>Activity</SectionLabel>
-            <Grid min={120}>
-              {(
-                [
-                  ['Recipes', m.recipeCount],
-                  ['Reviews', m.counts.reviews],
-                  ['Saves', m.counts.saves],
-                  ['Cookbooks', m.counts.cookbooks],
-                  ['Followers', m.counts.followers],
-                  ['Following', m.counts.following],
-                  ['Chats', m.counts.conversations],
-                  ['Planned meals', m.counts.mealPlans],
-                  ['Pantry items', m.counts.pantry],
-                  ['Reports filed', m.counts.reportsFiled],
-                ] as const
-              ).map(([label, n]) => (
-                <View key={label} style={{ gap: 2 }}>
-                  <Text style={[s.h3, { fontSize: 18 }]}>{f.number(n)}</Text>
-                  <Text style={s.small}>{label}</Text>
-                </View>
-              ))}
-            </Grid>
-            {m.recipes.length > 0 && (
+            {/* A record runs to several screens on a phone, so it comes in three parts. */}
+            <Segmented value={tab} onChange={setTab} options={[...recordTabs]} />
+            {tab === 'account' && (
               <>
-                <SectionLabel>{`Recipes (${m.recipeCount})`}</SectionLabel>
-                {m.recipes.map((r) => (
-                  <Row
-                    key={r.id}
-                    title={r.title}
-                    onPress={() => nav.recipe(r.id)}
-                    badges={
-                      <>
-                        {!r.published && <Badge title="Draft" />}
-                        {r.aiGenerated && <Badge title="AI" />}
-                        {r.openReports > 0 && (
-                          <Badge title={`${r.openReports} reports`} tone="warning" />
-                        )}
-                      </>
-                    }
-                    lines={[f.date(r.createdAt)]}
-                  />
-                ))}
+                {!!m.bio && <Text style={s.muted}>{m.bio}</Text>}
+                <Facts
+                  rows={[
+                    ['Joined', f.dateTime(m.createdAt)],
+                    [
+                      'Last sign-in',
+                      m.lastSignInAt
+                        ? `${f.dateTime(m.lastSignInAt)} (${f.ago(m.lastSignInAt)})`
+                        : 'No sessions on record',
+                    ],
+                    [
+                      'Signed in on',
+                      `${m.activeSessions} device${m.activeSessions === 1 ? '' : 's'}`,
+                    ],
+                    [
+                      'Sign-in methods',
+                      [
+                        m.hasPassword && 'Password',
+                        ...m.identities.map((p) => (p === 'apple' ? 'Apple' : 'Google')),
+                      ]
+                        .filter(Boolean)
+                        .join(', ') || 'None',
+                    ],
+                    ['Email', m.emailVerified ? 'Verified' : 'Not verified'],
+                    [
+                      'Plan',
+                      `${planNames[m.plan]}${m.comped ? ' (complimentary)' : ''}${m.planStatus ? ` · ${m.planStatus}` : ''}${m.planInterval ? ` · ${m.planInterval}` : ''}${m.planRenewsAt ? ` · ${m.planCancels ? 'ends' : 'renews'} ${f.date(m.planRenewsAt)}` : ''}`,
+                    ],
+                    ...(m.planRefunds?.length
+                      ? [
+                          [
+                            'Refunds',
+                            m.planRefunds
+                              .map(
+                                (r) =>
+                                  `${r.currency === 'usd' ? f.money(r.amountCents / 100) : `${(r.amountCents / 100).toFixed(2)} ${r.currency.toUpperCase()}`} ${r.completedAt ? `refunded ${f.date(r.completedAt)}` : `under way since ${f.dateTime(r.createdAt)} (finished when the member asks again)`}`,
+                              )
+                              .join('; '),
+                          ] as [string, string],
+                        ]
+                      : []),
+                    ...(m.stripeCustomerId
+                      ? [['Stripe customer', m.stripeCustomerId] as [string, string]]
+                      : []),
+                    ...(m.stripeSubscriptionId
+                      ? [['Subscription', m.stripeSubscriptionId] as [string, string]]
+                      : []),
+                    ...(m.preferences.diets.length || m.preferences.allergies.length
+                      ? [
+                          [
+                            'Food',
+                            [
+                              ...m.preferences.diets,
+                              ...m.preferences.allergies.map((a) => `allergic: ${a}`),
+                            ].join(', '),
+                          ] as [string, string],
+                        ]
+                      : []),
+                    ['Member ID', m.id],
+                  ]}
+                />
               </>
             )}
-            {m.reviews.length > 0 && (
+            {tab === 'activity' && (
               <>
-                <SectionLabel>Recent reviews</SectionLabel>
-                {m.reviews.map((r) => (
-                  <Row
-                    key={r.id}
-                    title={`${'★'.repeat(r.rating)}${'☆'.repeat(5 - r.rating)} on “${r.recipe.title}”`}
-                    onPress={() => nav.recipe(r.recipe.id)}
-                    lines={[r.body, f.date(r.createdAt)]}
+                <Grid min={96}>
+                  {(
+                    [
+                      ['Recipes', m.recipeCount],
+                      ['Reviews', m.counts.reviews],
+                      ['Saves', m.counts.saves],
+                      ['Cookbooks', m.counts.cookbooks],
+                      ['Followers', m.counts.followers],
+                      ['Following', m.counts.following],
+                      ['Chats', m.counts.conversations],
+                      ['Planned meals', m.counts.mealPlans],
+                      ['Pantry items', m.counts.pantry],
+                      ['Reports filed', m.counts.reportsFiled],
+                    ] as const
+                  ).map(([label, n]) => (
+                    <View key={label} style={{ gap: 2 }}>
+                      <Text style={[s.h3, { fontSize: 18 }]}>{f.number(n)}</Text>
+                      <Text style={s.small}>{label}</Text>
+                    </View>
+                  ))}
+                </Grid>
+                <SectionLabel>AI use, last 30 days</SectionLabel>
+                {m.limits ? (
+                  <View style={{ gap: 12 }}>
+                    <Meter
+                      label="Sous-chef turns"
+                      used={m.usage.assistant}
+                      limit={m.limits.assistant}
+                      display={`${m.usage.assistant} of ${m.limits.assistant}`}
+                    />
+                    <Meter
+                      label="Voice minutes"
+                      used={m.usage.voiceSeconds / 60}
+                      limit={m.limits.voiceMinutes}
+                      display={`${Math.ceil(m.usage.voiceSeconds / 60)} of ${m.limits.voiceMinutes}`}
+                    />
+                    <Meter
+                      label="AI photos"
+                      used={m.usage.images}
+                      limit={m.limits.images}
+                      display={`${m.usage.images} of ${m.limits.images}`}
+                    />
+                    <Meter
+                      label="AI step clips"
+                      used={m.usage.videos}
+                      limit={m.limits.videos}
+                      display={`${m.usage.videos} of ${m.limits.videos}`}
+                    />
+                    <Meter
+                      label="Read-alouds"
+                      used={m.usage.narration}
+                      limit={m.limits.narration}
+                      display={`${m.usage.narration} of ${m.limits.narration}`}
+                    />
+                    <Meter
+                      label="Spend"
+                      used={m.spend30d}
+                      limit={m.limits.spendCap}
+                      display={`${f.money(m.spend30d)} of ${f.money(m.limits.spendCap)}`}
+                    />
+                  </View>
+                ) : (
+                  <Facts
+                    rows={[
+                      ['Sous-chef turns', f.number(m.usage.assistant)],
+                      ['Voice minutes', f.number(Math.ceil(m.usage.voiceSeconds / 60))],
+                      ['AI photos', f.number(m.usage.images)],
+                      ['AI step clips', f.number(m.usage.videos)],
+                      ['Read-alouds', f.number(m.usage.narration)],
+                      ['Spend', `${f.money(m.spend30d)} (no plan limits while paid plans are off)`],
+                    ]}
                   />
-                ))}
-              </>
-            )}
-            {m.jobs.length > 0 && (
-              <>
-                <SectionLabel>Recent AI jobs</SectionLabel>
-                {m.jobs.map((j) => (
-                  <Row
-                    key={j.id}
-                    title={j.kind}
-                    onPress={() => nav.job(j.id)}
-                    badges={
-                      <Badge
-                        title={j.status}
-                        tone={
-                          j.status === 'failed'
-                            ? 'error'
-                            : j.status === 'completed'
-                              ? 'success'
-                              : 'light'
+                )}
+                {m.recipes.length > 0 && (
+                  <>
+                    <SectionLabel>{`Recipes (${m.recipeCount})`}</SectionLabel>
+                    {m.recipes.map((r) => (
+                      <Row
+                        key={r.id}
+                        title={r.title}
+                        onPress={() => nav.recipe(r.id)}
+                        badges={
+                          <>
+                            {!r.published && <Badge title="Draft" />}
+                            {r.aiGenerated && <Badge title="AI" />}
+                            {r.openReports > 0 && (
+                              <Badge title={`${r.openReports} reports`} tone="warning" />
+                            )}
+                          </>
                         }
+                        lines={[f.date(r.createdAt)]}
                       />
-                    }
-                    lines={[`${f.dateTime(j.createdAt)} · ${f.money(j.cost)}`, j.error]}
-                  />
-                ))}
+                    ))}
+                  </>
+                )}
+                {m.reviews.length > 0 && (
+                  <>
+                    <SectionLabel>Recent reviews</SectionLabel>
+                    {m.reviews.map((r) => (
+                      <Row
+                        key={r.id}
+                        title={`${'★'.repeat(r.rating)}${'☆'.repeat(5 - r.rating)} on “${r.recipe.title}”`}
+                        onPress={() => nav.recipe(r.recipe.id)}
+                        lines={[r.body, f.date(r.createdAt)]}
+                      />
+                    ))}
+                  </>
+                )}
+                {m.jobs.length > 0 && (
+                  <>
+                    <SectionLabel>Recent AI jobs</SectionLabel>
+                    {m.jobs.map((j) => (
+                      <Row
+                        key={j.id}
+                        title={j.kind}
+                        onPress={() => nav.job(j.id)}
+                        badges={
+                          <Badge
+                            title={j.status}
+                            tone={
+                              j.status === 'failed'
+                                ? 'error'
+                                : j.status === 'completed'
+                                  ? 'success'
+                                  : 'light'
+                            }
+                          />
+                        }
+                        lines={[`${f.dateTime(j.createdAt)} · ${f.money(j.cost)}`, j.error]}
+                      />
+                    ))}
+                  </>
+                )}
+                {m.reportsFiled.length > 0 && (
+                  <>
+                    <SectionLabel>Reports they filed</SectionLabel>
+                    {m.reportsFiled.map((r) => (
+                      <Row
+                        key={r.id}
+                        title={`“${r.recipe.title}”`}
+                        onPress={() => nav.recipe(r.recipe.id)}
+                        badges={<Badge title={r.status} />}
+                        lines={[r.reason, f.date(r.createdAt)]}
+                      />
+                    ))}
+                  </>
+                )}
+                <MemberFund id={m.id} name={m.name} locked={locked} nav={nav} />
               </>
             )}
-            {m.reportsFiled.length > 0 && (
-              <>
-                <SectionLabel>Reports they filed</SectionLabel>
-                {m.reportsFiled.map((r) => (
-                  <Row
-                    key={r.id}
-                    title={`“${r.recipe.title}”`}
-                    onPress={() => nav.recipe(r.recipe.id)}
-                    badges={<Badge title={r.status} />}
-                    lines={[r.reason, f.date(r.createdAt)]}
-                  />
-                ))}
-              </>
-            )}
-            <MemberFund id={m.id} name={m.name} locked={locked} nav={nav} />
-            {m.history.length > 0 && (
+            {tab === 'manage' &&
+              (locked ? (
+                <Notice
+                  text={
+                    m.owner
+                      ? 'Owners are set by ADMIN_EMAILS and can’t be changed from the console.'
+                      : m.admin
+                        ? 'Only an owner can change another admin.'
+                        : 'Only an owner can act on an address listed in ADMIN_EMAILS.'
+                  }
+                />
+              ) : (
+                <>
+                  <SettingsGroup title="Account">
+                    <SettingsRow
+                      icon={PencilLine}
+                      title="Edit profile"
+                      text="Name, handle, bio or photo"
+                      onPress={() => setEditing(true)}
+                    />
+                    {m.onboarded !== false && (
+                      <SettingsRow
+                        icon={RotateCcw}
+                        title={me ? 'Restart my kitchen setup' : 'Restart kitchen setup'}
+                        onPress={() => setConfirm('setup')}
+                      />
+                    )}
+                    {!me && !m.emailVerified && !m.ownerEmail && (
+                      <SettingsRow
+                        icon={MailCheck}
+                        title="Mark email as verified"
+                        onPress={() => setConfirm('verify')}
+                      />
+                    )}
+                    {!me && (
+                      <SettingsRow
+                        icon={LogOut}
+                        title="Sign out everywhere"
+                        text={`${m.activeSessions} device${m.activeSessions === 1 ? '' : 's'} signed in`}
+                        onPress={() => setConfirm('signout')}
+                      />
+                    )}
+                  </SettingsGroup>
+                  {m.onboarded === false && (
+                    <Text style={[s.small, { marginLeft: 4 }]}>
+                      Their kitchen setup is waiting for them the next time they open Savorly.
+                    </Text>
+                  )}
+                  {!me && (
+                    <>
+                      <View style={{ gap: 10 }}>
+                        <Text role="heading" aria-level={2} style={[s.label, { marginLeft: 4 }]}>
+                          Complimentary plan
+                        </Text>
+                        {!!m.planInterval && (
+                          <Text style={[s.small, { marginLeft: 4 }]}>
+                            This member pays through Stripe; change their plan in the Stripe
+                            dashboard.
+                          </Text>
+                        )}
+                        <Segmented
+                          value={plan}
+                          onChange={setPlan}
+                          options={(['free', 'plus', 'pro'] as const).map((p) => ({
+                            value: p,
+                            label: planNames[p],
+                          }))}
+                        />
+                        {plan !== m.plan && (
+                          <Button
+                            title={`Switch to ${planNames[plan]}`}
+                            small
+                            busy={action.busy === 'plan'}
+                            onPress={() =>
+                              void action.run(
+                                'plan',
+                                () => api(`${path}/plan`, { method: 'PUT', body: { plan } }),
+                                `${m.name} is now on ${planNames[plan]}.`,
+                              )
+                            }
+                          />
+                        )}
+                      </View>
+                      <SettingsGroup title="Role">
+                        <SettingsRow
+                          icon={Award}
+                          title={
+                            m.foundingCreatorAt
+                              ? 'Remove founding creator'
+                              : 'Make founding creator'
+                          }
+                          onPress={() => setConfirm('founding')}
+                        />
+                        {nav.owner && !m.ownerEmail && !m.suspendedAt && (
+                          <SettingsRow
+                            icon={m.admin ? ShieldOff : ShieldCheck}
+                            title={m.admin ? 'Remove as admin' : 'Make admin'}
+                            onPress={() => setConfirm('admin')}
+                          />
+                        )}
+                      </SettingsGroup>
+                      <SettingsGroup title="Restrict">
+                        {m.suspendedAt ? (
+                          <SettingsRow
+                            icon={Undo2}
+                            title="Lift suspension"
+                            onPress={() => setConfirm('unsuspend')}
+                          />
+                        ) : (
+                          <SettingsRow
+                            icon={Ban}
+                            title="Suspend"
+                            text="Signs them out and hides what they made"
+                            onPress={() => setConfirm('suspend')}
+                          />
+                        )}
+                        <SettingsRow
+                          icon={Trash2}
+                          title="Delete account"
+                          danger
+                          onPress={() => setConfirm('delete')}
+                        />
+                      </SettingsGroup>
+                    </>
+                  )}
+                </>
+              ))}
+            {tab === 'manage' && m.history.length > 0 && (
               <>
                 <SectionLabel>Admin history</SectionLabel>
                 {m.history.map((h) => (
@@ -403,133 +560,6 @@ export function MemberDialog({ id, onClose }: { id: string; onClose: () => void 
                   </Text>
                 ))}
               </>
-            )}
-            <SectionLabel>Manage</SectionLabel>
-            {locked ? (
-              <Notice
-                text={
-                  m.owner
-                    ? 'Owners are set by ADMIN_EMAILS and can’t be changed from the console.'
-                    : m.admin
-                      ? 'Only an owner can change another admin.'
-                      : 'Only an owner can act on an address listed in ADMIN_EMAILS.'
-                }
-              />
-            ) : (
-              <View style={{ gap: 10 }}>
-                <Button
-                  title="Edit profile"
-                  icon={PencilLine}
-                  variant="secondary"
-                  small
-                  onPress={() => setEditing(true)}
-                />
-                {m.onboarded === false ? (
-                  <Text style={s.small}>
-                    Their kitchen setup is waiting for them the next time they open Savorly.
-                  </Text>
-                ) : (
-                  <Button
-                    title={me ? 'Restart my kitchen setup' : 'Restart kitchen setup'}
-                    icon={RotateCcw}
-                    variant="secondary"
-                    small
-                    onPress={() => setConfirm('setup')}
-                  />
-                )}
-                {!me && (
-                  <>
-                    <View style={{ gap: 8 }}>
-                      <Text style={s.small}>
-                        Complimentary plan
-                        {m.planInterval
-                          ? ' (this member pays through Stripe; change it in the Stripe dashboard)'
-                          : ''}
-                      </Text>
-                      <Segmented
-                        value={plan}
-                        onChange={setPlan}
-                        options={(['free', 'plus', 'pro'] as const).map((p) => ({
-                          value: p,
-                          label: planNames[p],
-                        }))}
-                      />
-                      {plan !== m.plan && (
-                        <Button
-                          title={`Switch to ${planNames[plan]}`}
-                          small
-                          busy={action.busy === 'plan'}
-                          onPress={() =>
-                            void action.run(
-                              'plan',
-                              () => api(`${path}/plan`, { method: 'PUT', body: { plan } }),
-                              `${m.name} is now on ${planNames[plan]}.`,
-                            )
-                          }
-                        />
-                      )}
-                    </View>
-                    {!m.emailVerified && !m.ownerEmail && (
-                      <Button
-                        title="Mark email as verified"
-                        icon={MailCheck}
-                        variant="secondary"
-                        small
-                        onPress={() => setConfirm('verify')}
-                      />
-                    )}
-                    <Button
-                      title={
-                        m.foundingCreatorAt ? 'Remove founding creator' : 'Make founding creator'
-                      }
-                      icon={Award}
-                      variant="secondary"
-                      small
-                      onPress={() => setConfirm('founding')}
-                    />
-                    <Button
-                      title="Sign out everywhere"
-                      icon={LogOut}
-                      variant="secondary"
-                      small
-                      onPress={() => setConfirm('signout')}
-                    />
-                    {nav.owner && !m.ownerEmail && !m.suspendedAt && (
-                      <Button
-                        title={m.admin ? 'Remove as admin' : 'Make admin'}
-                        icon={m.admin ? ShieldOff : ShieldCheck}
-                        variant="secondary"
-                        small
-                        onPress={() => setConfirm('admin')}
-                      />
-                    )}
-                    {m.suspendedAt ? (
-                      <Button
-                        title="Lift suspension"
-                        icon={Undo2}
-                        variant="secondary"
-                        small
-                        onPress={() => setConfirm('unsuspend')}
-                      />
-                    ) : (
-                      <Button
-                        title="Suspend"
-                        icon={Ban}
-                        variant="secondary"
-                        small
-                        onPress={() => setConfirm('suspend')}
-                      />
-                    )}
-                    <Button
-                      title="Delete account"
-                      icon={Trash2}
-                      variant="secondary"
-                      small
-                      onPress={() => setConfirm('delete')}
-                    />
-                  </>
-                )}
-              </View>
             )}
           </>
         )}

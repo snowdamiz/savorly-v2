@@ -258,6 +258,8 @@ const sheet = (page: Page) => page.getByRole('dialog');
 const openSam = async (page: Page) => {
   await page.getByRole('button', { name: 'Open Sam Spam', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Sam Spam', exact: true })).toBeVisible();
+  // The record's actions are under Manage.
+  await page.getByRole('tab', { name: 'Manage', exact: true }).click();
 };
 
 test('a member is suspended with a reason, then the suspension is lifted', async ({ page }) => {
@@ -358,6 +360,7 @@ test('a recipe is unpublished with a note, then restored', async ({ page }) => {
   await page.getByRole('button', { name: 'Copied carbonara', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Copied carbonara', exact: true })).toBeVisible();
   await expect(sheet(page).getByText('Published', { exact: true })).toBeVisible();
+  await page.getByRole('tab', { name: 'Moderation', exact: true }).click();
   await ask(page, 'Unpublish', 'Unpublish this recipe?');
   await page
     .getByRole('textbox', { name: 'Note for other admins (optional)', exact: true })
@@ -397,6 +400,7 @@ test('a job with the provider is cancelled, and a live voice session ended', asy
   expect(api.sentTo('/admin/voice/call/end')).toEqual([['POST', undefined]]);
 
   // A job still running at the provider can't be cancelled (the API refuses), so none is offered.
+  await page.getByRole('tab', { name: 'Jobs', exact: true }).click();
   const jobRow = (kind: string) =>
     page.getByRole('button', { name: kind, exact: true }).filter({ hasText: sam.email });
   await jobRow('Recipe draft').click();
@@ -429,6 +433,7 @@ test('a job with the provider is cancelled, and a live voice session ended', asy
 
 test('a sous-chef turn shows its rounds, tools and reply', async ({ page }) => {
   await adminConsole(page, 'ai');
+  await page.getByRole('tab', { name: 'Turns', exact: true }).click();
   const row = page.getByRole('button', { name: /^Chat turn · Sam Spam/ });
   await expect(row).toContainText('2 rounds · get_recipe, plan_meal · 1 tool error');
   await row.click();

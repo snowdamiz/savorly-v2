@@ -236,7 +236,7 @@ export function Reviews() {
             lines={[v.body, `on “${v.recipe.title}” · ${v.author.email} · ${f.date(v.createdAt)}`]}
             onPress={() => nav.recipe(v.recipe.id)}
             label={`Open the recipe ${v.recipe.title}`}
-            right={
+            actions={
               <Button
                 title="Delete"
                 small

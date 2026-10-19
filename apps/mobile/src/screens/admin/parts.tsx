@@ -12,7 +12,15 @@ import {
   View,
   ViewStyle,
 } from 'react-native';
-import { AlertTriangle, Check, CircleAlert, Info, LucideIcon } from '../../components/icons';
+import {
+  AlertTriangle,
+  Check,
+  ChevronDown,
+  ChevronRight,
+  CircleAlert,
+  Info,
+  LucideIcon,
+} from '../../components/icons';
 import { api, ApiError } from '../../lib/api';
 import { AdminSection, AuditEntry, Paged } from '../../lib/admin';
 import { useI18n } from '../../lib/i18n';
@@ -197,6 +205,10 @@ export function useRun() {
   return { busy, result, run, clear: () => setResult(null) };
 }
 
+// Inside a Panel, rows and stats share its card with a line between them, rather than a card each.
+const InPanel = createContext(false);
+const line = { borderTopWidth: StyleSheet.hairlineWidth, borderColor: color.border };
+
 export function Panel({
   title,
   subtitle,
@@ -210,18 +222,35 @@ export function Panel({
   children: React.ReactNode;
   style?: ViewStyle;
 }) {
+  const { compact } = useChrome();
+  const [more, setMore] = useState(false);
+  // On a phone a long explanation keeps to two lines until it's asked for.
+  const fold = compact && !!subtitle && subtitle.length > 120;
   return (
-    <View style={[s.card, { gap: 14, flexGrow: 1 }, style]}>
+    <View style={[s.card, { gap: 14, flexGrow: 1 }, compact && { padding: 16 }, style]}>
       {(title || right) && (
         <View style={[s.between, { gap: 12, alignItems: 'flex-start' }]}>
           <View style={{ flex: 1, gap: 2 }}>
             {title && <Text style={s.h3}>{title}</Text>}
-            {subtitle && <Text style={s.small}>{subtitle}</Text>}
+            {subtitle && (
+              <Text style={s.small} numberOfLines={fold && !more ? 2 : undefined}>
+                {subtitle}
+              </Text>
+            )}
+            {fold && (
+              <Text
+                accessibilityRole="button"
+                onPress={() => setMore(!more)}
+                style={[s.small, { color: color.ink, textDecorationLine: 'underline' }]}
+              >
+                {more ? 'Less' : 'More'}
+              </Text>
+            )}
           </View>
           {right}
         </View>
       )}
-      {children}
+      <InPanel.Provider value>{children}</InPanel.Provider>
     </View>
   );
 }
@@ -250,10 +279,11 @@ export function Stat({
   tone?: 'warning' | 'error';
   onPress?: () => void;
 }) {
+  const flat = useContext(InPanel);
   const body = (
     <>
       <Text style={s.small}>{label}</Text>
-      <Text style={[s.h1, { fontSize: 28 }]}>{value}</Text>
+      <Text style={[s.h1, { fontSize: flat ? 24 : 28, lineHeight: flat ? 30 : 34 }]}>{value}</Text>
       {!!note && (
         <Text
           style={[
@@ -267,7 +297,9 @@ export function Stat({
       )}
     </>
   );
-  const style = [s.card, { gap: 4, padding: 18, flexGrow: 1 }];
+  const style = flat
+    ? [line, { gap: 4, paddingTop: 12, flexGrow: 1 }]
+    : [s.card, { gap: 4, padding: 18, flexGrow: 1 }];
   return onPress ? (
     <Press accessibilityRole="button" onPress={onPress} scale={0.98} style={style}>
       {body}
@@ -329,10 +361,13 @@ export function Columns({
   points,
   format,
   unit,
+  summary,
 }: {
   points: { label: string; value: number }[];
   format: (n: number) => string;
   unit: string;
+  /** The line above the chart while no day is chosen; by default, the total. */
+  summary?: string;
 }) {
   const [width, setWidth] = useState(0);
   const [active, setActive] = useState<number | null>(null);
@@ -353,7 +388,8 @@ export function Columns({
       <Text style={[s.small, { color: color.ink, fontFamily: font.semibold }]}>
         {shown
           ? `${shown.label}: ${format(shown.value)} ${unit}`
-          : `${format(total)} ${unit} in ${points.length} days · press a day for its value`}
+          : (summary ??
+            `${format(total)} ${unit} in ${points.length} days · press a day for its value`)}
       </Text>
       <View style={{ flexDirection: 'row', gap: 8 }}>
         <View style={{ height, justifyContent: 'space-between', alignItems: 'flex-end' }}>
@@ -492,6 +528,46 @@ export function Notice({
   );
 }
 
+export type Alert = {
+  key: string;
+  tone: 'info' | 'warning' | 'error';
+  text: string;
+  /** Where to look into it: the row opens it. */
+  onPress: () => void;
+};
+const severity = { error: 0, warning: 1, info: 2 };
+/** What needs an admin, most pressing first, as the rows of one card that each open the place to act. */
+export function Attention({ alerts }: { alerts: Alert[] }) {
+  if (!alerts.length) return null;
+  return (
+    <View style={[s.card, { padding: 0, overflow: 'hidden' }]}>
+      {[...alerts]
+        .sort((a, b) => severity[a.tone] - severity[b.tone])
+        .map((a, i) => {
+          const t = tones[a.tone];
+          const Icon = t.icon;
+          return (
+            <Press
+              key={a.key}
+              accessibilityRole="button"
+              onPress={a.onPress}
+              scale={1}
+              style={[
+                s.row,
+                { gap: 12, paddingHorizontal: 16, paddingVertical: 14 },
+                i > 0 && line,
+              ]}
+            >
+              <Icon size={18} color={a.tone === 'info' ? color.muted : t.fg} strokeWidth={2} />
+              <Text style={[s.body, { flex: 1, fontSize: 14, lineHeight: 20 }]}>{a.text}</Text>
+              <ChevronRight size={18} color={color.soft} />
+            </Press>
+          );
+        })}
+    </View>
+  );
+}
+
 export type Tone = 'light' | 'dark' | 'success' | 'warning' | 'error';
 export function Badge({
   title,
@@ -505,13 +581,18 @@ export function Badge({
   return <Pill title={title} tone={tone} icon={icon} />;
 }
 
-/** One record in a list: leading art, a title with badges, and quiet details underneath. */
+/**
+ * One record in a list: leading art, a title with badges, and quiet details underneath. `right`
+ * stays beside the text, such as an amount; `actions` (buttons) move under it on a phone, so the
+ * title keeps its width.
+ */
 export function Row({
   leading,
   title,
   badges,
   lines,
   right,
+  actions,
   onPress,
   label,
 }: {
@@ -520,9 +601,12 @@ export function Row({
   badges?: React.ReactNode;
   lines?: (string | false | null | undefined)[];
   right?: React.ReactNode;
+  actions?: React.ReactNode;
   onPress?: () => void;
   label?: string;
 }) {
+  const flat = useContext(InPanel);
+  const { compact } = useChrome();
   const body = (
     <>
       {leading}
@@ -540,11 +624,21 @@ export function Row({
               {l}
             </Text>
           ))}
+        {compact && actions && (
+          <View style={[s.row, { gap: 4, flexWrap: 'wrap', marginTop: 4 }]}>{actions}</View>
+        )}
       </View>
       {right}
+      {!compact && actions && <View style={[s.row, { gap: 4 }]}>{actions}</View>}
     </>
   );
-  const style = [s.card, s.row, { gap: 14, padding: 14, alignItems: 'center' as const }];
+  const style = flat
+    ? [line, s.row, { gap: 12, paddingTop: 12, alignItems: 'center' as const }]
+    : [
+        s.card,
+        s.row,
+        { gap: compact ? 12 : 14, padding: compact ? 12 : 14, alignItems: 'center' as const },
+      ];
   return onPress ? (
     <Press
       accessibilityRole="button"
@@ -624,6 +718,105 @@ export function Search({
   );
 }
 
+/**
+ * One choice from a list, such as how to sort, as a quiet button that says the current choice
+ * and opens a sheet of the options.
+ */
+export function Choose<T extends string>({
+  title,
+  options,
+  value,
+  onChange,
+  icon: Icon,
+}: {
+  /** Names the choice, for the sheet and screen readers: "Sort members". */
+  title: string;
+  options: readonly { value: T; label: string }[];
+  value: T;
+  onChange: (v: T) => void;
+  icon?: LucideIcon;
+}) {
+  const [open, setOpen] = useState(false);
+  const current = options.find((o) => o.value === value) ?? options[0];
+  return (
+    <>
+      <Press
+        accessibilityRole="button"
+        accessibilityLabel={`${title}: ${current.label}`}
+        onPress={() => setOpen(true)}
+        style={[
+          s.row,
+          {
+            gap: 6,
+            minHeight: 36,
+            paddingLeft: 12,
+            paddingRight: 10,
+            borderRadius: radius.pill,
+            borderWidth: 1,
+            borderColor: color.border,
+            backgroundColor: color.white,
+          },
+        ]}
+      >
+        {Icon && <Icon size={14} color={color.ink} strokeWidth={2} />}
+        <Text style={{ fontFamily: font.semibold, fontSize: 13, color: color.ink }}>
+          {current.label}
+        </Text>
+        <ChevronDown size={14} color={color.soft} strokeWidth={2} />
+      </Press>
+      <Dialog visible={open} onClose={() => setOpen(false)} title={title}>
+        <View style={[s.card, { padding: 0, overflow: 'hidden' }]}>
+          {options.map((o, i) => {
+            const on = o.value === value;
+            return (
+              <Press
+                key={o.value}
+                accessibilityRole="button"
+                accessibilityState={{ selected: on }}
+                onPress={() => {
+                  setOpen(false);
+                  onChange(o.value);
+                }}
+                scale={1}
+                style={[s.row, { gap: 12, minHeight: 52, paddingHorizontal: 16 }, i > 0 && line]}
+              >
+                <Text style={[s.body, { flex: 1 }, on && { fontFamily: font.bold }]}>
+                  {o.label}
+                </Text>
+                {on && <Check size={18} color={color.ink} strokeWidth={2.4} />}
+              </Press>
+            );
+          })}
+        </View>
+      </Dialog>
+    </>
+  );
+}
+
+/** The line over a list: how many match, and the list's own choices, such as its order. */
+export function ListBar({
+  total,
+  loading,
+  noun,
+  children,
+}: {
+  total: number;
+  loading: boolean;
+  /** The singular and plural: ['member', 'members']. */
+  noun: [string, string];
+  children?: React.ReactNode;
+}) {
+  const f = useFormat();
+  return (
+    <View style={[s.between, { gap: 10, minHeight: 36 }]}>
+      <Text style={[s.small, { flexShrink: 1 }]}>
+        {loading && !total ? '' : `${f.number(total)} ${total === 1 ? noun[0] : noun[1]}`}
+      </Text>
+      {children && <View style={[s.row, { gap: 8 }]}>{children}</View>}
+    </View>
+  );
+}
+
 /** The state under a list: loading, an error, nothing found, or more to load. */
 export function ListState({
   shown,
@@ -676,6 +869,7 @@ export function Loading({ error }: { error?: string }) {
 
 /** Label/value pairs, such as a member's account details. Values can be selected and copied. */
 export function Facts({ rows }: { rows: [string, React.ReactNode][] }) {
+  const { compact } = useChrome();
   return (
     <View style={{ gap: 0 }}>
       {rows.map(([label, value], i) => (
@@ -692,7 +886,7 @@ export function Facts({ rows }: { rows: [string, React.ReactNode][] }) {
             },
           ]}
         >
-          <Text style={[s.small, { width: 128, paddingTop: 2 }]}>{label}</Text>
+          <Text style={[s.small, { width: compact ? 104 : 128, paddingTop: 2 }]}>{label}</Text>
           {typeof value === 'string' || typeof value === 'number' ? (
             <Text selectable style={[s.body, { flex: 1, fontSize: 14, lineHeight: 20 }]}>
               {value}

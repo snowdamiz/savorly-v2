@@ -19,15 +19,17 @@ No one can mark an address in `ADMIN_EMAILS` as verified from the console, or ap
 
 ## What's in it
 
+The sections come in four groups: at a glance (Overview, Cooking), moderation (Reports, Reviews), people and recipes (Members, Recipes), and running Savorly (AI & jobs, Settings, Audit log). The desktop shows them as tabs; on phones and tablets the section's name at the top opens a menu of them in those groups, with the open reports beside Reports (and beside the section's name elsewhere). A member's record is in three parts, Account, Activity and Manage (every action, then the admin history); a recipe's in two, Recipe and Moderation (its actions, reports and admin history), under its status and any hold. AI & jobs is split into Usage, Turns and Jobs.
+
 | Section | What you can do |
 | --- | --- |
 | Overview | Members, sign-ins, recipes, open reports, AI spend against today's budgets, the AI queue, 30-day sign-ups/recipes/spend/jobs, plan and sign-in mix, community activity, and which integrations are configured (never their secrets). Alerts point at anything needing attention. While the creator fund is on, a Creator fund panel: this month so far, unpaid and paid earnings, the paid-cooks signals, payouts, payout accounts and every closed month. |
 | Cooking | Whether members cook in Savorly ([below](#cooking)), the creator fund week by week (while it's on), the weekly cook-along's weeks with who scheduled them and how many cooked, and the founding creators in the order their turns come. |
 | Reports | The moderation queue, grouped by recipe and most-reported first. Dismiss, unpublish (which resolves the reports), delete the recipe, or open the author. Resolved and dismissed reports stay browsable with who closed them and their note. A new report on a closed recipe reopens it. |
+| Reviews | Search and filter by rating; delete reviews (the audit log keeps the text). |
 | Members | Search and filter (admins, suspended, unverified, paid, reported, sample cooks, founding creators); sort by newest, last sign-in, AI spend or recipes. A member's record shows their account, sign-in methods, plan and Stripe IDs, 30-day AI use against their plan, activity counts, recipes, reviews, AI jobs, reports they filed, their creator earnings and payouts (while the creator fund is on), and admin history. |
 | Recipes | Every recipe including drafts, filtered by published, drafts, reported, AI-generated or suspended author, and sorted by newest, recently edited, most reported, most saved or top rated. A recipe's record shows its full content, reports and admin history. |
-| Reviews | Search and filter by rating; delete reviews (the audit log keeps the text). |
-| AI & jobs | Live voice sessions (end one), top spenders, use and failures per tool, and every AI job with its prompt, result and error. Cancel queued or processing jobs. Sous-chef turns, by status, channel (text or voice) and member, each with its trace (model rounds with their time and cost, and the tools each called, with any error) and its reply. |
+| AI & jobs | Usage: live voice sessions (end one), top spenders, and use and failures per tool. Jobs: every AI job with its prompt, result and error. Cancel queued or processing jobs. Turns: sous-chef turns, by status, channel (text or voice) and member, each with its trace (model rounds with their time and cost, and the tools each called, with any error) and its reply. |
 | Settings | Pause all AI, override the daily AI budgets, pause sign-ups, and publish a site-wide announcement. |
 | Audit log | Every console action, newest first, searchable. Entries can't be edited from the console and survive deletion of the admin, member or recipe. An entry marked **Needs attention** says what to finish by hand, such as a Stripe change Stripe didn't confirm. |
 

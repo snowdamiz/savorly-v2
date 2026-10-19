@@ -360,10 +360,12 @@ test('restoring follows the recipe’s own hold, not its history', async ({ page
   await page.goto('/?page=admin&tab=recipes');
   await expect(page.getByText('Unpublished by an admin')).toHaveCount(1);
   await page.getByText('Private draft', { exact: true }).click();
+  await page.getByRole('tab', { name: 'Moderation', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Delete recipe' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Restore to public' })).toHaveCount(0);
   await page.getByRole('button', { name: 'Close dialog', exact: true }).click();
   await page.getByText('Held halloumi', { exact: true }).click();
+  await page.getByRole('tab', { name: 'Moderation', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Restore to public' })).toBeVisible();
   await expect(page.getByText(/its author can’t publish it until it’s restored/)).toBeVisible();
 });
@@ -423,6 +425,36 @@ test('an announcement shows to everyone until it is dismissed', async ({ page })
   await page.reload();
   await expect(page.getByText('What would you like to cook today?')).toBeVisible();
   await expect(page.getByText('Maintenance tonight at 22:00 UTC.')).toHaveCount(0);
+});
+
+test('on a phone, the section’s name opens a menu of every section', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await mockAPI(page, owner);
+  await page.goto('/?page=admin');
+  // Waiting reports ride beside the section's name, since there's no Reports tab to carry them.
+  const title = page.getByRole('button', { name: 'Overview: choose a section', exact: true });
+  await expect(title).toContainText('1');
+  await title.click();
+  const menu = page.getByRole('dialog');
+  for (const name of [
+    'Overview',
+    'Cooking',
+    'Reports',
+    'Reviews',
+    'Members',
+    'Recipes',
+    'AI & jobs',
+    'Settings',
+    'Audit log',
+  ])
+    await expect(menu.getByRole('button', { name, exact: true })).toBeVisible();
+  await menu.getByRole('button', { name: 'Settings', exact: true }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(page).toHaveURL(/tab=settings/);
+  await expect(page.getByRole('switch', { name: 'Pause all AI features' })).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'Settings: choose a section', exact: true }),
+  ).toBeVisible();
 });
 
 test('admins replay the kitchen setup and the welcome to try them', async ({ page }) => {

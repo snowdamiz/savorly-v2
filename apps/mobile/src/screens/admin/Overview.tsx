@@ -2,16 +2,17 @@ import React, { useState } from 'react';
 import { Text, View } from 'react-native';
 import { Check, Minus } from '../../components/icons';
 import { Overview as Data, Insights as InsightsData } from '../../lib/admin';
-import { color, font, s } from '../../lib/theme';
-import { Segmented } from '../../components/ui';
+import { color, font, radius, s } from '../../lib/theme';
+import { Press, Segmented } from '../../components/ui';
 import {
+  Alert,
+  Attention,
   Bars,
   Columns,
   Facts,
   Grid,
   Loading,
   Meter,
-  Notice,
   Panel,
   Stat,
   useFormat,
@@ -116,67 +117,49 @@ export function Overview() {
   if (!data) return <Loading error={error} />;
   const { stats, budget, system, settings } = data;
   const m = stats.members;
-  const alerts: React.ReactNode[] = [];
+  const alerts: Alert[] = [];
   if (budget.paused)
-    alerts.push(
-      <Notice
-        key="paused"
-        tone="warning"
-        text="All AI features are paused. Members see a maintenance message."
-        action="Settings"
-        onPress={() => nav.go('settings')}
-      />,
-    );
+    alerts.push({
+      key: 'paused',
+      tone: 'warning',
+      text: 'All AI features are paused. Members see a maintenance message.',
+      onPress: () => nav.go('settings'),
+    });
   if (settings.signupsPaused)
-    alerts.push(
-      <Notice
-        key="signups"
-        tone="warning"
-        text="New sign-ups are paused."
-        action="Settings"
-        onPress={() => nav.go('settings')}
-      />,
-    );
+    alerts.push({
+      key: 'signups',
+      tone: 'warning',
+      text: 'New sign-ups are paused.',
+      onPress: () => nav.go('settings'),
+    });
   if (stats.reports.open)
-    alerts.push(
-      <Notice
-        key="reports"
-        tone="warning"
-        text={`${stats.reports.recipes} reported recipe${stats.reports.recipes === 1 ? '' : 's'} waiting for review (${stats.reports.open} report${stats.reports.open === 1 ? '' : 's'}).`}
-        action="Review"
-        onPress={() => nav.go('reports')}
-      />,
-    );
+    alerts.push({
+      key: 'reports',
+      tone: 'warning',
+      text: `${stats.reports.recipes} reported recipe${stats.reports.recipes === 1 ? '' : 's'} waiting for review (${stats.reports.open} report${stats.reports.open === 1 ? '' : 's'}).`,
+      onPress: () => nav.go('reports'),
+    });
   if (budget.daily > 0 && stats.spend.last24h >= budget.daily * 0.8)
-    alerts.push(
-      <Notice
-        key="budget"
-        tone={stats.spend.last24h >= budget.daily ? 'error' : 'warning'}
-        text={`AI spend in the last 24 hours is ${f.money(stats.spend.last24h)} of the ${f.money(budget.daily)} daily budget.`}
-        action="Budgets"
-        onPress={() => nav.go('settings')}
-      />,
-    );
+    alerts.push({
+      key: 'budget',
+      tone: stats.spend.last24h >= budget.daily ? 'error' : 'warning',
+      text: `AI spend in the last 24 hours is ${f.money(stats.spend.last24h)} of the ${f.money(budget.daily)} daily budget.`,
+      onPress: () => nav.go('settings'),
+    });
   if (stats.jobs.oldestQueuedSeconds > 300)
-    alerts.push(
-      <Notice
-        key="queue"
-        tone="warning"
-        text={`An AI job has waited ${Math.round(stats.jobs.oldestQueuedSeconds / 60)} minutes in the queue. Check that the API's worker is running.`}
-        action="Jobs"
-        onPress={() => nav.go('ai')}
-      />,
-    );
+    alerts.push({
+      key: 'queue',
+      tone: 'warning',
+      text: `An AI job has waited ${Math.round(stats.jobs.oldestQueuedSeconds / 60)} minutes in the queue. Check that the API's worker is running.`,
+      onPress: () => nav.go('ai'),
+    });
   if (stats.jobs.failed24h + stats.assistant.failed24h > 0)
-    alerts.push(
-      <Notice
-        key="failed"
-        tone="info"
-        text={`${stats.jobs.failed24h} AI job${stats.jobs.failed24h === 1 ? '' : 's'} and ${stats.assistant.failed24h} sous-chef turn${stats.assistant.failed24h === 1 ? '' : 's'} failed in the last 24 hours.`}
-        action="Jobs"
-        onPress={() => nav.go('ai')}
-      />,
-    );
+    alerts.push({
+      key: 'failed',
+      tone: 'info',
+      text: `${stats.jobs.failed24h} AI job${stats.jobs.failed24h === 1 ? '' : 's'} and ${stats.assistant.failed24h} sous-chef turn${stats.assistant.failed24h === 1 ? '' : 's'} failed in the last 24 hours.`,
+      onPress: () => nav.go('ai'),
+    });
   const chosen = metrics.find((x) => x.value === metric)!;
   const plans = stats.plans;
   const on = (v: boolean) =>
@@ -193,7 +176,7 @@ export function Overview() {
     );
   return (
     <View style={{ gap: 16 }}>
-      {alerts.length > 0 && <View style={{ gap: 8 }}>{alerts}</View>}
+      <Attention alerts={alerts} />
       <Grid min={150}>
         <Stat
           label="Members"
@@ -284,15 +267,42 @@ export function Overview() {
         </Panel>
       </Grid>
       <Panel title="Last 30 days" subtitle="Days are in UTC.">
-        <Segmented
-          value={metric}
-          onChange={setMetric}
-          options={metrics.map((x) => ({ value: x.value, label: x.label }))}
-        />
+        {/* Each total picks its chart, so a phone needs no row of tabs to squeeze. */}
+        <View accessibilityRole="tablist">
+          <Grid min={130}>
+            {metrics.map((x) => {
+              const on = x.value === metric;
+              const total = data.series.reduce((sum, d) => sum + d[x.value], 0);
+              const value = x.value === 'spend' ? f.money(total) : f.number(total);
+              return (
+                <Press
+                  key={x.value}
+                  accessibilityRole="tab"
+                  accessibilityLabel={`${x.label}: ${value}`}
+                  accessibilityState={{ selected: on }}
+                  onPress={() => setMetric(x.value)}
+                  scale={0.98}
+                  style={{
+                    gap: 2,
+                    paddingVertical: 10,
+                    paddingHorizontal: 14,
+                    borderRadius: radius.md,
+                    borderWidth: 1.5,
+                    borderColor: on ? color.ink : color.border,
+                  }}
+                >
+                  <Text style={s.small}>{x.label}</Text>
+                  <Text style={[s.h3, { fontSize: 18 }]}>{value}</Text>
+                </Press>
+              );
+            })}
+          </Grid>
+        </View>
         <Columns
           unit={chosen.unit === 'AI spend' ? '' : chosen.unit}
           format={metric === 'spend' ? f.money : f.number}
           points={data.series.map((d) => ({ label: f.day(d.day), value: d[metric] }))}
+          summary="Press a day for its value."
         />
       </Panel>
       <Insights />
