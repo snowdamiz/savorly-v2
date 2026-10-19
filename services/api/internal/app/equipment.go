@@ -31,7 +31,7 @@ const (
 	equipmentNameLength = 60
 	// equipmentVersion changes with the lexicon or the rules below; recipes read under another are
 	// read again (indexEquipment).
-	equipmentVersion = 2
+	equipmentVersion = 3
 )
 
 // equipmentWords is folded text as the words an alias is matched against, English-style plurals
@@ -70,11 +70,26 @@ var equipmentClause = regexp.MustCompile(`[.,;:!?()\[\]"“”„«»…。，�
 
 // matchEquipment finds the equipment one text names, in order: at each word the longest alias,
 // so a Dutch oven is never an oven and "oven-safe" no oven at all. German compounds are read by
-// their head ("Gusseisenpfanne"), and runs of CJK script inside.
-func matchEquipment(text, language string) []string {
+// their head ("Gusseisenpfanne"), and runs of CJK script inside. Everyday tools read only on a
+// cook's list are left out.
+func matchEquipment(text, language string) []string { return matchEquipmentKeys(text, language, false) }
+
+// nameEquipment is what one name on a cook's list names, for its icon: the first piece of
+// equipment or everyday tool it names in the recipe's language, or else in English ("Large frying
+// pan with a lid" is a frying pan, "Wooden spoon" a spoon); "" for none.
+func nameEquipment(name, language string) string {
+	for _, in := range []string{language, "en"} {
+		if keys := matchEquipmentKeys(name, in, true); len(keys) > 0 {
+			return keys[0]
+		}
+	}
+	return ""
+}
+
+func matchEquipmentKeys(text, language string, lists bool) []string {
 	var out []string
 	add := func(key string) {
-		if key != ignoredEquipment {
+		if key != ignoredEquipment && (lists || !equipmentListOnly[key]) {
 			out = append(out, key)
 		}
 	}
@@ -201,20 +216,26 @@ func (a *App) methodEquipment(c fiber.Ctx) error {
 	return c.JSON(fiber.Map{"equipment": detectEquipment(steps, language)})
 }
 
-// indexRecipeEquipment reads what one recipe's method mentions, from what is saved. A recipe
-// changed in the meantime is left for the next write or pass, which reads the newer steps.
+// indexRecipeEquipment reads what one recipe's method mentions, and what each name on its cook's
+// list names (for its icon), from what is saved. A recipe changed in the meantime is left for the
+// next write or pass, which reads the newer steps.
 func indexRecipeEquipment(ctx context.Context, db recipeWriter, id string) error {
 	var steps []Step
+	var own []string
 	var language, source string
-	e := db.QueryRow(ctx, `SELECT steps,language,equipment_source FROM recipes WHERE id=$1`, id).Scan(&steps, &language, &source)
+	e := db.QueryRow(ctx, `SELECT steps,equipment,language,equipment_source FROM recipes WHERE id=$1`, id).Scan(&steps, &own, &language, &source)
 	if errors.Is(e, pgx.ErrNoRows) {
 		return nil
 	}
 	if e != nil {
 		return e
 	}
-	_, e = db.Exec(ctx, `UPDATE recipes SET equipment_detected=$2,equipment_version=$3,equipment_indexed=$4 WHERE id=$1 AND equipment_source=$4`,
-		id, detectEquipment(steps, language), equipmentVersion, source)
+	kinds := make([]string, len(own))
+	for i, name := range own {
+		kinds[i] = nameEquipment(name, language)
+	}
+	_, e = db.Exec(ctx, `UPDATE recipes SET equipment_detected=$2,equipment_kinds=$3,equipment_version=$4,equipment_indexed=$5 WHERE id=$1 AND equipment_source=$5 AND equipment=$6`,
+		id, detectEquipment(steps, language), kinds, equipmentVersion, source, own)
 	return e
 }
 

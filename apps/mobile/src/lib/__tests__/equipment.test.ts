@@ -1,6 +1,7 @@
 /// <reference types="jest" />
 import {
   EQUIPMENT_MAX,
+  byImportance,
   cleanEquipment,
   moved,
   shownEquipment,
@@ -23,20 +24,22 @@ test('a list is kept as the API keeps it: trimmed, without blanks or repeats, at
 test('the cook’s own list comes first, and never mixes with what the method mentions', () => {
   expect(
     shownEquipment({ equipment: ['Large pot', ''], equipmentDetected: ['pot', 'oven'] }, name),
-  ).toEqual({ names: ['Large pot'], detected: false, guessed: false });
+  ).toMatchObject({ names: ['Large pot'], detected: false, guessed: false });
   // Without one, what the method mentions, by its names in the reader's language.
-  expect(shownEquipment({ equipment: [], equipmentDetected: ['pot', 'oven'] }, name)).toEqual({
-    names: ['Pot', 'Oven'],
-    detected: true,
-    guessed: false,
-  });
-  // A key this version of the app doesn't know yet is left out.
-  expect(shownEquipment({ equipmentDetected: ['sous vide circulator', 'colander'] }, name)).toEqual(
-    { names: ['Colander'], detected: true, guessed: false },
+  expect(shownEquipment({ equipment: [], equipmentDetected: ['pot', 'oven'] }, name)).toMatchObject(
+    {
+      names: ['Pot', 'Oven'],
+      detected: true,
+      guessed: false,
+    },
   );
+  // A key this version of the app doesn't know yet is left out.
+  expect(
+    shownEquipment({ equipmentDetected: ['sous vide circulator', 'colander'] }, name),
+  ).toMatchObject({ names: ['Colander'], detected: true, guessed: false });
   // An older server says nothing, and nothing shows.
-  expect(shownEquipment({}, name)).toEqual({ names: [], detected: false, guessed: false });
-  expect(shownEquipment({ equipmentDetected: ['sous vide circulator'] }, name)).toEqual({
+  expect(shownEquipment({}, name)).toMatchObject({ names: [], detected: false, guessed: false });
+  expect(shownEquipment({ equipmentDetected: ['sous vide circulator'] }, name)).toMatchObject({
     names: [],
     detected: false,
     guessed: false,
@@ -53,7 +56,7 @@ test('without a list, the sous-chef’s guess comes before what the method menti
       { key: 'colander', steps: [2] },
     ],
   };
-  expect(shownEquipment(recipe, name)).toEqual({
+  expect(shownEquipment(recipe, name)).toMatchObject({
     names: ['Pot', 'Colander'],
     detected: true,
     guessed: true,
@@ -67,11 +70,64 @@ test('without a list, the sous-chef’s guess comes before what the method menti
   expect(shownEquipment(listed, name).names).toEqual(['Large pot']);
   expect(stepEquipment(listed, 1, name)).toEqual([]);
   // Before the model has guessed, what the method mentions.
-  expect(shownEquipment({ ...recipe, equipmentGuess: [] }, name)).toEqual({
+  expect(shownEquipment({ ...recipe, equipmentGuess: [] }, name)).toMatchObject({
     names: ['Colander'],
     detected: true,
     guessed: false,
   });
+});
+
+test('each tool carries what it names, for its icon', () => {
+  // The cook's names keep what the server read in each, one for one, through cleaning.
+  expect(
+    shownEquipment(
+      {
+        equipment: ['Large pot', 'large POT', 'Wooden spoon', 'A good apron'],
+        equipmentKinds: ['pot', 'pot', 'spoon', ''],
+      },
+      name,
+    ).tools,
+  ).toEqual([
+    { name: 'Large pot', kind: 'pot' },
+    { name: 'Wooden spoon', kind: 'spoon' },
+    { name: 'A good apron', kind: '' },
+  ]);
+  // From an older server, without kinds: every tool draws the utensils.
+  expect(shownEquipment({ equipment: ['Wok'] }, name).tools).toEqual([{ name: 'Wok', kind: '' }]);
+  // What the method mentions, or the guess, is its own key.
+  expect(shownEquipment({ equipmentDetected: ['pot', 'oven'] }, name).tools).toEqual([
+    { name: 'Pot', kind: 'pot' },
+    { name: 'Oven', kind: 'oven' },
+  ]);
+});
+
+test('what a kitchen may not have comes first, everyday tools last', () => {
+  const tool = (name: string, kind: string) => ({ name, kind });
+  const cookies = [
+    tool('Saucepan', 'saucepan'),
+    tool('Mixing bowl', 'bowl'),
+    tool('Oven', 'oven'),
+    tool('2 baking trays', 'sheet pan'),
+    tool('Pasta machine', ''),
+    tool('Springform tin', 'cake pan'),
+  ];
+  expect(byImportance(cookies).map((t) => t.name)).toEqual([
+    'Oven',
+    'Pasta machine',
+    'Springform tin',
+    'Saucepan',
+    '2 baking trays',
+    'Mixing bowl',
+  ]);
+  // Among equals, the list's own order; a list from an older server, without kinds, stays as is.
+  const plain = [tool('B', ''), tool('A', ''), tool('C', '')];
+  expect(byImportance(plain)).toEqual(plain);
+});
+
+test('the guess carries the steps that use each tool', () => {
+  expect(shownEquipment({ equipmentGuess: [{ key: 'pot', steps: [2, 3] }] }, name).tools).toEqual([
+    { name: 'Pot', kind: 'pot', steps: [2, 3] },
+  ]);
 });
 
 test('suggestions join the end of the list, without what it already has', () => {

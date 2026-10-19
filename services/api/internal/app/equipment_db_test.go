@@ -14,6 +14,7 @@ import (
 // equipmentOf is a recipe's equipment as GET /recipes/:id answers it.
 type recipeEquipment struct {
 	Equipment         []string `json:"equipment"`
+	EquipmentKinds    []string `json:"equipmentKinds"`
 	EquipmentDetected []string `json:"equipmentDetected"`
 }
 
@@ -64,13 +65,14 @@ func TestRecipeEquipmentIsKeptLikePhotos(t *testing.T) {
 	if !slices.Equal(r.Equipment, []string{"Large pot", "Colander"}) || !slices.Equal(r.EquipmentDetected, []string{"pot", "colander", "frying pan", "oven"}) {
 		t.Fatalf("kept: %+v", r)
 	}
-	r = equipmentOf(t, mustCall(t, f, 200, "PUT", "/v1/recipes/"+id, token, withEquipment(in, []string{"Skillet", "Colander"})))
-	if !slices.Equal(r.Equipment, []string{"Skillet", "Colander"}) {
+	// Each name on the list names its icon, read in the same save.
+	r = equipmentOf(t, mustCall(t, f, 200, "PUT", "/v1/recipes/"+id, token, withEquipment(in, []string{"Skillet", "Wooden spoon", "A good apron"})))
+	if !slices.Equal(r.Equipment, []string{"Skillet", "Wooden spoon", "A good apron"}) || !slices.Equal(r.EquipmentKinds, []string{"frying pan", "spoon", ""}) {
 		t.Fatalf("changed: %+v", r)
 	}
 	// [] clears it; what the method mentions stays.
 	r = equipmentOf(t, mustCall(t, f, 200, "PUT", "/v1/recipes/"+id, token, withEquipment(in, []string{})))
-	if r.Equipment == nil || len(r.Equipment) != 0 || len(r.EquipmentDetected) != 4 {
+	if r.Equipment == nil || len(r.Equipment) != 0 || len(r.EquipmentKinds) != 0 || len(r.EquipmentDetected) != 4 {
 		t.Fatalf("cleared: %+v", r)
 	}
 	r = equipmentOf(t, mustCall(t, f, 200, "GET", "/v1/recipes/"+id, token, nil))
@@ -138,6 +140,17 @@ func TestIndexEquipmentCatchesUp(t *testing.T) {
 	}
 	if n, e = indexEquipment(ctx, db); e != nil || n != 0 {
 		t.Fatalf("second pass read %d: %v", n, e)
+	}
+	// A list the seed fills in is read for its icons once it asks to be.
+	if _, e = db.Exec(ctx, `UPDATE recipes SET equipment='{Dutch oven,Ladle}',equipment_indexed='' WHERE id='soup'`); e != nil {
+		t.Fatal(e)
+	}
+	if n, e = indexEquipment(ctx, db); e != nil || n != 1 {
+		t.Fatalf("third pass read %d: %v", n, e)
+	}
+	var kinds []string
+	if e = db.QueryRow(ctx, `SELECT equipment_kinds FROM recipes WHERE id='soup'`).Scan(&kinds); e != nil || !slices.Equal(kinds, []string{"dutch oven", "ladle"}) {
+		t.Fatalf("kinds %q %v", kinds, e)
 	}
 }
 
