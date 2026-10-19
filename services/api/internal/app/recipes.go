@@ -185,6 +185,56 @@ func saveOwnRecipe(ctx context.Context, tx pgx.Tx, owner, id string, r RecipeInp
 	return e
 }
 
+// publishRecipe publishes one of the member's recipes as it stands, or makes it private: the
+// recipe page's Publish for a private draft, such as one the sous-chef saved. Nothing else
+// changes, so it needs no copy of the recipe, and it holds as the editor does.
+func (a *App) publishRecipe(c fiber.Ctx) error {
+	var in struct {
+		Published *bool `json:"published"`
+	}
+	if e := decode(c, &in); e != nil {
+		return e
+	}
+	if in.Published == nil {
+		return fiber.NewError(400, "Say whether to publish the recipe or keep it private.")
+	}
+	ctx, owner, id, publish := c.Context(), userID(c), c.Params("id"), *in.Published
+	tx, e := a.DB.Begin(ctx)
+	if e != nil {
+		return e
+	}
+	defer tx.Rollback(ctx)
+	if _, e = tx.Exec(ctx, `SELECT id FROM voice_projects WHERE recipe_id=$1 FOR UPDATE`, id); e != nil {
+		return e
+	}
+	var was bool
+	if e = tx.QueryRow(ctx, `SELECT published FROM recipes WHERE id=$1 AND author_id=$2 FOR UPDATE`, id, owner).Scan(&was); errors.Is(e, pgx.ErrNoRows) {
+		return fiber.NewError(404, "Recipe not found or you are not its author.")
+	} else if e != nil {
+		return e
+	}
+	if was != publish {
+		if e = moderationHold(ctx, tx, id, owner, publish); e != nil {
+			return e
+		}
+		if e = recordingConsentHold(ctx, tx, id, owner, publish); e != nil {
+			return e
+		}
+		if _, e = tx.Exec(ctx, `UPDATE recipes SET published=$3,updated_at=now() WHERE id=$1 AND author_id=$2`, id, owner, publish); e != nil {
+			return e
+		}
+		// As the sous-chef's own publish: its read-back is used up, and a cover photo still being
+		// made (which lands by revision) arrives all the same.
+		if _, e = tx.Exec(ctx, `UPDATE voice_projects SET confirmed_revision=-1,status=CASE WHEN $2 THEN 'published' WHEN status='published' THEN 'draft' ELSE status END,updated_at=now() WHERE recipe_id=$1`, id, publish); e != nil {
+			return e
+		}
+	}
+	if e = tx.Commit(ctx); e != nil {
+		return e
+	}
+	return a.queryOne(c, `SELECT `+recipeJSON+recipeFrom+`WHERE r.id=$1`, id)
+}
+
 type recipeWriter interface {
 	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
 	QueryRow(context.Context, string, ...any) pgx.Row

@@ -220,6 +220,65 @@ func TestStudioClarificationBuildMediaAndPublish(t *testing.T) {
 		t.Fatal("explicit publish failed")
 	}
 }
+
+// A private draft, such as one the sous-chef saved, goes out only when its cook publishes it:
+// from the recipe page, which sends nothing but that, as here.
+func TestPublishingADraftAsItStands(t *testing.T) {
+	db := isolatedDB(t)
+	ctx := context.Background()
+	testUser(t, db, "cook")
+	testUser(t, db, "other")
+	f := recipesApp(db, false)
+	cook, other := bearerFor(t, db, "cook"), bearerFor(t, db, "other")
+	draft := jsonObject(t, mustCall(t, f, 201, "POST", "/v1/recipes", cook, validRecipe()))
+	id, _ := draft["id"].(string)
+	if draft["published"] != false {
+		t.Fatalf("a draft went out: %v", draft)
+	}
+	// The conversation that wrote it read it back, and its cover photo is still being made.
+	project := uuid.NewString()
+	if _, e := db.Exec(ctx, `INSERT INTO voice_projects(id,user_id,recipe_id,revision,confirmed_revision,status) VALUES($1,'cook',$2,3,3,'generating')`, project, id); e != nil {
+		t.Fatal(e)
+	}
+	publish := func(token string, body any) (int, []byte) {
+		return callAPI(t, f, "PUT", "/v1/recipes/"+id+"/published", token, body)
+	}
+	if status, b := publish(other, fiber.Map{"published": true}); status != 404 {
+		t.Fatalf("someone else published it: %d %s", status, b)
+	}
+	if status, b := publish(cook, fiber.Map{}); status != 400 {
+		t.Fatalf("published without saying so: %d %s", status, b)
+	}
+	if status, _ := callAPI(t, f, "GET", "/v1/recipes/"+id, other, nil); status != 404 {
+		t.Fatalf("someone else opened the draft: %d", status)
+	}
+	out := jsonObject(t, mustCall(t, f, 200, "PUT", "/v1/recipes/"+id+"/published", cook, fiber.Map{"published": true}))
+	if out["published"] != true || out["title"] != "Lemon pasta" {
+		t.Fatalf("published: %v", out)
+	}
+	mustCall(t, f, 200, "GET", "/v1/recipes/"+id, other, nil)
+	var revision, confirmed int
+	var status string
+	if e := db.QueryRow(ctx, `SELECT revision,confirmed_revision,status FROM voice_projects WHERE id=$1`, project).Scan(&revision, &confirmed, &status); e != nil {
+		t.Fatal(e)
+	}
+	// The read-back is used up; the revision the cover photo lands by stays.
+	if revision != 3 || confirmed != -1 || status != "published" {
+		t.Fatalf("conversation after publishing: revision %d confirmed %d status %s", revision, confirmed, status)
+	}
+	mustCall(t, f, 200, "PUT", "/v1/recipes/"+id+"/published", cook, fiber.Map{"published": false})
+	if status, _ := callAPI(t, f, "GET", "/v1/recipes/"+id, other, nil); status != 404 {
+		t.Fatalf("made private, it still opened for someone else: %d", status)
+	}
+	// An admin's hold keeps it private.
+	if _, e := db.Exec(ctx, `UPDATE recipes SET unpublished_by_admin_at=now() WHERE id=$1`, id); e != nil {
+		t.Fatal(e)
+	}
+	if status, b := publish(cook, fiber.Map{"published": true}); status != 403 {
+		t.Fatalf("published past an admin's hold: %d %s", status, b)
+	}
+}
+
 func TestStudioCorrectionsRejectStaleResultsAndMedia(t *testing.T) {
 	a, p := studioFixture(t)
 	ctx := context.Background()

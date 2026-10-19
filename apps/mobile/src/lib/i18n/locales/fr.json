@@ -2248,5 +2248,8 @@
   "toBuyCount_one": "{{count}} à acheter",
   "toBuyCount_few": "{{count}} à acheter",
   "toBuyCount_many": "{{count}} à acheter",
-  "toBuyCount_other": "{{count}} à acheter"
+  "toBuyCount_other": "{{count}} à acheter",
+  "Publish recipe": "Publier la recette",
+  "Private draft. It stays private until you publish it.": "Brouillon privé. Il reste privé jusqu’à ce que vous le publiiez.",
+  "Say whether to publish the recipe or keep it private.": "Indiquez si vous voulez publier la recette ou la garder privée."
 }

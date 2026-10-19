@@ -273,6 +273,9 @@ func TestFamilyRecordingsBecomeRecipes(t *testing.T) {
 	if status, b := edit(steps, true); status != 409 || jsonObject(t, b)["error"] != consentNeeded {
 		t.Fatalf("published without consent: %d %s", status, b)
 	}
+	if status, b := callAPI(t, f, "PUT", "/v1/recipes/"+recipeID+"/published", cook, fiber.Map{"published": true}); status != 409 || jsonObject(t, b)["error"] != consentNeeded {
+		t.Fatalf("published from its page without consent: %d %s", status, b)
+	}
 	if status, _ := callAPI(t, f, "POST", "/v1/recipes/"+recipeID+"/recording-consent", cook, fiber.Map{"agreed": false}); status != 400 {
 		t.Fatalf("consent without agreeing: %d", status)
 	}
