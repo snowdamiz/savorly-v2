@@ -204,8 +204,8 @@ function CookAlongPanel() {
               .filter(Boolean)
               .join(' · '),
         ]}
-        right={
-          <View style={[s.row, { gap: 4 }]}>
+        actions={
+          <>
             <Button
               title={w ? 'Change' : 'Schedule'}
               label={`${w ? 'Change' : 'Schedule'} the week of ${f.day(week)}`}
@@ -222,7 +222,7 @@ function CookAlongPanel() {
                 onPress={() => setClearing(w)}
               />
             )}
-          </View>
+          </>
         }
       />
     );

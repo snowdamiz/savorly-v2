@@ -5,13 +5,15 @@ import { api } from '../../lib/api';
 import { AdminAI, AdminJob, AdminTurn } from '../../lib/admin';
 import { AIKind } from '../../lib/types';
 import { color, font, radius, s } from '../../lib/theme';
-import { Avatar, Button, Dialog } from '../../components/ui';
+import { Avatar, Button, Dialog, Segmented } from '../../components/ui';
 import {
   Badge,
+  Choose,
   Confirm,
   Facts,
   Filters,
   Grid,
+  ListBar,
   ListState,
   Loading,
   Notice,
@@ -100,12 +102,21 @@ export function Operations() {
   );
   const action = useRun();
   const [end, setEnd] = useState<AdminAI['voice'][number] | null>(null);
+  const [part, setPart] = useState<'usage' | 'turns' | 'jobs'>('usage');
   const data = ai.data;
   return (
     <View style={{ gap: 16 }}>
-      {!data ? (
-        <Loading error={ai.error} />
-      ) : (
+      <Segmented
+        value={part}
+        onChange={setPart}
+        options={[
+          { value: 'usage', label: 'Usage' },
+          { value: 'turns', label: 'Turns' },
+          { value: 'jobs', label: 'Jobs' },
+        ]}
+      />
+      {part === 'usage' && !data && <Loading error={ai.error} />}
+      {part === 'usage' && data && (
         <>
           <Panel
             title="Live voice now"
@@ -131,7 +142,7 @@ export function Operations() {
                     `Started ${f.ago(v.createdAt)} · ${Math.round(v.seconds / 60)} of ${Math.round(v.reservedSeconds / 60)} reserved minutes · heartbeat ${f.ago(v.heartbeatAt)}`,
                   ]}
                   onPress={() => nav.member(v.user.id)}
-                  right={
+                  actions={
                     !v.closeRequested && (
                       <Button
                         title="End"
@@ -219,72 +230,90 @@ export function Operations() {
           </Grid>
         </>
       )}
-      <View style={{ gap: 12 }}>
-        <Text style={s.h2}>Sous-chef turns</Text>
-        <Search
-          value={turnSearch.text}
-          onChange={turnSearch.setText}
-          placeholder="Search member email, member ID or turn ID"
-        />
-        <Filters options={[...turnStatuses]} value={turnStatus} onChange={setTurnStatus} />
-        <Filters options={[...channels]} value={channel} onChange={setChannel} />
-        <View style={{ gap: 8, opacity: turns.loading && turns.items.length ? 0.6 : 1 }}>
-          {turns.items.map((t) => (
-            <Row
-              key={t.id}
-              title={`${t.channel === 'voice' ? 'Voice' : 'Chat'} turn · ${t.user.name}`}
-              badges={<Badge title={t.status} tone={statusTone(t.status)} />}
-              lines={[
-                [t.user.email, f.dateTime(t.createdAt), seconds(t.ms), f.money(t.cost)]
-                  .filter(Boolean)
-                  .join(' · '),
-                turnSummary(t),
-              ]}
-              onPress={() => nav.turn(t.id)}
+      {part === 'turns' && (
+        <View style={{ gap: 12 }}>
+          <Search
+            value={turnSearch.text}
+            onChange={turnSearch.setText}
+            placeholder="Search member email, member ID or turn ID"
+          />
+          <Filters options={[...turnStatuses]} value={turnStatus} onChange={setTurnStatus} />
+          <ListBar
+            total={turns.total}
+            loading={turns.loading}
+            noun={['sous-chef turn', 'sous-chef turns']}
+          >
+            <Choose
+              title="Text or voice"
+              options={channels}
+              value={channel}
+              onChange={setChannel}
             />
-          ))}
+          </ListBar>
+          <View style={{ gap: 8, opacity: turns.loading && turns.items.length ? 0.6 : 1 }}>
+            {turns.items.map((t) => (
+              <Row
+                key={t.id}
+                title={`${t.channel === 'voice' ? 'Voice' : 'Chat'} turn · ${t.user.name}`}
+                badges={<Badge title={t.status} tone={statusTone(t.status)} />}
+                lines={[
+                  [t.user.email, f.dateTime(t.createdAt), seconds(t.ms), f.money(t.cost)]
+                    .filter(Boolean)
+                    .join(' · '),
+                  turnSummary(t),
+                ]}
+                onPress={() => nav.turn(t.id)}
+              />
+            ))}
+          </View>
+          <ListState
+            shown={turns.items.length}
+            total={turns.total}
+            loading={turns.loading}
+            error={turns.error}
+            empty="No turns match."
+            onMore={turns.more}
+          />
         </View>
-        <ListState
-          shown={turns.items.length}
-          total={turns.total}
-          loading={turns.loading}
-          error={turns.error}
-          empty="No turns match."
-          onMore={turns.more}
-        />
-      </View>
-      <View style={{ gap: 12 }}>
-        <Text style={s.h2}>AI jobs</Text>
-        <Search
-          value={search.text}
-          onChange={search.setText}
-          placeholder="Search member email, member ID or job ID"
-        />
-        <Filters options={[...statuses]} value={status} onChange={setStatus} />
-        <Filters options={kinds} value={kind} onChange={setKind} />
-        <View style={{ gap: 8, opacity: jobs.loading && jobs.items.length ? 0.6 : 1 }}>
-          {jobs.items.map((j) => (
-            <Row
-              key={j.id}
-              title={kindNames[j.kind] || j.kind}
-              badges={<Badge title={j.status} tone={statusTone(j.status)} />}
-              lines={[`${j.user.email} · ${f.dateTime(j.createdAt)} · ${f.money(j.cost)}`, j.error]}
-              onPress={() => nav.job(j.id)}
-            />
-          ))}
+      )}
+      {part === 'jobs' && (
+        <View style={{ gap: 12 }}>
+          <Search
+            value={search.text}
+            onChange={search.setText}
+            placeholder="Search member email, member ID or job ID"
+          />
+          <Filters options={[...statuses]} value={status} onChange={setStatus} />
+          <ListBar total={jobs.total} loading={jobs.loading} noun={['AI job', 'AI jobs']}>
+            <Choose title="AI tool" options={kinds} value={kind} onChange={setKind} />
+          </ListBar>
+          <View style={{ gap: 8, opacity: jobs.loading && jobs.items.length ? 0.6 : 1 }}>
+            {jobs.items.map((j) => (
+              <Row
+                key={j.id}
+                title={kindNames[j.kind] || j.kind}
+                badges={<Badge title={j.status} tone={statusTone(j.status)} />}
+                lines={[
+                  `${j.user.email} · ${f.dateTime(j.createdAt)} · ${f.money(j.cost)}`,
+                  j.error,
+                ]}
+                onPress={() => nav.job(j.id)}
+              />
+            ))}
+          </View>
+          <ListState
+            shown={jobs.items.length}
+            total={jobs.total}
+            loading={jobs.loading}
+            error={jobs.error}
+            empty="No jobs match."
+            onMore={jobs.more}
+          />
+          <Text style={s.small}>
+            Sous-chef conversations run as turns, not jobs; their photos and videos appear here.
+          </Text>
         </View>
-        <ListState
-          shown={jobs.items.length}
-          total={jobs.total}
-          loading={jobs.loading}
-          error={jobs.error}
-          empty="No jobs match."
-          onMore={jobs.more}
-        />
-        <Text style={s.small}>
-          Sous-chef conversations run as turns, not jobs; their photos and videos appear here.
-        </Text>
-      </View>
+      )}
       <Confirm
         visible={!!end}
         title="End this voice session?"
