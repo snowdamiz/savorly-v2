@@ -102,6 +102,13 @@ test('cooking mode shows a step’s notes and reports each step and timer', asyn
   await page.goto(`/?recipe=${sauce.id}`);
   await page.getByRole('button', { name: 'Start cooking', exact: true }).click();
   await page.getByRole('button', { name: 'Next step', exact: true }).click();
+  // What cooks keep asking opens from a quiet line, and Escape closes only that sheet.
+  await expect(page.getByText(question.answer, { exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Often asked here', exact: true }).click();
+  await expect(page.getByText(question.answer, { exact: true })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByText(question.answer, { exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Close cooking mode' })).toBeVisible();
   // Under the timer: how long cooks really need, and a tap that sets the timer to it.
   await expect(page.getByText('Most cooks need about 12 min', { exact: true })).toBeVisible();
   await expect(page.getByText('08:00', { exact: true })).toBeVisible();

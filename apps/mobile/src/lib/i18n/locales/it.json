@@ -1192,6 +1192,8 @@
   "tbspPart": "{{amount}} cucchiaio",
   "cupPart": "{{amount}} tazza",
   "Photo of step {{v0}}": "Foto del passaggio {{v0}}",
+  "See the photo": "Vedi la foto",
+  "Watch the clip": "Guarda il video",
   "Adapted from {{title}} by {{name}}": "Adattata da {{title}} di {{name}}",
   "From {{site}}": "Fonte: {{site}}",
   "Variations ({{v0}})": "Varianti ({{v0}})",

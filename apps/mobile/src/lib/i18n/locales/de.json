@@ -1192,6 +1192,8 @@
   "tbspPart": "{{amount}} EL",
   "cupPart": "{{amount}} Tasse",
   "Photo of step {{v0}}": "Foto zu Schritt {{v0}}",
+  "See the photo": "Foto ansehen",
+  "Watch the clip": "Clip ansehen",
   "Adapted from {{title}} by {{name}}": "Nach {{title}} von {{name}}",
   "From {{site}}": "Quelle: {{site}}",
   "Variations ({{v0}})": "Varianten ({{v0}})",

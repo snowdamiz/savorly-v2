@@ -275,6 +275,7 @@ export function IconButton({
   plain,
   glass,
   disabled,
+  busy,
   size = 44,
 }: {
   icon: LucideIcon;
@@ -286,6 +287,8 @@ export function IconButton({
   /** Floats over photos or other busy surfaces: Liquid Glass where available. */
   glass?: boolean;
   disabled?: boolean;
+  /** Shows a spinner in place of the icon, and stays pressable. */
+  busy?: boolean;
   size?: number;
 }) {
   const light = selected || dark;
@@ -295,7 +298,7 @@ export function IconButton({
     <Press
       accessibilityRole="button"
       accessibilityLabel={label}
-      accessibilityState={{ disabled: !!disabled, selected: !!selected }}
+      accessibilityState={{ disabled: !!disabled, selected: !!selected, busy: !!busy }}
       disabled={disabled}
       onPress={onPress}
       hitSlop={size < 40 ? 6 : 0}
@@ -341,12 +344,16 @@ export function IconButton({
           style={[StyleSheet.absoluteFill, { borderRadius: size / 2 }]}
         />
       )}
-      <Icon
-        size={Math.round(size * 0.43)}
-        color={light ? color.white : color.ink}
-        strokeWidth={1.9}
-        fill={selected ? color.white : 'none'}
-      />
+      {busy ? (
+        <ActivityIndicator size="small" color={light ? color.white : color.ink} />
+      ) : (
+        <Icon
+          size={Math.round(size * 0.43)}
+          color={light ? color.white : color.ink}
+          strokeWidth={1.9}
+          fill={selected ? color.white : 'none'}
+        />
+      )}
     </Press>
   );
 }

@@ -7,6 +7,7 @@ import { Recipe } from '../lib/types';
 import { color, font, radius, s } from '../lib/theme';
 import { EquipmentIcon } from './EquipmentIcon';
 import { ChevronDown, CookingPot } from './icons';
+import type { StepNote } from './CookStep';
 import { Press } from './ui';
 
 type Translate = ReturnType<typeof useI18n>['t'];
@@ -178,41 +179,36 @@ export function RecipeEquipment({ recipe }: { recipe: Recipe }) {
   );
 }
 
-/** Cooking mode's first step: what to get out before starting, so nothing is missing midway. */
-export function CookEquipment({ recipe }: { recipe: Recipe }) {
+/**
+ * Cooking mode's quiet lines about equipment: on the first step, everything to get out before
+ * starting, so nothing is missing midway; on the steps after, what the sous-chef guesses the step
+ * uses, when the cook lists no equipment.
+ */
+export function useEquipmentNotes(recipe: Recipe, step: number): StepNote[] {
   const { t: tr, language } = useI18n();
   const { names, note } = useShownEquipment(recipe);
-  if (!names.length) return null;
-  return (
-    <View accessible style={styles.cook}>
-      <Text style={[s.label, { color: color.onInk }]}>{tr('Before you start')}</Text>
-      <Text style={styles.cookNames}>
-        {tr('You’ll need: {{v0}}', { v0: joinNames(names, language) })}
-      </Text>
-      {!!note && <Text style={[s.small, { color: color.onInk }]}>{note}</Text>}
-    </View>
-  );
-}
-
-/**
- * Cooking mode's quiet line under a step: what the sous-chef guesses it uses, when the cook lists
- * no equipment.
- */
-export function StepEquipment({ recipe, step }: { recipe: Recipe; step: number }) {
-  const { t: tr, language } = useI18n();
-  const names = stepEquipment(recipe, step, (key) => equipmentName(tr, key));
-  if (!names.length) return null;
-  const list = joinNames(names, language);
-  return (
-    <View
-      accessible
-      accessibilityLabel={tr('Equipment for this step: {{v0}}', { v0: list })}
-      style={[s.row, { gap: 6 }]}
-    >
-      <CookingPot size={14} color={color.onInk} strokeWidth={2} />
-      <Text style={[s.small, { flex: 1, color: color.onInk }]}>{list}</Text>
-    </View>
-  );
+  if (step === 0)
+    return names.length
+      ? [
+          {
+            key: 'equipment',
+            icon: CookingPot,
+            text: tr('You’ll need: {{v0}}', { v0: joinNames(names, language) }),
+            aside: note || undefined,
+          },
+        ]
+      : [];
+  const used = stepEquipment(recipe, step, (key) => equipmentName(tr, key));
+  if (!used.length) return [];
+  const list = joinNames(used, language);
+  return [
+    {
+      key: 'equipment',
+      icon: CookingPot,
+      text: list,
+      label: tr('Equipment for this step: {{v0}}', { v0: list }),
+    },
+  ];
 }
 
 const styles = StyleSheet.create({
@@ -233,12 +229,4 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   cardName: { fontFamily: font.semibold, fontSize: 15, lineHeight: 20, color: color.ink },
-  cook: {
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    borderRadius: radius.lg,
-    padding: 16,
-    gap: 6,
-    marginBottom: 6,
-  },
-  cookNames: { color: color.white, fontFamily: font.semibold, fontSize: 17, lineHeight: 25 },
 });

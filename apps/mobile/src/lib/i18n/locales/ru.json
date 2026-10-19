@@ -1192,6 +1192,8 @@
   "tbspPart": "{{amount}} ст. л.",
   "cupPart": "{{amount}} чашки",
   "Photo of step {{v0}}": "Фото к шагу {{v0}}",
+  "See the photo": "Посмотреть фото",
+  "Watch the clip": "Посмотреть ролик",
   "Adapted from {{title}} by {{name}}": "По мотивам рецепта «{{title}}» (автор: {{name}})",
   "From {{site}}": "Источник: {{site}}",
   "Variations ({{v0}})": "Вариации ({{v0}})",

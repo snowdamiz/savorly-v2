@@ -1,5 +1,6 @@
 import { test, expect, Page } from '@playwright/test';
 import type { Recipe } from '../src/lib/types';
+import { stopsMoving } from './waits';
 
 const user = {
   id: 'cook',
@@ -153,9 +154,7 @@ test('a step’s clip plays silently while the step is read aloud, and stops wit
   });
   await startCooking(page);
   const cooking = page.locator('[aria-modal="true"]').last();
-  await expect(
-    cooking.getByRole('button', { name: 'Pause the clip of step 1', exact: true }),
-  ).toBeVisible();
+  // The clip plays behind the step, with nothing over it to tap.
   const clip = cooking.locator('video');
   await expect
     .poll(() => clip.evaluate((v: HTMLVideoElement) => ({ muted: v.muted, paused: v.paused })))
@@ -166,6 +165,12 @@ test('a step’s clip plays silently while the step is read aloud, and stops wit
   await page.getByRole('button', { name: 'Start timer', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Pause timer', exact: true })).toBeVisible();
   expect(await clip.evaluate((v: HTMLVideoElement) => v.paused)).toBe(false);
+  // A link under the step shows it whole, with nothing over it, and goes back to the step.
+  await cooking.getByRole('button', { name: 'Watch the clip', exact: true }).click();
+  const pause = cooking.getByRole('button', { name: 'Pause the clip of step 1', exact: true });
+  await expect(pause).toBeVisible();
+  await cooking.getByRole('button', { name: 'Back', exact: true }).click();
+  await expect(pause).toHaveCount(0);
   // The next step has no clip, so the clip stops; the screen stays awake until cooking ends.
   await page.getByRole('button', { name: 'Next step', exact: true }).click();
   await expect(cooking.getByText('Serve it over pasta.', { exact: true })).toBeVisible();
@@ -173,4 +178,78 @@ test('a step’s clip plays silently while the step is read aloud, and stops wit
   expect(await wakeLog(page)).toEqual(['request screen']);
   await page.getByRole('button', { name: 'Close cooking mode', exact: true }).click();
   await expect.poll(() => wakeLog(page)).toEqual(['request screen', 'release']);
+});
+
+test('a long step fits a small phone without scrolling, over its photo', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 667 });
+  const [simmer, serve] = recipe.steps;
+  const text =
+    'Warm the olive oil in a wide pot over medium-low heat. Add the onion with a good pinch of ' +
+    'salt and cook, stirring now and then, until soft and translucent but not browned. Add the ' +
+    'tomatoes, crush them with the spoon and let the sauce simmer gently, uncovered, until thick ' +
+    'and glossy. Stir from the bottom every few minutes so it doesn’t catch.';
+  await mockKitchen(page, {
+    ...recipe,
+    steps: [{ ...simmer, text, image: 'https://media.test/simmer.png' }, serve],
+  });
+  await page.route('https://media.test/**.png', (route) =>
+    route.fulfill({ path: 'tests/fixtures/sample.png', contentType: 'image/png' }),
+  );
+  await startCooking(page);
+  const cooking = page.locator('[aria-modal="true"]').last();
+  const words = cooking.getByText(text, { exact: true });
+  const timer = cooking.getByRole('button', { name: 'Start timer', exact: true });
+  const next = cooking.getByRole('button', { name: 'Next step', exact: true });
+  await expect(words).toBeVisible();
+  await stopsMoving(words);
+  // The words end above the timer, the buttons are on screen, and nothing scrolls.
+  const box = async (l: typeof words) => (await l.boundingBox())!;
+  const [w, t, n] = [await box(words), await box(timer), await box(next)];
+  expect(w.y + w.height).toBeLessThanOrEqual(t.y);
+  expect(n.y + n.height).toBeLessThanOrEqual(667);
+  expect(
+    await cooking.evaluate((root) =>
+      [root, ...root.querySelectorAll('*')].some(
+        (el) =>
+          el.scrollHeight > el.clientHeight + 1 &&
+          /auto|scroll/.test(getComputedStyle(el).overflowY),
+      ),
+    ),
+  ).toBe(false);
+  // The photo shows on its own, without anything over it, and Escape goes back to the step.
+  await cooking.getByRole('button', { name: 'See the photo', exact: true }).click();
+  await expect(cooking.getByRole('button', { name: 'Back', exact: true })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(cooking.getByRole('button', { name: 'Back', exact: true })).toHaveCount(0);
+  await expect(words).toBeVisible();
+});
+
+test('a step too long for the screen stays readable and scrolls', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 667 });
+  const [simmer, serve] = recipe.steps;
+  const text = Array.from(
+    { length: 12 },
+    (_, i) =>
+      `Stage ${i + 1}: stir the sauce from the bottom, scrape the sides, and taste it again.`,
+  ).join(' ');
+  await mockKitchen(page, { ...recipe, steps: [{ ...simmer, text }, serve] });
+  await startCooking(page);
+  const cooking = page.locator('[aria-modal="true"]').last();
+  const words = cooking.getByText(text, { exact: true });
+  await expect(words).toBeVisible();
+  await stopsMoving(words);
+  // It shrinks only as far as reads at arm's length, then scrolls; the buttons stay put.
+  expect(await words.evaluate((el) => parseFloat(getComputedStyle(el).fontSize))).toBe(16);
+  expect(
+    await words.evaluate((el) => {
+      for (let up = el.parentElement; up; up = up.parentElement)
+        if (/auto|scroll/.test(getComputedStyle(up).overflowY))
+          return up.scrollHeight > up.clientHeight;
+      return false;
+    }),
+  ).toBe(true);
+  const next = (await cooking
+    .getByRole('button', { name: 'Next step', exact: true })
+    .boundingBox())!;
+  expect(next.y + next.height).toBeLessThanOrEqual(667);
 });
