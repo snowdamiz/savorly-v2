@@ -19,7 +19,10 @@ import (
 // language carries the language it is read in ("fr:four", four in English), and is read only in
 // recipes written in it; recipes that don't say their language read the English ones. The key "-"
 // lists phrases that begin with an alias but name no equipment ("oven-safe", "pot roast"), which
-// the longest match then swallows, as "Dutch oven" is never an oven. A bare English "pan" names
+// the longest match then swallows, as "Dutch oven" is never an oven. Keys marked "+" are everyday
+// tools a method takes for granted (a bowl, a knife): they are read only on a cook's own list, to
+// draw each name's icon (nameEquipment), and in a method they only swallow their words, as "-"
+// does ("carta forno" is baking paper, not an oven). A bare English "pan" names
 // nothing, since it may be any of the pans; one the method says more about does ("a dry pan" is a
 // frying pan, "a pan of water" a saucepan, "pan-fry"). Verbs that also mean mixing by hand
 // ("blend") or other things ("drain", "toast") name nothing either: the model's guess
@@ -70,15 +73,31 @@ thermometer|meat thermometer; candy thermometer; probe thermometer; instant-read
 kitchen scale|digital scale; food scale; balance de cuisine; fr:balance; Küchenwaage; Waage; báscula; báscula de cocina; balanza; bilancia; bilancia da cucina; balança; balança de cozinha; весы; весах; кухонные весы; кухонных весах; 厨房秤; 电子秤; キッチンスケール; スケール; はかり
 mortar and pestle|pestle and mortar; mortar; pestle; mortier; mortier et pilon; Mörser; Stößel; mortero; molcajete; almirez; mortaio; pestello; pilão; almofariz; ступка; ступке; ступку; ступкой; пестик; 研钵; 擂钵; 捣臼; すり鉢; すりこぎ
 
+# Everyday tools, named only on a cook's list (equipmentKinds), never read in a method
++bowl|mixing bowl; heatproof bowl; bol; saladier; jatte; Schüssel; Rührschüssel; cuenco; tazón; ciotola; terrina; tigela; vasilha; миска; миску; миске; миской; миски; 碗; 大碗; ボウル
++spoon|wooden spoon; slotted spoon; cuillère; cuillère en bois; écumoire; Löffel; Kochlöffel; Holzlöffel; Schaumlöffel; cuchara; cuchara de madera; espumadera; cucchiaio; cucchiaio di legno; schiumarola; mestolo forato; colher; colher de pau; escumadeira; ложка; ложку; ложкой; шумовка; шумовку; 勺子; 木勺; 漏勺; スプーン; 穴あきお玉
++knife|chef's knife; paring knife; bread knife; couteau; Messer; Kochmesser; cuchillo; coltello; faca; нож; ножом; 菜刀; 包丁; ナイフ
++cutting board|chopping board; planche à découper; planche; Schneidebrett; Brett; tabla de cortar; tabla; tagliere; tábua de corte; tábua; разделочная доска; разделочной доске; доска; доске; 砧板; 菜板; まな板
++spatula|turner; fish slice; spatule; Pfannenwender; Teigschaber; Spatel; espátula; paleta; spatola; paletta; лопатка; лопатку; лопаткой; 锅铲; 刮刀; フライ返し; ヘラ; ゴムべら; 木べら
++ladle|louche; Schöpfkelle; Kelle; cucharón; mestolo; concha; половник; половником; черпак; 汤勺; お玉; おたま
++tongs|kitchen tongs; pince; pince de cuisine; Zange; Küchenzange; Grillzange; pinzas; pinza; pinze; pegador; pinça; щипцы; щипцами; 夹子; 食物夹; トング
++baking paper|parchment; parchment paper; greaseproof paper; papier sulfurisé; papier cuisson; Backpapier; papel de horno; papel para horno; papel vegetal; carta forno; carta da forno; papel manteiga; пергамент; пергаментом; бумага для выпечки; 烘焙纸; 油纸; クッキングシート; オーブンシート; オーブンペーパー
++toaster|grille-pain; tostadora; tostapane; torradeira; тостер; тостере; 烤面包机; トースター
++kettle|bouilloire; Wasserkocher; hervidor; bollitore; chaleira; чайник; 水壶; 电水壶; やかん; ケトル
++peeler|vegetable peeler; éplucheur; économe; Sparschäler; Schäler; pelador; pelapatate; descascador; овощечистка; 削皮器; ピーラー
++platter|serving platter; plate; serving dish; plat de service; assiette; Platte; Servierplatte; Teller; fuente; plato; bandeja; piatto; piatto da portata; vassoio; prato; travessa; блюдо; тарелка; 盘子; 大盘; 大皿; 皿
++measuring cup|measuring jug; verre doseur; Messbecher; taza medidora; jarra medidora; misurino; copo medidor; мерный стакан; 量杯; 計量カップ
+
 # Phrases that start with an alias and name no equipment
--|pot roast; pot pie; pot sticker; pot holder; hot pot; pot de; fr:pot; oven safe; oven proof; oven mitt; oven glove; microwave safe; microwave proof; no-bake; petit four; carta forno; carta da forno; papel de horno; papel para horno; オーブンシート; オーブンペーパー; オレンジ; アレンジ; チャレンジ; 鍋料理; 鍋物
+-|pot roast; pot pie; pot sticker; pot holder; hot pot; pot de; fr:pot; oven safe; oven proof; oven mitt; oven glove; microwave safe; microwave proof; no-bake; petit four; オレンジ; アレンジ; チャレンジ; 鍋料理; 鍋物
 `
 
 // ignoredEquipment is the key of phrases that name no equipment.
 const ignoredEquipment = "-"
 
 var (
-	equipmentKeys       []string                         // in lexicon order
+	equipmentKeys       []string                         // in lexicon order, without list-only ones
+	equipmentListOnly   = map[string]bool{}              // the keys read only on a cook's list
 	equipmentAliases    = map[string]string{}            // cleaned alias → key, read in any language
 	equipmentInLanguage = map[string]map[string]string{} // language → cleaned alias → key, read only in it
 	equipmentLongest    int                              // the most words in an alias
@@ -106,8 +125,16 @@ func loadEquipmentLexicon(text string) {
 			problem("bad line %q", line)
 			continue
 		}
-		if key != ignoredEquipment {
-			if slices.Contains(equipmentKeys, key) {
+		if listed, ok := strings.CutPrefix(key, "+"); ok {
+			if equipmentListOnly[listed] || slices.Contains(equipmentKeys, listed) {
+				problem("key %q twice", listed)
+				continue
+			}
+			key = listed
+			equipmentListOnly[key] = true
+			aliases = key + ";" + aliases
+		} else if key != ignoredEquipment {
+			if slices.Contains(equipmentKeys, key) || equipmentListOnly[key] {
 				problem("key %q twice", key)
 				continue
 			}
