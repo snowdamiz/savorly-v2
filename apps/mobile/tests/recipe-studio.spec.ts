@@ -458,6 +458,40 @@ test('chat clarifies, saves a complete recipe with its cover photo, and resumes'
   await expect(page.getByText('Two slices, for two people.', { exact: true })).toHaveCount(0);
 });
 
+test('a draft the sous-chef saved says it is private, and its cook publishes it', async ({
+  page,
+}, testInfo) => {
+  await mockStudio(page);
+  let published = false;
+  const publishes: unknown[] = [];
+  await page.route('**/v1/recipes/voice-toast**', async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/v1/recipes/voice-toast/published' && route.request().method() === 'PUT') {
+      publishes.push(route.request().postDataJSON());
+      published = true;
+    } else if (path !== '/v1/recipes/voice-toast') return route.fallback();
+    await route.fulfill({ json: { ...recipe, published } });
+  });
+  await page.goto('/');
+  await startRecipe(page, 'Chat to create a recipe');
+  const composer = page.getByRole('textbox', { name: 'Message your sous-chef' });
+  await composer.fill('I make lemon toast. Make it into a recipe.');
+  await page.getByRole('button', { name: 'Send message' }).click();
+  await composer.fill('Two slices, for two people.');
+  await page.getByRole('button', { name: 'Send message' }).click();
+  await page.getByRole('button', { name: 'Open recipe', exact: true }).click();
+  const draft = page.getByText('Private draft. It stays private until you publish it.', {
+    exact: true,
+  });
+  await expect(draft).toBeVisible();
+  // Nothing goes out until the cook says so.
+  expect(publishes).toEqual([]);
+  await page.screenshot({ path: testInfo.outputPath('recipe-draft-page.png') });
+  await page.getByRole('button', { name: 'Publish recipe', exact: true }).click();
+  await expect(draft).toHaveCount(0);
+  expect(publishes).toEqual([{ published: true }]);
+});
+
 test('Chat it writes a new recipe in a conversation of its own, and the sous-chef knows', async ({
   page,
 }) => {

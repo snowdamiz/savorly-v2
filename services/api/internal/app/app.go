@@ -195,6 +195,7 @@ func NewWithContext(ctx context.Context, db *pgxpool.Pool, config Config) *fiber
 	v.Post("/recipes/:id/step-clips", a.requireAuth, a.orderStepClips)
 	v.Post("/recipes", a.requireAuth, a.createRecipe)
 	v.Put("/recipes/:id", a.requireAuth, a.updateRecipe)
+	v.Put("/recipes/:id/published", a.requireAuth, a.publishRecipe)
 	v.Delete("/recipes/:id", a.requireAuth, a.deleteRecipe)
 	v.Get("/creators", a.creators)
 	v.Get("/creators/:id", a.creator)

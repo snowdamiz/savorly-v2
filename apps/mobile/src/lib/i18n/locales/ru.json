@@ -2248,5 +2248,8 @@
   "toBuyCount_one": "Купить: {{count}}",
   "toBuyCount_few": "Купить: {{count}}",
   "toBuyCount_many": "Купить: {{count}}",
-  "toBuyCount_other": "Купить: {{count}}"
+  "toBuyCount_other": "Купить: {{count}}",
+  "Publish recipe": "Опубликовать рецепт",
+  "Private draft. It stays private until you publish it.": "Личный черновик. Он останется личным, пока вы его не опубликуете.",
+  "Say whether to publish the recipe or keep it private.": "Укажите, опубликовать рецепт или оставить его личным."
 }

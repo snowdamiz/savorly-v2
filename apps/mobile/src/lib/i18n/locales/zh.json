@@ -2248,5 +2248,8 @@
   "toBuyCount_one": "待买 {{count}} 件",
   "toBuyCount_few": "待买 {{count}} 件",
   "toBuyCount_many": "待买 {{count}} 件",
-  "toBuyCount_other": "待买 {{count}} 件"
+  "toBuyCount_other": "待买 {{count}} 件",
+  "Publish recipe": "发布食谱",
+  "Private draft. It stays private until you publish it.": "私人草稿。在你发布之前，它一直是私密的。",
+  "Say whether to publish the recipe or keep it private.": "请说明是发布这份食谱还是保持私密。"
 }
