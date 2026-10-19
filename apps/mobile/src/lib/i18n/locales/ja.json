@@ -1192,6 +1192,8 @@
   "tbspPart": "大さじ{{amount}}",
   "cupPart": "{{amount}}カップ",
   "Photo of step {{v0}}": "手順{{v0}}の写真",
+  "See the photo": "写真を見る",
+  "Watch the clip": "動画を見る",
   "Adapted from {{title}} by {{name}}": "{{name}}さんの「{{title}}」をアレンジ",
   "From {{site}}": "出典：{{site}}",
   "Variations ({{v0}})": "アレンジ（{{v0}}）",

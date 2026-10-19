@@ -553,9 +553,14 @@ test('steps show their photos, on the page and in cooking mode', async ({ page }
   await expect(page.locator('img[alt="Photo of step 1"]')).toHaveCount(0);
   await page.getByRole('button', { name: 'Start cooking', exact: true }).click();
   const cooking = page.locator('[aria-modal="true"]').last();
+  const photo = cooking.getByRole('button', { name: 'See the photo', exact: true });
   await expect(cooking.getByText('Soften the garlic in the oil.', { exact: true })).toBeVisible();
-  await expect(cooking.locator('img[alt="Photo of step 1"]')).toHaveCount(0);
+  await expect(photo).toHaveCount(0);
+  // Step 2's photo fills the screen behind it, and shows whole from the line under the step.
   await cooking.getByRole('button', { name: 'Next step', exact: true }).click();
+  await expect(cooking.locator('img[src="https://media.test/step.png"]')).toBeVisible();
+  await expect(cooking.locator('img[alt="Photo of step 2"]')).toHaveCount(0);
+  await photo.click();
   await expect(cooking.locator('img[alt="Photo of step 2"]')).toBeVisible();
 });
 
@@ -584,25 +589,28 @@ test('steps show their clips: still on the page, muted on a loop in cooking mode
 
   await page.getByRole('button', { name: 'Start cooking', exact: true }).click();
   const cooking = page.locator('[aria-modal="true"]').last();
-  const pause = cooking.getByRole('button', { name: 'Pause the clip of step 1', exact: true });
-  const play = cooking.getByRole('button', { name: 'Play the clip of step 1', exact: true });
-  await expect(pause).toBeVisible();
+  // It plays behind the step, muted and on a loop, with nothing over it to tap.
   const looping = cooking.locator('video');
   await expect
     .poll(() => playback(looping))
     .toEqual({ muted: true, loop: true, paused: false, controls: false });
-  // A tap pauses it, and another plays it again.
+  // Shown whole from the line under the step, a tap pauses it and another plays it again.
+  await cooking.getByRole('button', { name: 'Watch the clip', exact: true }).click();
+  const pause = cooking.getByRole('button', { name: 'Pause the clip of step 1', exact: true });
+  const play = cooking.getByRole('button', { name: 'Play the clip of step 1', exact: true });
+  await expect(pause).toBeVisible();
   await pause.click();
   await expect(play).toBeVisible();
-  expect((await playback(looping)).paused).toBe(true);
   await play.click();
   await expect(pause).toBeVisible();
+  await cooking.getByRole('button', { name: 'Back', exact: true }).click();
+  await expect(pause).toHaveCount(0);
   // The next step's photo takes its place, and the clip stops with its step.
   await cooking.getByRole('button', { name: 'Next step', exact: true }).click();
-  await expect(cooking.locator('img[alt="Photo of step 2"]')).toBeVisible();
+  await expect(cooking.locator('img[src="https://media.test/step.png"]')).toBeVisible();
   await expect(cooking.locator('video')).toHaveCount(0);
   await cooking.getByRole('button', { name: 'Previous', exact: true }).click();
-  await expect(pause).toBeVisible();
+  await expect.poll(() => playback(looping)).toMatchObject({ paused: false });
   await cooking.getByRole('button', { name: 'Close cooking mode', exact: true }).click();
   await expect(page.getByRole('button', { name: /the clip of step/ })).toHaveCount(0);
   await expect(page.locator('video')).toHaveCount(1);

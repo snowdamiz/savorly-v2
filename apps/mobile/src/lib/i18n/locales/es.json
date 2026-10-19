@@ -1192,6 +1192,8 @@
   "tbspPart": "{{amount}} cda.",
   "cupPart": "{{amount}} taza",
   "Photo of step {{v0}}": "Foto del paso {{v0}}",
+  "See the photo": "Ver la foto",
+  "Watch the clip": "Ver el clip",
   "Adapted from {{title}} by {{name}}": "Basada en {{title}}, de {{name}}",
   "From {{site}}": "Fuente: {{site}}",
   "Variations ({{v0}})": "Variaciones ({{v0}})",

@@ -10,13 +10,14 @@ sous-chef is still one tap away (the sparkle button) for a real conversation.
 
 ## Using it
 
-Cooking mode has a **Hands-free** switch under its header, with a hint of what to say. The first
-time, it explains the commands, what a question costs, and where speech is recognized, then
-**Start listening** asks for the microphone (and, on iPhones, speech recognition). While it's on,
-the switch shows a red dot and **Listening** for as long as the microphone is in use (the dot
-pulses, unless the system asks for reduced motion), or why it paused. The **ⓘ** button beside it
-brings the explanation back. A recognized command gives a light haptic tap and shows what was
-heard with a check; a question shows the question and the answer, which is also read aloud.
+Cooking mode has a **Hands-free** switch in its bar, a microphone beside the sous-chef's sparkle.
+The first time, it explains the commands, what a question costs, and where speech is recognized,
+then **Start listening** asks for the microphone (and, on iPhones, speech recognition). While it's
+on, the switch turns white with a red dot, and the quiet line under the recipe's title says
+**Listening** for as long as the microphone is in use (the dot pulses, unless the system asks for
+reduced motion), or why it paused. The **ⓘ** at the end of that line brings the explanation back.
+A recognized command gives a light haptic tap and shows what was heard on that line, with a check;
+a question shows the question and the answer under the step, and the answer is also read aloud.
 
 | Say                                                   | Does                                                              |
 | ----------------------------------------------------- | ----------------------------------------------------------------- |

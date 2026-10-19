@@ -161,12 +161,12 @@ test('cooking mode starts with what to get out, then moves on', async ({ page })
   await mockApi(page, { recipes: [pasta] });
   await page.goto('/recipes/pasta');
   await page.getByRole('button', { name: 'Start cooking', exact: true }).click();
-  await expect(page.getByText('Before you start', { exact: true })).toBeVisible();
-  await expect(page.getByText('You’ll need: Large pot, Colander', { exact: true })).toBeVisible();
+  const needed = page.getByText('You’ll need: Large pot, Colander', { exact: true });
+  await expect(needed).toBeVisible();
   await expect(page.getByText('STEP 1 OF 2', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Next step', exact: true }).click();
   await expect(page.getByText('STEP 2 OF 2', { exact: true })).toBeVisible();
-  await expect(page.getByText('Before you start', { exact: true })).toHaveCount(0);
+  await expect(needed).toHaveCount(0);
 });
 
 test('cooking mode names what the method mentions when the cook lists nothing', async ({
@@ -194,9 +194,9 @@ test('without a list, the page and cooking mode show the sous-chef’s guess, st
   await expect(
     page.getByText('You’ll need: Blender, Pot, Colander', { exact: true }),
   ).toBeVisible();
-  // Each step says what it uses, when it uses it.
+  // The first step's line already names everything; each step after says what it uses.
   const step = page.getByLabel(/^Equipment for this step: /);
-  await expect(step).toHaveAccessibleName('Equipment for this step: Blender');
+  await expect(step).toHaveCount(0);
   await page.getByRole('button', { name: 'Next step', exact: true }).click();
   await expect(step).toHaveAccessibleName('Equipment for this step: Pot, Colander');
 });
@@ -208,6 +208,8 @@ test('the cook’s list says nothing of steps', async ({ page }) => {
   await expect(page.getByText('· Sous-chef’s guess', { exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: 'Start cooking', exact: true }).click();
   await expect(page.getByText('You’ll need: Food processor', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Next step', exact: true }).click();
+  await expect(page.getByText('STEP 2 OF 2', { exact: true })).toBeVisible();
   await expect(page.getByLabel(/^Equipment for this step: /)).toHaveCount(0);
 });
 

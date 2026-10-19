@@ -159,7 +159,8 @@ test('hands-free cooking moves on “next step” and answers “Chef, …” qu
   await expect(page.getByText('“next step” · “previous step”', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Start listening', exact: true }).click();
   await expect(handsFree).toHaveAttribute('aria-checked', 'true');
-  await expect(handsFree.getByText('Listening', { exact: true })).toBeVisible();
+  // How it's listening is the quiet line under the title.
+  await expect(cooking.getByText('Listening', { exact: true })).toBeVisible();
   expect(
     (await page.evaluate(() => (window as unknown as { speech: Speech }).speech.sessions[0])).lang,
   ).toBe('en-US');

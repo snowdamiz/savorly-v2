@@ -1192,6 +1192,8 @@
   "tbspPart": "{{amount}} 汤匙",
   "cupPart": "{{amount}} 杯",
   "Photo of step {{v0}}": "步骤 {{v0}} 的照片",
+  "See the photo": "查看照片",
+  "Watch the clip": "观看短片",
   "Adapted from {{title}} by {{name}}": "改编自 {{name}} 的「{{title}}」",
   "From {{site}}": "来源：{{site}}",
   "Variations ({{v0}})": "改编版（{{v0}}）",
