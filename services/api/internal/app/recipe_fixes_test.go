@@ -258,6 +258,11 @@ func TestSousChefSuggestsAFixOnlyAfterAYes(t *testing.T) {
 		t.Fatalf("suggested without cooking it: %s", out)
 	}
 	verifiedCook(t, a.DB, "cook", "toast", time.Now(), 0)
+	// A new timer comes with the step's new text, or the step would still say its old time.
+	timerOnly := map[string]any{"recipe_id": "toast", "kind": "time", "step": 1, "change": map[string]any{"text": "", "seconds": 240}}
+	if out := tool("suggest_fix", timerOnly); !strings.Contains(out, "whole new text") {
+		t.Fatalf("a timer without its text: %s", out)
+	}
 	out := tool("suggest_fix", fix)
 	if !strings.Contains(out, "needsConfirmation") || !strings.Contains(out, "Lemon toast") || !strings.Contains(out, "4 min timer") {
 		t.Fatalf("not proposed: %s", out)
