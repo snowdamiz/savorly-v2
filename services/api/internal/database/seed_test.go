@@ -106,3 +106,50 @@ func TestSeedIsIdempotentAndRestoresMissingGalleriesAndEquipment(t *testing.T) {
 		t.Fatalf("seed overwrote a cook's own changes: %s / %s / %s", photos, title, equipment)
 	}
 }
+
+func TestSeedGivesEveryStepAPhotoAndAddsThemOnlyToUntouchedSteps(t *testing.T) {
+	db := seedSchema(t)
+	ctx := context.Background()
+	count := func(sql string) int {
+		var n int
+		if e := db.QueryRow(ctx, sql).Scan(&n); e != nil {
+			t.Fatal(e)
+		}
+		return n
+	}
+	withoutPhoto := `SELECT count(*) FROM recipes, jsonb_array_elements(steps) s WHERE coalesce(s->>'image','')=''`
+	if e := Seed(ctx, db); e != nil {
+		t.Fatal(e)
+	}
+	// Cooking mode fills the screen with each step's photo, so every fixture step has one.
+	if n := count(withoutPhoto); n != 0 {
+		t.Fatalf("%d seeded steps have no photo", n)
+	}
+	// A database seeded before the steps had photos gets them; a recipe whose steps a cook
+	// changed, or gave a photo of their own, keeps its steps as they are.
+	if _, e := db.Exec(ctx, `UPDATE recipes SET steps=(SELECT jsonb_agg(s-'image' ORDER BY n) FROM jsonb_array_elements(steps) WITH ORDINALITY e(s,n))`); e != nil {
+		t.Fatal(e)
+	}
+	if _, e := db.Exec(ctx, `UPDATE recipes SET steps=jsonb_set(steps,'{0,text}','"My own way."') WHERE id='shakshuka'`); e != nil {
+		t.Fatal(e)
+	}
+	if _, e := db.Exec(ctx, `UPDATE recipes SET steps=jsonb_set(steps,'{1,image}','"https://example.com/mine.jpg"') WHERE id='green-pesto'`); e != nil {
+		t.Fatal(e)
+	}
+	if e := Seed(ctx, db); e != nil {
+		t.Fatal(e)
+	}
+	if n := count(withoutPhoto + ` AND id NOT IN ('shakshuka','green-pesto')`); n != 0 {
+		t.Fatalf("%d untouched steps got no photo back", n)
+	}
+	if n := count(withoutPhoto + ` AND id='shakshuka'`); n != 3 {
+		t.Fatalf("a recipe with changed steps got %d of 3 photos anyway", 3-n)
+	}
+	var mine string
+	if e := db.QueryRow(ctx, `SELECT steps::text FROM recipes WHERE id='green-pesto'`).Scan(&mine); e != nil {
+		t.Fatal(e)
+	}
+	if !strings.Contains(mine, "mine.jpg") || strings.Contains(mine, "images.unsplash.com") {
+		t.Fatalf("seed replaced a cook's own step photo: %s", mine)
+	}
+}

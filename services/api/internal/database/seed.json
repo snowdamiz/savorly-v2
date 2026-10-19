@@ -98,17 +98,20 @@
         {
           "title": "Cook the pasta",
           "text": "Bring a large pot of salted water to a boil. Cook the pasta until al dente, following the packet timing. Reserve a mug of starchy water before draining.",
-          "seconds": 600
+          "seconds": 600,
+          "image": "https://images.unsplash.com/photo-1576698961197-48ba14d8265c?auto=format&fit=crop&w=1200&q=85"
         },
         {
           "title": "Make it creamy",
           "text": "In a large bowl, stir together ricotta, finely grated lemon zest, the juice of half the lemon, olive oil, and half the parmesan. Season to taste with salt and pepper.",
-          "seconds": 0
+          "seconds": 0,
+          "image": "https://images.unsplash.com/photo-1559079810-d5c52f077bee?auto=format&fit=crop&w=1200&q=85"
         },
         {
           "title": "Toss and finish",
           "text": "Add the hot pasta to the ricotta bowl. Toss with a splash of pasta water until glossy, adding a little more as needed. Finish with basil, remaining parmesan, and black pepper.",
-          "seconds": 120
+          "seconds": 120,
+          "image": "https://images.unsplash.com/photo-1479832912902-77089f02b1d2?auto=format&fit=crop&w=1200&q=85"
         }
       ]
     },
@@ -181,17 +184,20 @@
         {
           "title": "Start the rice",
           "text": "Rinse the rice and cook according to the packet instructions. Heat the oven to 200\u00b0C / 400\u00b0F and line a baking tray.",
-          "seconds": 600
+          "seconds": 600,
+          "image": "https://images.unsplash.com/photo-1777726041709-7e2875bfa0e0?auto=format&fit=crop&w=1200&q=85"
         },
         {
           "title": "Glaze the salmon",
           "text": "Mix miso, soy sauce, honey, and a tablespoon of water. Spread over the salmon and place on the prepared tray.",
-          "seconds": 0
+          "seconds": 0,
+          "image": "https://images.unsplash.com/photo-1499125562588-29fb8a56b5d5?auto=format&fit=crop&w=1200&q=85"
         },
         {
           "title": "Roast and assemble",
           "text": "Roast for 12\u201315 minutes, until the thickest part reaches 63\u00b0C / 145\u00b0F. Serve over rice with thin cucumber slices and any juices from the tray.",
-          "seconds": 780
+          "seconds": 780,
+          "image": "https://images.unsplash.com/photo-1781976250747-12841eb3c52b?auto=format&fit=crop&w=1200&q=85"
         }
       ]
     },
@@ -256,12 +262,14 @@
         {
           "title": "Slice and season",
           "text": "Cut tomatoes into wedges and arrange on a platter. Sprinkle with a little flaky salt and leave for 5 minutes so the juices collect.",
-          "seconds": 300
+          "seconds": 300,
+          "image": "https://images.unsplash.com/photo-1566045023250-ccb8bb717880?auto=format&fit=crop&w=1200&q=85"
         },
         {
           "title": "Bring it together",
           "text": "Nestle the burrata among the tomatoes and gently tear it open. Drizzle with oil and vinegar, scatter over basil, and finish with black pepper.",
-          "seconds": 0
+          "seconds": 0,
+          "image": "https://images.unsplash.com/photo-1580638149300-65f0b9e8fbff?auto=format&fit=crop&w=1200&q=85"
         }
       ]
     },
@@ -333,17 +341,20 @@
         {
           "title": "Prepare the tray",
           "text": "Heat the oven to 220\u00b0C / 425\u00b0F. Halve potatoes and slice carrots. Toss on a roasting tray with olive oil, rosemary, garlic, salt, and pepper.",
-          "seconds": 0
+          "seconds": 0,
+          "image": "https://images.unsplash.com/photo-1581361284159-2596fcae0cef?auto=format&fit=crop&w=1200&q=85"
         },
         {
           "title": "Add the chicken",
           "text": "Pat the chicken dry with paper towels. Season generously and nestle skin-side up among the vegetables.",
-          "seconds": 0
+          "seconds": 0,
+          "image": "https://images.unsplash.com/photo-1587593810167-a84920ea0781?auto=format&fit=crop&w=1200&q=85"
         },
         {
           "title": "Roast until golden",
           "text": "Roast for 35\u201340 minutes, turning the vegetables once. Check that the thickest part of every thigh reaches 74\u00b0C / 165\u00b0F, avoiding the bone. Rest 5 minutes before serving.",
-          "seconds": 2100
+          "seconds": 2100,
+          "image": "https://images.unsplash.com/photo-1642192429402-90e329af29a4?auto=format&fit=crop&w=1200&q=85"
         }
       ]
     },
@@ -409,17 +420,20 @@
         {
           "title": "Cook the eggs",
           "text": "Lower eggs into simmering water and cook 7 minutes for jammy centers, or longer until fully set if preferred. Cool briefly in cold water and peel.",
-          "seconds": 420
+          "seconds": 420,
+          "image": "https://images.unsplash.com/photo-1680987398307-e1ae27a6ed67?auto=format&fit=crop&w=1200&q=85"
         },
         {
           "title": "Mash and toast",
           "text": "Toast the bread. Mash avocado with lemon juice and a pinch of salt. Spread generously over the toast.",
-          "seconds": 0
+          "seconds": 0,
+          "image": "https://images.unsplash.com/photo-1636115614066-adf08e01321c?auto=format&fit=crop&w=1200&q=85"
         },
         {
           "title": "Finish your plate",
           "text": "Halve the eggs and place on top. Sprinkle with chili flakes and black pepper. Serve straight away.",
-          "seconds": 0
+          "seconds": 0,
+          "image": "https://images.unsplash.com/photo-1541519227354-08fa5d50c44d?auto=format&fit=crop&w=1200&q=85"
         }
       ]
     },
@@ -491,17 +505,20 @@
         {
           "title": "Build the dressing",
           "text": "Finely slice scallions and grate ginger into a heatproof bowl. Stir in soy sauce, sesame oil, and chili crisp.",
-          "seconds": 0
+          "seconds": 0,
+          "image": "https://images.unsplash.com/photo-1650218444678-67d6ca1591fb?auto=format&fit=crop&w=1200&q=85"
         },
         {
           "title": "Cook the noodles",
           "text": "Cook noodles following packet instructions. Reserve half a cup of cooking water and drain.",
-          "seconds": 360
+          "seconds": 360,
+          "image": "https://images.unsplash.com/photo-1718043934011-6dcd5c12ebe5?auto=format&fit=crop&w=1200&q=85"
         },
         {
           "title": "Toss everything",
           "text": "Toss hot noodles into the dressing with a splash of cooking water. Taste and adjust with soy sauce. Divide between bowls and serve immediately.",
-          "seconds": 60
+          "seconds": 60,
+          "image": "https://images.unsplash.com/photo-1791409484396-38d424cd1c70?auto=format&fit=crop&w=1200&q=85"
         }
       ]
     },
@@ -573,17 +590,20 @@
         {
           "title": "Mix the batter",
           "text": "Whisk flour, baking powder, and a pinch of salt. In a separate bowl whisk milk, egg, and melted butter. Fold wet into dry just until combined; small lumps are fine.",
-          "seconds": 0
+          "seconds": 0,
+          "image": "https://images.unsplash.com/photo-1760445530359-a3d3993f6a5e?auto=format&fit=crop&w=1200&q=85"
         },
         {
           "title": "Rest and heat",
           "text": "Rest the batter for 5 minutes while warming a lightly buttered skillet over medium heat.",
-          "seconds": 300
+          "seconds": 300,
+          "image": "https://images.unsplash.com/photo-1653806347022-d40d152ca3a4?auto=format&fit=crop&w=1200&q=85"
         },
         {
           "title": "Cook in batches",
           "text": "Spoon in small rounds of batter. Cook until bubbles appear and edges set, about 2 minutes. Flip and cook 1\u20132 minutes until cooked through. Serve with berries.",
-          "seconds": 180
+          "seconds": 180,
+          "image": "https://images.unsplash.com/photo-1630441508966-431c08536d1b?auto=format&fit=crop&w=1200&q=85"
         }
       ]
     },
@@ -657,17 +677,20 @@
         {
           "title": "Roast the vegetables",
           "text": "Heat the oven to 220\u00b0C / 425\u00b0F. Cut sweet potato into small cubes. Toss with chickpeas, a little oil, salt, and pepper. Roast 25 minutes, turning halfway.",
-          "seconds": 1500
+          "seconds": 1500,
+          "image": "https://images.unsplash.com/photo-1568747244129-86a6c6541414?auto=format&fit=crop&w=1200&q=85"
         },
         {
           "title": "Cook the quinoa",
           "text": "Rinse quinoa and cook according to the packet. Massage the kale with a little lemon juice and oil until softened.",
-          "seconds": 720
+          "seconds": 720,
+          "image": "https://images.unsplash.com/photo-1541014597398-cd43df0833c2?auto=format&fit=crop&w=1200&q=85"
         },
         {
           "title": "Dress and serve",
           "text": "Whisk tahini with lemon juice and enough water to make a pourable dressing. Assemble quinoa, kale, roasted vegetables, and chickpeas, then drizzle generously.",
-          "seconds": 0
+          "seconds": 0,
+          "image": "https://images.unsplash.com/photo-1595786802596-baa6f6d61ce7?auto=format&fit=crop&w=1200&q=85"
         }
       ]
     },
@@ -739,17 +762,20 @@
         {
           "title": "Brown the mushrooms",
           "text": "Slice mushrooms and cook in half the butter over medium-high heat until golden, 6\u20138 minutes. Set aside.",
-          "seconds": 420
+          "seconds": 420,
+          "image": "https://images.unsplash.com/photo-1634045793583-176ea8dc055b?auto=format&fit=crop&w=1200&q=85"
         },
         {
           "title": "Toast the rice",
           "text": "Finely chop onion and soften in the remaining butter. Add rice and stir 2 minutes. Keep the stock warm in a second pan.",
-          "seconds": 300
+          "seconds": 300,
+          "image": "https://images.unsplash.com/photo-1790777725287-042f6678e5b5?auto=format&fit=crop&w=1200&q=85"
         },
         {
           "title": "Stir and finish",
           "text": "Add stock a ladle at a time, stirring often and allowing each addition to mostly absorb. Cook about 20 minutes until the rice is tender with a slight bite. Fold in mushrooms and parmesan; loosen with stock and serve.",
-          "seconds": 1200
+          "seconds": 1200,
+          "image": "https://images.unsplash.com/photo-1633964913295-ceb43826e7c9?auto=format&fit=crop&w=1200&q=85"
         }
       ]
     },
@@ -820,17 +846,20 @@
         {
           "title": "Soften the vegetables",
           "text": "Dice onion and pepper. Cook in olive oil over medium heat for 8 minutes until soft. Stir in cumin.",
-          "seconds": 480
+          "seconds": 480,
+          "image": "https://images.unsplash.com/photo-1656431157465-e7a6097482f7?auto=format&fit=crop&w=1200&q=85"
         },
         {
           "title": "Simmer the sauce",
           "text": "Add tomatoes, crush with a spoon, and season with salt and pepper. Simmer uncovered for 10 minutes until thick.",
-          "seconds": 600
+          "seconds": 600,
+          "image": "https://images.unsplash.com/photo-1752627559682-9b7f0f0ded4e?auto=format&fit=crop&w=1200&q=85"
         },
         {
           "title": "Nestle in the eggs",
           "text": "Make four wells and crack in eggs. Cover and cook gently until whites are set, 5\u20138 minutes, or until yolks are firm if preferred. Serve hot with bread.",
-          "seconds": 420
+          "seconds": 420,
+          "image": "https://images.unsplash.com/photo-1614570218825-c2a3be79b0fd?auto=format&fit=crop&w=1200&q=85"
         }
       ]
     },
@@ -904,17 +933,20 @@
         {
           "title": "Brown the butter",
           "text": "Melt butter in a saucepan over medium heat. Swirl until golden brown specks form and it smells nutty, about 5 minutes. Pour into a bowl and cool 10 minutes.",
-          "seconds": 300
+          "seconds": 300,
+          "image": "https://images.unsplash.com/photo-1633940125832-033d739b3d45?auto=format&fit=crop&w=1200&q=85"
         },
         {
           "title": "Make the dough",
           "text": "Mix sugar into the cooled butter, then beat in the egg. Fold in flour, baking soda, a pinch of salt, and chopped chocolate. Chill if very soft.",
-          "seconds": 0
+          "seconds": 0,
+          "image": "https://images.unsplash.com/photo-1649634437312-c005a922d448?auto=format&fit=crop&w=1200&q=85"
         },
         {
           "title": "Bake",
           "text": "Heat the oven to 180\u00b0C / 350\u00b0F. Scoop 12 balls onto lined trays with room to spread. Bake 10\u201312 minutes until edges are set. Cool on the tray for 5 minutes.",
-          "seconds": 660
+          "seconds": 660,
+          "image": "https://images.unsplash.com/photo-1607975218250-7faaf3e36bbf?auto=format&fit=crop&w=1200&q=85"
         }
       ]
     },
@@ -986,17 +1018,20 @@
         {
           "title": "Make the pesto",
           "text": "Toast pine nuts in a dry pan until fragrant. Blend with basil, parmesan, garlic, olive oil, and a pinch of salt into a loose paste.",
-          "seconds": 180
+          "seconds": 180,
+          "image": "https://images.unsplash.com/photo-1519202957931-1b5d90769fed?auto=format&fit=crop&w=1200&q=85"
         },
         {
           "title": "Cook the pasta",
           "text": "Cook linguine in salted boiling water until al dente. Reserve a mug of cooking water, then drain.",
-          "seconds": 600
+          "seconds": 600,
+          "image": "https://images.unsplash.com/photo-1612156514704-478bcd8734a3?auto=format&fit=crop&w=1200&q=85"
         },
         {
           "title": "Finish off the heat",
           "text": "Toss pasta with pesto off the heat, adding small splashes of cooking water until glossy. Taste for seasoning and serve immediately.",
-          "seconds": 0
+          "seconds": 0,
+          "image": "https://images.unsplash.com/photo-1597692493647-25bd4240a3f2?auto=format&fit=crop&w=1200&q=85"
         }
       ]
     }
