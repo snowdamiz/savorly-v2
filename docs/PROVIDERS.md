@@ -1,6 +1,6 @@
 # AI provider choices
 
-GPT-6 Luna capabilities and pricing checked October 7, 2026; ElevenLabs via OpenRouter checked October 7; other model and image capabilities checked October 3, 2026; the image edit model October 15. Prices below are USD and can change. The step-clip comparison was checked October 18.
+GPT-6 Luna capabilities and pricing checked October 7, 2026; ElevenLabs via OpenRouter checked October 7; other model and image capabilities checked October 3, 2026; the image edit model October 15. Prices below are USD and can change. The step-clip comparison was checked October 18; the agent-model eval comparison was run October 19.
 
 Savorly routes by workload. These are application choices based on current capabilities and published performance, not a cooking-specific model benchmark.
 
@@ -35,6 +35,18 @@ Step clips default to **reAPI Seedance 2.0 Mini Eco at 720p**, the lowest 720p p
 | reAPI Seedance 2.5 standard       |                    $0.267 / second |        $1.068 |
 
 Four seconds is the shortest clip these models make. References: [reAPI Seedance 2.0 Mini prices](https://reapi.ai/models/seedance-2-0-mini), [Mini and Mini Eco contract](https://reapi.ai/docs/seedance-2-0-mini), [Seedance 2.0 request body](https://reapi.ai/docs/seedance-2-0), [reAPI Seedance 2.5 prices](https://reapi.ai/models/seedance-2-5).
+
+The agent and translation model stays **GPT-6 Luna**. On October 19, 2026, both eval suites ([traces and evals](RECIPE-STUDIO.md#traces-and-evals): 47 sous-chef conversations and 13 model evals) ran on the same code against Luna and against DeepSeek V4.1 Flash 1017 (`deepseek/deepseek-v4.1-flash-1017`, released October 17), with `OPENROUTER_AGENT_MODEL` and `OPENROUTER_TRANSLATION_MODEL` both set to the model under test. Costs are what OpenRouter reported; link import stays on GPT-6.1 Sol and is counted in neither.
+
+| One run of both suites      | GPT-6 Luna     | DeepSeek V4.1 Flash 1017 |
+| --------------------------- | -------------: | -----------------------: |
+| Passed                      | 60 of 60       | 56 of 60                 |
+| Sous-chef evals             | $0.0142, 118 requests | $0.0315, 114 requests |
+| Model evals                 | $0.0013        | $0.0021                  |
+| Total                       | $0.0155        | $0.0336 (2.2×)           |
+| Sous-chef turn, median / p90 | 5.2 s / 10.5 s | 1.2 s / 3.4 s           |
+
+DeepSeek was about four times faster but cost twice as much, and missed three cases a member would notice: it read a nutrition estimate out as a bulleted list, took four model rounds over three searches for a German "what can I cook tonight?", and gave a focaccia 50 minutes in the oven to fill the recipe's 150 minutes. The fourth miss was the eval's: "the page wouldn't load" is an admission the `admitsFailure` word list didn't recognize, and now does. DeepSeek's list price ($0.15/M input, $0.60/M output, the DeepSeek endpoint) is close to Luna's, but agent requests prefer the lowest-latency endpoint, which sent DeepSeek to hosts such as Together at $0.30/M and $1.20/M, while Luna went to OpenAI's standard endpoint. Its replies were also longer. Pinning a cheaper DeepSeek host could change the cost, but its latency wasn't measured. Sources: [DeepSeek V4.1 Flash 1017 endpoints](https://openrouter.ai/api/v1/models/deepseek/deepseek-v4.1-flash-1017/endpoints), [GPT-6 Luna endpoints](https://openrouter.ai/api/v1/models/openai/gpt-6-luna/endpoints).
 
 ## Contracts implemented
 

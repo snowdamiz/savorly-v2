@@ -246,7 +246,7 @@ func spoken(reply string) error {
 // admitsFailure reports whether an English reply says something didn't work.
 func admitsFailure(reply string) bool {
 	r := strings.ReplaceAll(strings.ToLower(reply), "’", "'")
-	for _, w := range []string{"couldn't", "could not", "can't", "cannot", "unable", "wasn't able", "not able", "didn't", "failed", "isn't available", "no longer", "doesn't exist", "not found"} {
+	for _, w := range []string{"couldn't", "could not", "can't", "cannot", "unable", "wasn't able", "not able", "didn't", "wouldn't", "failed", "isn't available", "no longer", "doesn't exist", "not found"} {
 		if strings.Contains(r, w) {
 			return true
 		}
