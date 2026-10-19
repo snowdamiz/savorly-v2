@@ -223,6 +223,41 @@ func TestABatchSplitAcrossCallsStillWaitsForAYes(t *testing.T) {
 	}
 }
 
+// A batch split across the calls of one round is asked about whole, before any of it goes, and
+// the yes removes all of it.
+func TestABatchSplitWithinARoundWaitsWhole(t *testing.T) {
+	a, p := studioFixture(t)
+	ctx := context.Background()
+	if _, e := a.DB.Exec(ctx, `INSERT INTO groceries(id,user_id,name) VALUES('g1','cook','Milk'),('g2','cook','Eggs'),('g3','cook','Apples'),('g4','cook','Bread'),('g5','cook','Rice')`); e != nil {
+		t.Fatal(e)
+	}
+	left := func() (n int) {
+		a.DB.QueryRow(ctx, `SELECT count(*) FROM groceries WHERE user_id='cook'`).Scan(&n)
+		return n
+	}
+	studioAgent(t, a, func(r agentRound) any {
+		switch {
+		case r.answered():
+			return map[string]any{"content": "Done."}
+		case r.said() == "Clear my grocery list.":
+			return orderedCalls("remove", map[string]any{"kind": "grocery", "ids": []string{"g1", "g2", "g3"}}, "remove", map[string]any{"kind": "grocery", "ids": []string{"g4", "g5"}})
+		case r.said() == "Yes.":
+			return orderedCalls("confirm_action", map[string]any{})
+		}
+		return map[string]any{"content": "Done."}
+	})
+	studioTurn(t, ctx, a, p, "Clear my grocery list.")
+	var asked string
+	_ = a.DB.QueryRow(ctx, `SELECT COALESCE(pending->>'description','') FROM voice_projects WHERE id=$1`, p).Scan(&asked)
+	if left() != 5 || asked != "Remove 5 items from your grocery list: Apples; Bread; Eggs; Milk; Rice." {
+		t.Fatalf("%d left, asked %q", left(), asked)
+	}
+	studioTurn(t, ctx, a, p, "Yes.")
+	if left() != 0 {
+		t.Fatalf("the yes left %d", left())
+	}
+}
+
 func TestADraftOnlyPromisesTheMediaThatsComing(t *testing.T) {
 	t.Setenv("PAID_PLANS", "true")
 	a, _ := studioFixture(t)

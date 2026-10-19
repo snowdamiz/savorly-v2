@@ -142,6 +142,9 @@ func TestSousChefRemembersChangesAndNotesWithUndo(t *testing.T) {
 		t.Fatal(e)
 	}
 	run := agentTurn(t, a, p)
+	if out := a.agentTool(ctx, run, "remember_change", jsonBytes(map[string]any{"recipe_id": "toast", "kind": "time", "step": 1, "change": map[string]any{"seconds": 240}})); !strings.Contains(out, "whole new text") {
+		t.Fatalf("kept a timer without its text: %s", out)
+	}
 	out := a.agentTool(ctx, run, "remember_change", jsonBytes(map[string]any{"recipe_id": "toast", "kind": "time", "step": 1, "change": map[string]any{"text": "Toast the bread for 4 minutes until golden, then serve.", "seconds": 240}, "said": "my toaster is slow"}))
 	if !strings.Contains(out, "kept") || len(run.effects) != 1 || run.effects[0].Kind != "remembered" || run.effects[0].Title != "Lemon toast" {
 		t.Fatalf("remembered %s %+v", out, run.effects)

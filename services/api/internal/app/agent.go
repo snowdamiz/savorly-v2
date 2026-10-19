@@ -70,7 +70,7 @@ var agentToolDefs = []agentToolDef{
 	{tool("search_recipes", "Search published Savorly recipes by words or ingredients, cuisine, tag, cook and time. Returns up to 8 summaries, each with its allergen and diet groups (allergens).", object(nil, props{"query": field("string", "Words or ingredients"), "cuisine": field("string", "Exact cuisine, e.g. Italian"), "tag": field("string", "Exact tag, e.g. vegetarian"), "author_id": field("string", "Only this cook's recipes"), "max_minutes": field("integer", ""), "sort": choice("", "Newest", "Quickest", "Top rated"), "include_avoided": field("boolean", "Also return recipes with what the user's diets and allergies leave out; only when they ask for one by name"), "cook_tested": field("boolean", "Only cook-tested recipes: at least 5 people cooked them through in Savorly (verifiedCooks); cookedMinutes is how long they really took")})), "looking", (*toolTurn).searchRecipes},
 	{tool("pantry_recipes", "Recipes the user can make mostly from their pantry: fewest missing ingredients first, then those using what expires soon. Each says what they have, what's missing and what's expiring. Leaves out what they avoid.", object(nil, props{})), "looking", (*toolTurn).pantryRecipes},
 	{tool("get_recipe", "Full ingredients, steps and equipment of a published recipe or one of the user's own: equipment is what its cook lists, equipmentDetected the equipment its method mentions, and equipmentGuess, when its cook lists none, the equipment its method likely uses with the steps that use each, a guess.", object([]string{"recipe_id"}, props{"recipe_id": recipeID()})), "looking", (*toolTurn).getRecipe},
-	{tool("show_recipes", "Show tappable recipe cards with your reply.", object([]string{"recipe_ids"}, props{"recipe_ids": list(field("string", ""), 6)})), "looking", (*toolTurn).showRecipes},
+	{tool("show_recipes", "Show tappable recipe cards with your reply. It opens nothing: to open a recipe on the user's screen, use app_action open_recipe.", object([]string{"recipe_ids"}, props{"recipe_ids": list(field("string", ""), 6)})), "looking", (*toolTurn).showRecipes},
 	{tool("find_cooks", "Find Savorly cooks by name, handle or bio, with ids and recipe counts.", object(nil, props{"query": field("string", "")})), "looking", (*toolTurn).findCooks},
 	{tool("get_reviews", "Recent reviews of a published recipe.", object([]string{"recipe_id"}, props{"recipe_id": recipeID()})), "looking", (*toolTurn).getReviews},
 	{tool("get_kitchen", "The user's meal plan, grocery list and pantry, with ids.", none), "checking", (*toolTurn).getKitchen},
@@ -146,6 +146,10 @@ type agentRun struct {
 	say    string
 	// imports counts the web pages it read; removed, the items it removed without asking.
 	imports, removed int
+	// removing is what the latest round's remove calls name, by kind, so a batch split into
+	// several calls of one round is asked about once, all of it; asked is that question, by kind.
+	removing map[string][]string
+	asked    map[string]string
 	// trace is what the turn did, for the admin console.
 	trace turnTrace
 }
@@ -170,6 +174,23 @@ type traceTool struct {
 	Name  string `json:"name"`
 	Ms    int64  `json:"ms"`
 	Error string `json:"error,omitempty"`
+}
+
+// round starts a model round: what its remove calls name, before any runs, and its trace.
+func (run *agentRun) round(r ai.AgentRound) {
+	run.removing, run.asked = map[string][]string{}, map[string]string{}
+	for i, name := range r.Calls {
+		var in toolArgs
+		if name != "remove" || i >= len(r.Args) || json.Unmarshal(r.Args[i], &in) != nil {
+			continue
+		}
+		for _, id := range in.IDs {
+			if !slices.Contains(run.removing[in.Kind], id) {
+				run.removing[in.Kind] = append(run.removing[in.Kind], id)
+			}
+		}
+	}
+	run.trace.round(r)
 }
 
 // round starts a model round in the trace.
@@ -706,13 +727,26 @@ func (t *toolTurn) remove() string {
 		return toolError("Choose plan, grocery, pantry or cookbook, and 1–40 ids.")
 	}
 	// A cookbook, or a batch, goes only once the user has seen what it is. A batch is more than
-	// three items in a turn, so splitting one into several calls asks all the same.
-	if (t.in.Kind == "cookbook" || t.run.removed+len(t.in.IDs) > 3) && !t.run.approving {
-		what, e := t.a.removalDescription(t.ctx, t.owner, t.in.Kind, t.in.IDs)
+	// three items in a turn, so splitting one into several calls asks all the same; calls of one
+	// round count together, and are asked about once, before any of them removes anything.
+	batch := t.run.removing[t.in.Kind]
+	if (t.in.Kind == "cookbook" || t.run.removed+max(len(t.in.IDs), len(batch)) > 3) && !t.run.approving {
+		if asked, ok := t.run.asked[t.in.Kind]; ok {
+			return asked
+		}
+		ids, args := t.in.IDs, t.raw
+		if len(batch) > len(ids) {
+			ids, args = batch, jsonBytes(fiber.Map{"kind": t.in.Kind, "ids": batch})
+		}
+		what, e := t.a.removalDescription(t.ctx, t.owner, t.in.Kind, ids)
 		if e != nil {
 			return toolError(publicError(e))
 		}
-		return t.a.propose(t.ctx, t.run, t.name, t.raw, what)
+		out := t.a.propose(t.ctx, t.run, t.name, args, what)
+		if t.run.asked != nil {
+			t.run.asked[t.in.Kind] = out
+		}
+		return out
 	}
 	removed := 0
 	page := map[string]string{"plan": "planner", "grocery": "planner", "pantry": "pantry", "cookbook": "saved"}[t.in.Kind]
@@ -784,7 +818,19 @@ func (t *toolTurn) reportRecipe() string {
 	return t.result(status, b)
 }
 
+// timeWithoutText refuses a step's new timer without its new text: the model tends to leave
+// change.text empty, and the step would still say its old time beside the new timer.
+func (t *toolTurn) timeWithoutText() string {
+	if t.in.Kind == "time" && t.in.Change.Seconds != nil && strings.TrimSpace(t.in.Change.Text) == "" {
+		return toolError("Give the step's whole new text in change.text, saying the new time, as well as its timer.")
+	}
+	return ""
+}
+
 func (t *toolTurn) rememberChange() string {
+	if refused := t.timeWithoutText(); refused != "" {
+		return refused
+	}
 	status, b := t.call("PUT", "/recipes/"+pathID(t.in.RecipeID)+"/my-version", fiber.Map{"kind": t.in.Kind, "step": t.in.Step, "ingredient": t.in.Ingredient, "change": t.in.Change, "said": t.in.Said, "source": "sous_chef"})
 	if status >= 300 {
 		return t.result(status, b)
@@ -810,6 +856,9 @@ func (t *toolTurn) rememberKitchenNote() string {
 }
 
 func (t *toolTurn) suggestFix() string {
+	if refused := t.timeWithoutText(); refused != "" {
+		return refused
+	}
 	// A suggestion goes to another cook in the user's name, so it waits for their yes.
 	f, e := prepareFix(t.ctx, t.a.DB, t.in.RecipeID, t.owner, t.in.Kind, t.in.Step, t.in.Ingredient, t.in.Change)
 	if e != nil {
