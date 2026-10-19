@@ -1421,7 +1421,8 @@ func slimRecipe(r map[string]any, summary bool) {
 	if author, ok := r["author"].(map[string]any); ok {
 		r["author"] = map[string]any{"id": author["id"], "name": author["name"]}
 	}
-	for _, k := range []string{"image", "photos", "video", "createdAt", "saveCount", "ingredientFood"} {
+	// The app's alone: equipmentKinds only picks each listed piece's illustration.
+	for _, k := range []string{"image", "photos", "video", "createdAt", "saveCount", "ingredientFood", "equipmentKinds"} {
 		delete(r, k)
 	}
 	if !summary {
