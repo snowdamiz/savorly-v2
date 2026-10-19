@@ -10,6 +10,7 @@ export { default as ArrowDown } from 'lucide-react-native/icons/arrow-down';
 export { default as ArrowLeft } from 'lucide-react-native/icons/arrow-left';
 export { default as ArrowRight } from 'lucide-react-native/icons/arrow-right';
 export { default as ArrowUp } from 'lucide-react-native/icons/arrow-up';
+export { default as ArrowUpDown } from 'lucide-react-native/icons/arrow-up-down';
 export { default as AtSign } from 'lucide-react-native/icons/at-sign';
 export { default as AudioLines } from 'lucide-react-native/icons/audio-lines';
 export { default as Award } from 'lucide-react-native/icons/award';

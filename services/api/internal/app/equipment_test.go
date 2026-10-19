@@ -1,6 +1,7 @@
 package app
 
 import (
+	"encoding/json"
 	"net/url"
 	"os"
 	"slices"
@@ -36,6 +37,27 @@ func TestTheAppNamesEveryEquipmentKey(t *testing.T) {
 	for _, key := range equipmentKeys {
 		if !strings.Contains(string(source), "case '"+key+"':") {
 			t.Errorf("Equipment.tsx doesn't name %q", key)
+		}
+	}
+}
+
+// The app draws every key, and every everyday tool a cook's list may name; anything else would
+// show the utensils.
+func TestTheAppDrawsEveryEquipmentKind(t *testing.T) {
+	source, e := os.ReadFile("../../../../apps/mobile/src/components/EquipmentIcon.tsx")
+	if os.IsNotExist(e) {
+		t.Skip("the app isn't checked out beside the API")
+	}
+	if e != nil {
+		t.Fatal(e)
+	}
+	kinds := slices.Clone(equipmentKeys)
+	for key := range equipmentListOnly {
+		kinds = append(kinds, key)
+	}
+	for _, key := range kinds {
+		if !strings.Contains(string(source), "\n  "+key+": (") && !strings.Contains(string(source), "\n  '"+key+"': (") {
+			t.Errorf("EquipmentIcon.tsx doesn't draw %q", key)
 		}
 	}
 }
@@ -133,6 +155,67 @@ func TestEquipmentInMethods(t *testing.T) {
 		got := detectEquipment([]Step{{Text: c.text}}, c.language)
 		if !slices.Equal(got, c.want) {
 			t.Errorf("%q (%s): %q, want %q", c.text, c.language, got, c.want)
+		}
+	}
+}
+
+// A name on a cook's list names its icon: equipment, or an everyday tool read only on lists.
+func TestNamesOnAListNameTheirIcons(t *testing.T) {
+	for _, c := range []struct{ name, language, want string }{
+		{"Large frying pan with a lid", "en", "frying pan"},
+		{"Saucepan or rice cooker", "en", "saucepan"},
+		{"2 baking trays", "en", "sheet pan"},
+		{"2 mixing bowls", "en", "bowl"},
+		{"Wooden spoon", "en", "spoon"},
+		{"Instant-read thermometer", "en", "thermometer"},
+		{"Baking paper", "en", "baking paper"},
+		{"Toaster", "en", "toaster"},
+		{"Grande cocotte en fonte", "fr", "dutch oven"},
+		{"Planche à découper", "fr", "cutting board"},
+		{"Große Rührschüssel", "de", "bowl"},
+		{"Holzlöffel", "de", "spoon"},
+		{"Tabla de cortar", "es", "cutting board"},
+		{"Mestolo", "it", "ladle"},
+		{"Сковорода с крышкой", "ru", "frying pan"},
+		{"まな板と包丁", "ja", "cutting board"},
+		{"大碗", "zh", "bowl"},
+		// Written in English on a recipe in another language.
+		{"Mixing bowl", "fr", "bowl"},
+		{"A good apron", "en", ""},
+	} {
+		if got := nameEquipment(c.name, c.language); got != c.want {
+			t.Errorf("%q (%s): %q, want %q", c.name, c.language, got, c.want)
+		}
+	}
+	// Everyday tools never count as what a method mentions.
+	if got := detectEquipment([]Step{{Text: "Whisk in a large bowl with a wooden spoon, then line the tray with baking paper."}}, "en"); !slices.Equal(got, []string{"whisk"}) {
+		t.Fatalf("detected %q", got)
+	}
+	if slices.ContainsFunc(equipmentKeys, func(k string) bool { return equipmentListOnly[k] }) {
+		t.Fatal("an everyday tool is offered as equipment")
+	}
+}
+
+// Every sample recipe's list draws an icon for each name.
+func TestSampleRecipesNameTheirIcons(t *testing.T) {
+	raw, e := os.ReadFile("../database/seed.json")
+	if e != nil {
+		t.Fatal(e)
+	}
+	var seed struct {
+		Recipes []struct {
+			ID        string
+			Equipment []string
+		}
+	}
+	if e = json.Unmarshal(raw, &seed); e != nil {
+		t.Fatal(e)
+	}
+	for _, r := range seed.Recipes {
+		for _, name := range r.Equipment {
+			if nameEquipment(name, "en") == "" {
+				t.Errorf("%s: %q names no icon", r.ID, name)
+			}
 		}
 	}
 }

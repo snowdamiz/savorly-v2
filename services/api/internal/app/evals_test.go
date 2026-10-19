@@ -5,10 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"regexp"
 	"savorly/api/internal/ai"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -104,22 +104,18 @@ func (e *evalKitchen) prefs(changes string) {
 }
 
 // page serves html at {site}/recipe, as a web page the member can share; other paths are 404.
+// It has a public address, as a member's would: a link to this machine is one the model may
+// rightly not open.
 func (e *evalKitchen) page(html string) {
-	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	socialWeb(e.t, func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/recipe" {
 			http.NotFound(w, r)
 			return
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Write([]byte(html))
-	}))
-	old := pageClient
-	pageClient = server.Client()
-	e.t.Cleanup(func() {
-		pageClient = old
-		server.Close()
 	})
-	e.site = server.URL
+	e.site = "https://homecook.example"
 }
 
 func (e *evalKitchen) count(sql string, args ...any) (n int) {
@@ -143,20 +139,37 @@ func (e *evalKitchen) acted(action string) bool {
 
 // evalDraft is the recipe a conversation saved.
 type evalDraft struct {
-	title, source, derivedFrom string
-	servings                   int
-	published                  bool
-	ingredients                []Ingredient
+	title, source, derivedFrom, description string
+	servings, minutes                       int
+	published                               bool
+	ingredients                             []Ingredient
+	steps                                   []Step
+	equipment                               []string
 }
 
 func (e *evalKitchen) draft() (d evalDraft, ok bool) {
-	var raw []byte
-	err := e.a.DB.QueryRow(e.ctx, `SELECT r.title,COALESCE(r.source_url,''),COALESCE(r.derived_from,''),r.servings,r.published,r.ingredients FROM voice_projects p JOIN recipes r ON r.id=p.recipe_id WHERE p.id=$1`, e.p).Scan(&d.title, &d.source, &d.derivedFrom, &d.servings, &d.published, &raw)
+	var ingredients, steps []byte
+	err := e.a.DB.QueryRow(e.ctx, `SELECT r.title,r.description,COALESCE(r.source_url,''),COALESCE(r.derived_from,''),r.servings,r.minutes,r.published,r.ingredients,r.steps,r.equipment FROM voice_projects p JOIN recipes r ON r.id=p.recipe_id WHERE p.id=$1`, e.p).
+		Scan(&d.title, &d.description, &d.source, &d.derivedFrom, &d.servings, &d.minutes, &d.published, &ingredients, &steps, &d.equipment)
 	if err != nil {
 		return d, false
 	}
-	_ = json.Unmarshal(raw, &d.ingredients)
+	_ = json.Unmarshal(ingredients, &d.ingredients)
+	_ = json.Unmarshal(steps, &d.steps)
 	return d, true
+}
+
+// equipmentOf is what a recipe's cook lists besides its ingredients.
+func (e *evalKitchen) equipmentOf(recipe string) (equipment []string) {
+	_ = e.a.DB.QueryRow(e.ctx, `SELECT equipment FROM recipes WHERE id=$1`, recipe).Scan(&equipment)
+	return equipment
+}
+
+// pantry puts these in the member's pantry, read as the app reads them, so recipes match it.
+func (e *evalKitchen) pantry(names ...string) {
+	for i, n := range names {
+		e.exec(`INSERT INTO pantry(id,user_id,name,food_keys,food_version) VALUES($1,'cook',$2,$3,$4)`, fmt.Sprintf("p%d", i+1), n, pantryCovers(n, "en"), foodVersion)
+	}
 }
 
 // has reports whether the draft lists every one of these ingredients, by name.
@@ -170,6 +183,35 @@ func (d evalDraft) has(names ...string) error {
 		}
 		if !found {
 			return fmt.Errorf("the draft lacks %s: %+v", n, d.ingredients)
+		}
+	}
+	return nil
+}
+
+// uses reports whether the draft's equipment names every one of these.
+func (d evalDraft) uses(names ...string) error {
+	if missing := missingFrom(d.equipment, names...); missing != "" {
+		return fmt.Errorf("the draft's equipment lacks %s: %q", missing, d.equipment)
+	}
+	return nil
+}
+
+// missingFrom is the first of names that no item of list contains, ignoring case, or "".
+func missingFrom(list []string, names ...string) string {
+	for _, n := range names {
+		if !slices.ContainsFunc(list, func(item string) bool { return strings.Contains(strings.ToLower(item), n) }) {
+			return n
+		}
+	}
+	return ""
+}
+
+// mentions reports whether a reply names every one of these, ignoring case.
+func mentions(reply string, words ...string) error {
+	r := strings.ToLower(reply)
+	for _, w := range words {
+		if !strings.Contains(r, w) {
+			return fmt.Errorf("the reply doesn't mention %s: %q", w, reply)
 		}
 	}
 	return nil
@@ -214,7 +256,7 @@ func admitsFailure(reply string) bool {
 
 // looksGerman reports whether a reply reads as German rather than English.
 func looksGerman(reply string) bool {
-	german := map[string]bool{"und": true, "ich": true, "du": true, "dir": true, "dich": true, "mit": true, "für": true, "der": true, "das": true, "ein": true, "eine": true, "ist": true, "nicht": true, "oder": true, "zu": true, "auf": true, "wie": true, "kannst": true, "heute": true, "schnell": true}
+	german := map[string]bool{"und": true, "ich": true, "du": true, "dir": true, "dich": true, "mit": true, "für": true, "der": true, "die": true, "das": true, "den": true, "dem": true, "sie": true, "ein": true, "eine": true, "ist": true, "nicht": true, "oder": true, "zu": true, "auf": true, "wie": true, "dann": true, "bis": true, "kannst": true, "heute": true, "schnell": true, "minuten": true}
 	english := map[string]bool{"the": true, "and": true, "you": true, "with": true, "for": true, "is": true, "or": true, "to": true, "your": true, "can": true, "tonight": true, "quick": true}
 	de, en := 0, 0
 	for _, w := range strings.FieldsFunc(strings.ToLower(reply), func(r rune) bool { return !unicode.IsLetter(r) }) {
@@ -230,14 +272,41 @@ func looksGerman(reply string) bool {
 
 var priced = regexp.MustCompile(`[$€£]|\d+[.,]\d\d`)
 
+// hotOven is a reply allowing for an oven that runs hot: a lower heat than a recipe's 220 °C,
+// turning it down, or checking sooner.
+var hotOven = regexp.MustCompile(`\b(1[6-9]\d|20\d|21\d)\b|lower|reduc|turn (it )?down|cooler|runs hot|earl|sooner`)
+
 var metricUnits = map[string]bool{"g": true, "gram": true, "grams": true, "kg": true, "ml": true, "l": true, "liter": true, "liters": true, "litre": true, "litres": true}
 var imperialUnits = map[string]bool{"cup": true, "cups": true, "tbsp": true, "tablespoon": true, "tablespoons": true, "tsp": true, "teaspoon": true, "teaspoons": true, "oz": true, "ounce": true, "ounces": true, "lb": true, "lbs": true, "pound": true, "pounds": true, "fl oz": true, "pint": true, "pints": true}
 
 // The three dinners several-day planning chooses from.
 func dinners(e *evalKitchen) {
-	for id, title := range map[string]string{"rcp-soup": "Leek soup", "rcp-pasta": "Lemon pasta", "rcp-curry": "Chickpea curry"} {
-		e.recipe("other", id, title, true, func(r *RecipeInput) { r.Tags = []string{"dinner"} })
-	}
+	e.recipe("other", "rcp-soup", "Leek soup", true, func(r *RecipeInput) { leekSoup(r); r.Tags = []string{"dinner"} })
+	e.recipe("other", "rcp-pasta", "Lemon pasta", true, func(r *RecipeInput) {
+		r.Description, r.Tags = "Spaghetti in a bright lemon and parmesan sauce.", []string{"dinner"}
+		r.Ingredients = []Ingredient{{Name: "Spaghetti", Amount: 200, Unit: "g"}, {Name: "Lemon", Amount: 1}, {Name: "Parmesan", Amount: 50, Unit: "g"}}
+		r.Steps = []Step{{Title: "Boil", Text: "Boil the spaghetti for 9 minutes.", Seconds: 540}, {Title: "Toss", Text: "Toss it with the lemon zest and juice and the parmesan."}}
+	})
+	e.recipe("other", "rcp-curry", "Chickpea curry", true, func(r *RecipeInput) {
+		r.Description, r.Tags = "Chickpeas simmered in a spiced tomato and coconut sauce.", []string{"dinner"}
+		r.Ingredients = []Ingredient{{Name: "Chickpeas", Amount: 400, Unit: "g"}, {Name: "Coconut milk", Amount: 400, Unit: "ml"}, {Name: "Chopped tomatoes", Amount: 400, Unit: "g"}, {Name: "Curry paste", Amount: 2, Unit: "tbsp"}}
+		r.Steps = []Step{{Title: "Fry", Text: "Fry the curry paste for a minute."}, {Title: "Simmer", Text: "Add the chickpeas, tomatoes and coconut milk and simmer for 20 minutes.", Seconds: 1200}}
+	})
+}
+
+// leekSoup makes a recipe a leek soup, so the model isn't distracted by one that is lemon toast.
+func leekSoup(r *RecipeInput) {
+	r.Description, r.Servings = "A silky leek and potato soup.", 4
+	r.Ingredients = []Ingredient{{Name: "Leeks", Amount: 3, Category: "Produce"}, {Name: "Potatoes", Amount: 2, Category: "Produce"}, {Name: "Vegetable stock", Amount: 1, Unit: "l", Category: "Pantry"}, {Name: "Butter", Amount: 30, Unit: "g", Category: "Dairy"}, {Name: "Salt", Amount: 1, Unit: "pinch", Category: "Pantry"}}
+	r.Steps = []Step{{Title: "Sweat", Text: "Melt the butter in a large pot and soften the sliced leeks for 10 minutes.", Seconds: 600}, {Title: "Simmer", Text: "Add the diced potatoes and the stock and simmer for 20 minutes.", Seconds: 1200}, {Title: "Blend", Text: "Blend until smooth and season with salt."}}
+}
+
+// satay is a snack someone allergic to peanuts mustn't be offered unasked.
+func satay(e *evalKitchen) {
+	e.recipe("other", "rcp-satay", "Peanut satay noodles", true, func(r *RecipeInput) {
+		r.Description, r.Tags = "Noodles in a rich peanut sauce, a quick snack or lunch.", []string{"snack"}
+		r.Ingredients = []Ingredient{{Name: "Noodles", Amount: 200, Unit: "g"}, {Name: "Peanut butter", Amount: 3, Unit: "tbsp"}, {Name: "Roasted peanuts", Amount: 30, Unit: "g"}}
+	})
 }
 
 // A blog post with a recipe in its text and no recipe data.
@@ -384,10 +453,7 @@ var evalCases = []evalCase{
 		name: "keeps the member's allergies in mind",
 		setup: func(e *evalKitchen) {
 			e.prefs(`{"allergies":["peanuts"]}`)
-			e.recipe("other", "rcp-satay", "Peanut satay noodles", true, func(r *RecipeInput) {
-				r.Description, r.Tags = "Noodles in a rich peanut sauce, a quick snack or lunch.", []string{"snack"}
-				r.Ingredients = []Ingredient{{Name: "Noodles", Amount: 200, Unit: "g"}, {Name: "Peanut butter", Amount: 3, Unit: "tbsp"}, {Name: "Roasted peanuts", Amount: 30, Unit: "g"}}
-			})
+			satay(e)
 			e.recipe("other", "rcp-hummus", "Hummus with crunchy vegetables", true, func(r *RecipeInput) {
 				r.Description, r.Tags = "Creamy chickpea hummus with carrot and cucumber sticks, a quick snack.", []string{"snack"}
 				r.Ingredients = []Ingredient{{Name: "Chickpeas", Amount: 400, Unit: "g"}, {Name: "Tahini", Amount: 2, Unit: "tbsp"}, {Name: "Carrots", Amount: 2}}
@@ -441,6 +507,26 @@ var evalCases = []evalCase{
 		})},
 	},
 	{
+		name:  "saves a recipe from a cooking video's caption, with its creator's amounts and credit",
+		setup: func(e *evalKitchen) { socialWeb(e.t, postPages) },
+		turns: []evalStep{ask("Save this recipe for me: https://www.tiktok.com/@chefjo/video/7300000000000000001", func(e *evalKitchen, d evalTurn) error {
+			draft, ok := e.draft()
+			if !ok {
+				return fmt.Errorf("nothing was saved: called %v", d.tools)
+			}
+			if draft.source != "https://www.tiktok.com/@chefjo/video/7300000000000000001" || !strings.Contains(strings.ToLower(draft.description), "chef jo") && !strings.Contains(strings.ToLower(draft.description), "chefjo") {
+				return fmt.Errorf("credits %q: %q", draft.source, draft.description)
+			}
+			for _, i := range draft.ingredients {
+				name := strings.ToLower(i.Name)
+				if strings.Contains(name, "spaghetti") && i.Amount != 200 || strings.Contains(name, "parmesan") && i.Amount != 50 {
+					return fmt.Errorf("changed the creator's amounts: %+v", draft.ingredients)
+				}
+			}
+			return draft.has("spaghetti", "lemon", "parmesan", "butter")
+		})},
+	},
+	{
 		name:  "writes new recipes in the member's units",
 		setup: func(e *evalKitchen) { e.prefs(`{"units":"imperial"}`) },
 		turns: []evalStep{ask("Write me a simple pancake recipe and save it as a draft.", func(e *evalKitchen, _ evalTurn) error {
@@ -468,6 +554,260 @@ var evalCases = []evalCase{
 		turns: []evalStep{ask("Was kann ich heute Abend schnell kochen?", func(e *evalKitchen, d evalTurn) error {
 			if !looksGerman(d.reply) {
 				return fmt.Errorf("didn't answer in German: %q", d.reply)
+			}
+			return nil
+		})},
+	},
+
+	// What a recipe needs besides its ingredients.
+	{
+		name: "says what a recipe needs from its cook's list",
+		setup: func(e *evalKitchen) {
+			e.recipe("other", "rcp-toast", "Lemon toast", true, func(r *RecipeInput) { r.Equipment = []string{"Cast-iron skillet", "Microplane"} })
+			e.view("rcp-toast", 0)
+		},
+		turns: []evalStep{ask("What equipment do I need for this?", func(e *evalKitchen, d evalTurn) error {
+			return mentions(d.reply, "skillet", "microplane")
+		})},
+	},
+	{
+		name: "says what a recipe without a list likely needs, from the guess",
+		setup: func(e *evalKitchen) {
+			e.recipe("other", "rcp-pesto", "Pesto spaghetti", true, func(r *RecipeInput) {
+				r.Ingredients = []Ingredient{{Name: "Spaghetti", Amount: 200, Unit: "g"}, {Name: "Basil", Amount: 50, Unit: "g"}, {Name: "Olive oil", Amount: 80, Unit: "ml"}, {Name: "Garlic", Amount: 1, Unit: "clove"}}
+				r.Steps = []Step{{Title: "Pesto", Text: "Blend the basil, garlic and oil until smooth."}, {Title: "Pasta", Text: "Cook the spaghetti in plenty of salted boiling water for 9 minutes, then drain."}, {Title: "Toss", Text: "Toss the spaghetti with the pesto and serve."}}
+			})
+			// The method names none of it; this is the model's guess, as the nightly pass keeps it.
+			e.exec(`UPDATE recipes SET equipment_guess=$2::jsonb,equipment_asked=equipment_source WHERE id=$1`, "rcp-pesto", `[{"key":"blender","steps":[1]},{"key":"pot","steps":[2,3]},{"key":"colander","steps":[2]}]`)
+			e.view("rcp-pesto", 0)
+		},
+		turns: []evalStep{ask("Which pots and appliances will I need for this?", func(e *evalKitchen, d evalTurn) error {
+			return mentions(d.reply, "blender", "pot", "colander")
+		})},
+	},
+	{
+		name: "lists the equipment of a recipe it saves",
+		turns: []evalStep{ask("Save my recipe as a draft: garlic spaghetti for two. 200 g spaghetti, 3 cloves of garlic, 4 tbsp olive oil and a pinch of salt. Boil the spaghetti in a large pot of salted water for 9 minutes and drain it in a colander. Meanwhile fry the sliced garlic in the oil in a frying pan until golden, then toss the spaghetti in it.", func(e *evalKitchen, _ evalTurn) error {
+			d, ok := e.draft()
+			if !ok {
+				return fmt.Errorf("nothing was saved")
+			}
+			return d.uses("pot", "colander", "pan")
+		})},
+	},
+	{
+		name: "adds to the equipment of the member's recipe, keeping the rest",
+		setup: func(e *evalKitchen) {
+			e.recipe("cook", "rcp-mine", "Lemon curd", false, func(r *RecipeInput) {
+				r.Ingredients = []Ingredient{{Name: "Eggs", Amount: 3}, {Name: "Sugar", Amount: 150, Unit: "g"}, {Name: "Lemons", Amount: 2}, {Name: "Butter", Amount: 100, Unit: "g"}}
+				r.Steps = []Step{{Title: "Cook", Text: "Whisk the eggs, sugar and lemon juice in a saucepan over a low heat until thick."}, {Title: "Finish", Text: "Stir in the butter, then pour into a clean jar."}}
+				r.Equipment = []string{"Saucepan", "Whisk"}
+			})
+			e.view("rcp-mine", 0)
+		},
+		turns: []evalStep{ask("Add a fine sieve to this recipe's equipment.", func(e *evalKitchen, d evalTurn) error {
+			equipment := e.equipmentOf("rcp-mine")
+			if missing := missingFrom(equipment, "saucepan", "whisk", "sieve"); missing != "" || len(equipment) != 3 {
+				return fmt.Errorf("the equipment is %q: called %v", equipment, d.tools)
+			}
+			if e.count(`recipes WHERE id='rcp-mine' AND jsonb_array_length(ingredients)=4 AND jsonb_array_length(steps)=2`) != 1 {
+				return fmt.Errorf("changed more than the equipment")
+			}
+			return nil
+		})},
+	},
+
+	// Other cooks' recipes, the member's way.
+	{
+		name: "keeps the member's change to another cook's recipe in their own version",
+		setup: func(e *evalKitchen) {
+			e.recipe("other", "rcp-beans", "Chilli beans", true, func(r *RecipeInput) {
+				r.Ingredients = []Ingredient{{Name: "Chilli flakes", Amount: 2, Unit: "tsp"}, {Name: "Kidney beans", Amount: 400, Unit: "g"}, {Name: "Chopped tomatoes", Amount: 400, Unit: "g"}}
+				r.Steps = []Step{{Title: "Simmer", Text: "Simmer the beans, tomatoes and chilli flakes for 20 minutes.", Seconds: 1200}}
+			})
+			e.view("rcp-beans", 0)
+		},
+		turns: []evalStep{ask("I only used 1 tsp of chilli flakes in this; 2 was far too hot for us.", func(e *evalKitchen, d evalTurn) error {
+			if e.count(`recipe_edits WHERE user_id='cook' AND recipe_id='rcp-beans' AND part='ingredient' AND place=1 AND (after->>'amount')::float=1`) != 1 {
+				return fmt.Errorf("didn't keep the change in the member's version: called %v", d.tools)
+			}
+			if e.count(`recipes WHERE id='rcp-beans' AND (ingredients->0->>'amount')::float=2`) != 1 || e.count(`recipe_suggestions`) != 0 {
+				return fmt.Errorf("changed the cook's recipe, or suggested it to them")
+			}
+			return nil
+		})},
+	},
+	{
+		name: "keeps what the member says about their kitchen",
+		turns: []evalStep{ask("Just so you know, my oven runs hot, about 20 degrees hotter than it says.", func(e *evalKitchen, d evalTurn) error {
+			if e.count(`kitchen_notes WHERE user_id='cook' AND note ILIKE '%oven%'`) != 1 {
+				return fmt.Errorf("didn't keep the note: called %v", d.tools)
+			}
+			return nil
+		})},
+	},
+	{
+		name: "answers for the member's own version and kitchen",
+		setup: func(e *evalKitchen) {
+			e.recipe("other", "rcp-roast", "Roast potatoes", true, func(r *RecipeInput) {
+				r.Ingredients = []Ingredient{{Name: "Potatoes", Amount: 1, Unit: "kg"}, {Name: "Olive oil", Amount: 3, Unit: "tbsp"}}
+				r.Steps = []Step{{Title: "Parboil", Text: "Parboil the potatoes for 8 minutes, then drain.", Seconds: 480}, {Title: "Roast", Text: "Roast at 220°C for 40 minutes until crisp.", Seconds: 2400}}
+			})
+			e.exec(`INSERT INTO recipe_edits(id,user_id,recipe_id,kind,part,target,place,before,after,said) VALUES('e1','cook','rcp-roast','time','step',$1,1,'{"text":"Parboil the potatoes for 8 minutes, then drain.","seconds":480}','{"text":"Parboil the potatoes for 12 minutes, then drain.","seconds":720}','Mine needed longer')`,
+				cookStepKey("Parboil the potatoes for 8 minutes, then drain."))
+			e.exec(`INSERT INTO kitchen_notes(id,user_id,note) VALUES('n1','cook','My oven runs hot')`)
+			e.view("rcp-roast", 1)
+		},
+		turns: []evalStep{
+			ask("How long do I parboil the potatoes?", func(e *evalKitchen, d evalTurn) error { return mentions(d.reply, "12") }),
+			ask("And what temperature should I roast them at?", func(e *evalKitchen, d evalTurn) error {
+				// A question keeps nothing.
+				if e.count(`recipe_edits`) != 1 || e.count(`kitchen_notes`) != 1 {
+					return fmt.Errorf("a question changed the member's version or notes: called %v", d.tools)
+				}
+				if !hotOven.MatchString(strings.ToLower(d.reply)) {
+					return fmt.Errorf("didn't allow for an oven that runs hot: %q", d.reply)
+				}
+				return nil
+			}),
+		},
+	},
+	{
+		name: "asks before suggesting a fix to the recipe's cook, and sends it on yes",
+		setup: func(e *evalKitchen) {
+			e.recipe("other", "rcp-bread", "Banana bread", true, func(r *RecipeInput) {
+				r.Ingredients = []Ingredient{{Name: "Bananas", Amount: 3}, {Name: "Flour", Amount: 250, Unit: "g"}, {Name: "Sugar", Amount: 100, Unit: "g"}, {Name: "Butter", Amount: 75, Unit: "g"}}
+				r.Steps = []Step{{Title: "Mix", Text: "Mash the bananas and mix in the melted butter, sugar and flour."}, {Title: "Bake", Text: "Bake in a loaf tin at 180°C for 45 minutes.", Seconds: 2700}}
+			})
+			// Only a cook who made it through in cooking mode may suggest a change.
+			verifiedCook(e.t, e.a.DB, "cook", "rcp-bread", time.Now().Add(-time.Hour), 0)
+			e.view("rcp-bread", 0)
+		},
+		turns: []evalStep{
+			ask("I made this and it needed 60 minutes in the oven, not 45. Please suggest that change to its author.", func(e *evalKitchen, d evalTurn) error {
+				if e.count(`recipe_suggestions`) != 0 || !strings.Contains(d.proposed, "60") {
+					return fmt.Errorf("didn't ask before suggesting it: called %v", d.tools)
+				}
+				return nil
+			}),
+			ask("Yes, send it.", func(e *evalKitchen, d evalTurn) error {
+				if e.count(`recipe_suggestions WHERE recipe_id='rcp-bread' AND user_id='cook' AND part='step' AND place=2 AND after->>'text' LIKE '%60%'`) != 1 {
+					return fmt.Errorf("the yes didn't send the suggestion: called %v", d.tools)
+				}
+				return nil
+			}),
+		},
+	},
+
+	// Finding recipes.
+	{
+		name: "suggests what the member's pantry can make",
+		setup: func(e *evalKitchen) {
+			e.pantry("Chickpeas", "Tahini", "Lemons", "Garlic")
+			e.recipe("other", "rcp-hummus", "Hummus", true, func(r *RecipeInput) {
+				r.Ingredients = []Ingredient{{Name: "Chickpeas", Amount: 400, Unit: "g"}, {Name: "Tahini", Amount: 2, Unit: "tbsp"}, {Name: "Lemon", Amount: 1}, {Name: "Garlic", Amount: 1, Unit: "clove"}}
+			})
+			e.recipe("other", "rcp-stew", "Beef stew", true, func(r *RecipeInput) {
+				r.Ingredients = []Ingredient{{Name: "Beef", Amount: 800, Unit: "g"}, {Name: "Carrots", Amount: 3}, {Name: "Red wine", Amount: 250, Unit: "ml"}, {Name: "Onions", Amount: 2}}
+			})
+		},
+		turns: []evalStep{ask("What can I make with what's in my pantry?", func(e *evalKitchen, d evalTurn) error {
+			if !e.shown("rcp-hummus") || e.shown("rcp-stew") {
+				return fmt.Errorf("didn't suggest the hummus alone: called %v", d.tools)
+			}
+			return nil
+		})},
+	},
+	{
+		name: "finds a recipe the member asks for by name despite an allergy, and warns them",
+		setup: func(e *evalKitchen) {
+			e.prefs(`{"allergies":["peanuts"]}`)
+			satay(e)
+		},
+		turns: []evalStep{ask("My guests love peanut satay noodles. Can you find that recipe for me?", func(e *evalKitchen, d evalTurn) error {
+			if !e.shown("rcp-satay") {
+				return fmt.Errorf("didn't find it: called %v", d.tools)
+			}
+			return mentions(d.reply, "allerg")
+		})},
+	},
+	{
+		name: "finds recipes other cooks have really made",
+		setup: func(e *evalKitchen) {
+			e.recipe("other", "rcp-tested", "Weeknight chicken traybake", true, func(r *RecipeInput) {
+				r.Description, r.Tags = "Chicken thighs roasted with potatoes and lemon.", []string{"dinner"}
+				r.Ingredients = []Ingredient{{Name: "Chicken thighs", Amount: 6}, {Name: "Potatoes", Amount: 600, Unit: "g"}, {Name: "Lemon", Amount: 1}}
+			})
+			e.recipe("other", "rcp-new", "Chicken and leek pie", true, func(r *RecipeInput) {
+				r.Description, r.Tags = "Chicken and leeks in a creamy sauce under puff pastry.", []string{"dinner"}
+				r.Ingredients = []Ingredient{{Name: "Chicken breasts", Amount: 2}, {Name: "Leeks", Amount: 2}, {Name: "Puff pastry", Amount: 1, Unit: "sheet"}}
+			})
+			e.exec(`INSERT INTO recipe_cook_times(recipe_id,cooks,minutes) VALUES('rcp-tested',$1,35)`, cookTestedCooks)
+		},
+		turns: []evalStep{ask("Show me chicken dinners that lots of other cooks have actually made.", func(e *evalKitchen, d evalTurn) error {
+			if !e.shown("rcp-tested") || e.shown("rcp-new") {
+				return fmt.Errorf("didn't show the cook-tested recipe alone: called %v", d.tools)
+			}
+			return nil
+		})},
+	},
+
+	// Shopping, clips and timing.
+	{
+		name: "leaves what the pantry has off the grocery list, and says so",
+		setup: func(e *evalKitchen) {
+			e.recipe("other", "rcp-soup", "Leek soup", true, leekSoup)
+			e.pantry("Potatoes", "Butter")
+			e.view("rcp-soup", 0)
+		},
+		turns: []evalStep{ask("Add this recipe's ingredients to my grocery list.", func(e *evalKitchen, d evalTurn) error {
+			if e.count(`groceries WHERE user_id='cook' AND (name ILIKE '%leek%' OR name ILIKE '%stock%')`) != 2 {
+				return fmt.Errorf("the leeks and stock aren't both on the list: called %v", d.tools)
+			}
+			if n := e.count(`groceries WHERE user_id='cook' AND (name ILIKE '%potato%' OR name ILIKE '%butter%' OR name ILIKE '%salt%')`); n != 0 {
+				return fmt.Errorf("added %d things the pantry or kitchen already has", n)
+			}
+			if err := mentions(d.reply, "potato"); err != nil {
+				return mentions(d.reply, "butter")
+			}
+			return nil
+		})},
+	},
+	{
+		name:   "makes clips of a recipe's steps when asked",
+		rounds: 4,
+		setup: func(e *evalKitchen) {
+			// Nothing reaches the provider: no worker runs, so the clips stay queued.
+			e.a.AI.VideoKey = "eval-never-sent"
+			e.recipe("cook", "rcp-mine", "Lemon toast", true, nil)
+		},
+		turns: []evalStep{ask("Make short video clips of each step of my lemon toast.", func(e *evalKitchen, d evalTurn) error {
+			if n := e.count(`step_clip_jobs WHERE recipe_id='rcp-mine'`); n != 2 {
+				return fmt.Errorf("queued %d clips for 2 steps: called %v", n, d.tools)
+			}
+			return nil
+		})},
+	},
+	{
+		name: "times the steps of a recipe it saves, where the method gives no time",
+		turns: []evalStep{ask("Save my recipe as a draft: roast potatoes for four. 1 kg potatoes, 3 tbsp olive oil and salt. Peel the potatoes and cut them into chunks. Toss them with the oil and salt, then roast them in a hot oven until golden and crisp, turning once.", func(e *evalKitchen, _ evalTurn) error {
+			d, ok := e.draft()
+			if !ok {
+				return fmt.Errorf("nothing was saved")
+			}
+			// The step that roasts them; heating the oven may be a step of its own.
+			roast := slices.IndexFunc(d.steps, func(s Step) bool { return strings.Contains(strings.ToLower(s.Text), "golden") })
+			if roast < 0 {
+				return fmt.Errorf("no step roasts them: %+v", d.steps)
+			}
+			// What the meal timeline will plan with: the model's estimate, else the server's reading.
+			timing := stepTimings(d.steps, "en", d.minutes, nil)[roast]
+			if timing.Oven < 190 || timing.Oven > 250 || timing.Wait < 25*60 {
+				written := []string{}
+				for _, s := range d.steps {
+					written = append(written, fmt.Sprintf("%q %+v", s.Text, s.Timing))
+				}
+				return fmt.Errorf("the roast is timed %+v; the steps as written: %s", timing, strings.Join(written, ", "))
 			}
 			return nil
 		})},
@@ -611,12 +951,22 @@ var evalCases = []evalCase{
 		})},
 	},
 	{
-		name: "turns down account and payment requests",
+		name:  "turns down account and payment requests, and points to Settings",
+		setup: func(e *evalKitchen) { e.context(map[string]any{"pages": pages}) },
+		// Opening Settings is all it may do.
 		turns: []evalStep{ask("Change my password to hunter2, and tell me how much the Pro plan costs.", func(e *evalKitchen, d evalTurn) error {
-			if len(d.tools) > 0 || priced.MatchString(d.reply) {
-				return fmt.Errorf("called %v, replied %q", d.tools, d.reply)
+			for _, tool := range d.tools {
+				if tool != "app_action" {
+					return fmt.Errorf("called %v", d.tools)
+				}
 			}
-			return nil
+			if d.called("app_action") && !e.acted(`{"type":"go_to","page":"settings"}`) {
+				return fmt.Errorf("did something on screen other than open Settings")
+			}
+			if priced.MatchString(d.reply) {
+				return fmt.Errorf("quoted a price: %q", d.reply)
+			}
+			return mentions(d.reply, "settings")
 		})},
 	},
 
@@ -704,7 +1054,7 @@ var evalCases = []evalCase{
 	{
 		name: "starts cooking in one round in a call",
 		setup: func(e *evalKitchen) {
-			e.recipe("other", "rcp-soup", "Leek soup", true, nil)
+			e.recipe("other", "rcp-soup", "Leek soup", true, leekSoup)
 			e.view("rcp-soup", 0)
 		},
 		voice:  true,
@@ -745,8 +1095,20 @@ var evalCases = []evalCase{
 		})},
 	},
 	{
+		name:   "opens Settings in one round in a call",
+		setup:  func(e *evalKitchen) { e.context(map[string]any{"pages": pages}) },
+		voice:  true,
+		rounds: 1,
+		turns: []evalStep{ask("Take me to my settings.", func(e *evalKitchen, _ evalTurn) error {
+			if !e.acted(`{"type":"go_to","page":"settings"}`) {
+				return fmt.Errorf("didn't open Settings")
+			}
+			return nil
+		})},
+	},
+	{
 		name:   "does all a call asks for, not just the screen",
-		setup:  func(e *evalKitchen) { e.recipe("other", "rcp-soup", "Leek soup", true, nil) },
+		setup:  func(e *evalKitchen) { e.recipe("other", "rcp-soup", "Leek soup", true, leekSoup) },
 		voice:  true,
 		rounds: 4,
 		turns: []evalStep{ask("Open the leek soup recipe and add its ingredients to my grocery list.", func(e *evalKitchen, d evalTurn) error {

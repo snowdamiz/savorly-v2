@@ -625,7 +625,7 @@ func (a *App) processVoiceAction(ctx context.Context, id, project string, throug
 			run.trace.tool(name, time.Since(began), out)
 			return out
 		}
-		reply, cost, e = a.AI.Agent(turn, input, data, agentTools, tool, ai.AgentHooks{Round: run.trace.round, Settled: screenOnly(run)})
+		reply, cost, e = a.AI.Agent(turn, input, data, agentTools, tool, ai.AgentHooks{Round: run.round, Settled: screenOnly(run)})
 	}
 	if e == nil && reply == "" {
 		e = errors.New("empty assistant reply")
@@ -907,16 +907,17 @@ func (a *App) agentInput(ctx context.Context, state studioState) (any, error) {
 
 // kitchenGlanceSQL is the member's ($1) week from their day $2: meals planned for the next
 // seven days, groceries still to buy, the pantry with its quantities and dates (so a change to
-// one item keeps the rest of it rather than guessing), and what is about to expire. get_kitchen
-// has the rest, with ids.
+// one item keeps the rest of it rather than guessing), and what is about to expire. A pantry
+// item's name is a field of its own, so the model doesn't take "milk (1 l)" for one and add a
+// second milk. get_kitchen has the rest, with ids.
 var kitchenGlanceSQL = `SELECT jsonb_build_object(
  'planned',COALESCE((SELECT jsonb_agg(jsonb_build_object('day',p.day,'meal',p.meal,'recipe',r.title,'recipeId',r.id,'servings',p.servings) ORDER BY p.day,array_position(ARRAY['Breakfast','Lunch','Dinner'],p.meal))
    FROM meal_plans p JOIN recipes r ON r.id=p.recipe_id JOIN users u ON u.id=r.author_id AND u.suspended_at IS NULL WHERE ` + kitchenScope("p", 1) + ` AND p.day BETWEEN $2::date AND $2::date+6),'[]'),
  'toBuyCount',(SELECT count(*) FROM groceries g WHERE NOT g.checked AND ` + groceryScope(1) + `),
  'toBuy',COALESCE((SELECT jsonb_agg(name ORDER BY created_at,id) FROM (SELECT g.name,g.created_at,g.id FROM groceries g WHERE NOT g.checked AND ` + groceryScope(1) + ` ORDER BY g.created_at,g.id LIMIT 30) x),'[]'),
  'pantryCount',(SELECT count(*) FROM pantry k WHERE ` + kitchenScope("k", 1) + `),
- 'pantry',COALESCE((SELECT jsonb_agg(item ORDER BY n) FROM (SELECT row_number() OVER (ORDER BY k.expires_on NULLS LAST,k.name) n,k.name||COALESCE(' ('||NULLIF(concat_ws(', ',NULLIF(k.quantity,''),'expires '||to_char(k.expires_on,'YYYY-MM-DD')),'')||')','') item FROM pantry k WHERE ` + kitchenScope("k", 1) + ` ORDER BY k.expires_on NULLS LAST,k.name LIMIT 40) x),'[]'),
- 'expiringSoon',COALESCE((SELECT jsonb_agg(name||' ('||to_char(expires_on,'YYYY-MM-DD')||')' ORDER BY expires_on,name) FROM (SELECT k.name,k.expires_on FROM pantry k WHERE ` + kitchenScope("k", 1) + ` AND k.expires_on BETWEEN $2::date AND $2::date+3 ORDER BY k.expires_on,k.name LIMIT 10) x),'[]'))`
+ 'pantry',COALESCE((SELECT jsonb_agg(item ORDER BY n) FROM (SELECT row_number() OVER (ORDER BY k.expires_on NULLS LAST,k.name) n,jsonb_strip_nulls(jsonb_build_object('name',k.name,'quantity',NULLIF(k.quantity,''),'expires',to_char(k.expires_on,'YYYY-MM-DD'))) item FROM pantry k WHERE ` + kitchenScope("k", 1) + ` ORDER BY k.expires_on NULLS LAST,k.name LIMIT 40) x),'[]'),
+ 'expiringSoon',COALESCE((SELECT jsonb_agg(jsonb_build_object('name',name,'expires',to_char(expires_on,'YYYY-MM-DD')) ORDER BY expires_on,name) FROM (SELECT k.name,k.expires_on FROM pantry k WHERE ` + kitchenScope("k", 1) + ` AND k.expires_on BETWEEN $2::date AND $2::date+3 ORDER BY k.expires_on,k.name LIMIT 10) x),'[]'))`
 
 // shownRecipesSQL is the recipe cards conversation $1's replies through event $3 showed, newest
 // first and each once, as the member ($2) may see them, so "the second one" resolves.

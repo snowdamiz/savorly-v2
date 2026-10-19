@@ -1,11 +1,13 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { useI18n } from '../lib/i18n';
 import { joinNames } from '../lib/food';
-import { shownEquipment, stepEquipment } from '../lib/equipment';
+import { byImportance, shownEquipment, stepEquipment } from '../lib/equipment';
 import { Recipe } from '../lib/types';
 import { color, font, radius, s } from '../lib/theme';
-import { CookingPot } from './icons';
+import { EquipmentIcon } from './EquipmentIcon';
+import { ChevronDown, CookingPot } from './icons';
+import { Press } from './ui';
 
 type Translate = ReturnType<typeof useI18n>['t'];
 
@@ -107,18 +109,25 @@ export function useShownEquipment(recipe: Recipe) {
   return { ...shown, note };
 }
 
+// How many tools show before "Show all": the ones that matter most (byImportance).
+const SHOWN = 3;
+
 /**
- * The recipe page's "You'll need", at the head of the method: the cook's list, or the sous-chef's
- * guess, or what the method mentions, labelled as such.
+ * The recipe page's "You'll need", at the head of the method: a card for each tool, its
+ * illustration beside its name, from the cook's list, or the sous-chef's guess (with the steps
+ * that use it), or what the method mentions, labelled as such. The three that matter most show,
+ * and the rest open under them.
  */
 export function RecipeEquipment({ recipe }: { recipe: Recipe }) {
-  const { t: tr } = useI18n();
-  const { names, note } = useShownEquipment(recipe);
-  if (!names.length) return null;
+  const { t: tr, language } = useI18n();
+  const { tools, note } = useShownEquipment(recipe);
+  const [all, setAll] = useState(false);
+  if (!tools.length) return null;
+  const ranked = byImportance(tools);
+  const shown = all ? ranked : ranked.slice(0, SHOWN);
   return (
     <View style={{ gap: 10, marginTop: 6 }}>
       <View style={[s.row, { gap: 8 }]}>
-        <CookingPot size={16} color={color.ink} />
         <Text role="heading" aria-level={3} style={s.h3}>
           {tr('You’ll need')}
         </Text>
@@ -128,13 +137,43 @@ export function RecipeEquipment({ recipe }: { recipe: Recipe }) {
           </Text>
         )}
       </View>
-      <View role="list" style={[s.wrap, { gap: 8 }]}>
-        {names.map((name) => (
-          <View key={name} role="listitem" style={styles.item}>
-            <Text style={styles.name}>{name}</Text>
+      <View role="list" style={{ gap: 8 }}>
+        {shown.map((tool) => (
+          <View key={tool.name} role="listitem" style={styles.card}>
+            <View style={styles.art}>
+              <EquipmentIcon kind={tool.kind} size={34} />
+            </View>
+            <View style={{ flex: 1, gap: 1 }}>
+              <Text style={styles.cardName}>{tool.name}</Text>
+              {!!tool.steps?.length && (
+                <Text style={s.small}>
+                  {tr('equipmentSteps', {
+                    count: tool.steps.length,
+                    steps: joinNames(tool.steps.map(String), language),
+                  })}
+                </Text>
+              )}
+            </View>
           </View>
         ))}
       </View>
+      {ranked.length > SHOWN && (
+        <Press
+          accessibilityRole="button"
+          accessibilityState={{ expanded: all }}
+          onPress={() => setAll(!all)}
+          style={[s.row, { gap: 6, minHeight: 44, alignSelf: 'flex-start' }]}
+        >
+          <Text style={[s.small, { color: color.ink, fontFamily: font.semibold }]}>
+            {all ? tr('Show fewer') : tr('Show all {{count}}', { count: ranked.length })}
+          </Text>
+          <ChevronDown
+            size={16}
+            color={color.ink}
+            style={all ? { transform: [{ rotate: '180deg' }] } : undefined}
+          />
+        </Press>
+      )}
     </View>
   );
 }
@@ -177,13 +216,23 @@ export function StepEquipment({ recipe, step }: { recipe: Recipe; step: number }
 }
 
 const styles = StyleSheet.create({
-  item: {
+  card: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
     backgroundColor: color.white,
-    borderRadius: radius.pill,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
+    borderRadius: radius.lg,
+    padding: 10,
   },
-  name: { fontFamily: font.semibold, fontSize: 14, color: color.ink },
+  art: {
+    width: 48,
+    height: 48,
+    borderRadius: radius.md,
+    backgroundColor: color.bg,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cardName: { fontFamily: font.semibold, fontSize: 15, lineHeight: 20, color: color.ink },
   cook: {
     backgroundColor: 'rgba(255,255,255,0.08)',
     borderRadius: radius.lg,

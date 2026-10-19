@@ -59,9 +59,9 @@ func TestTheSousChefKnowsTheUsersWeek(t *testing.T) {
 		t.Errorf("planned %s", glance(kitchen["planned"]))
 	case glance(kitchen["toBuy"]) != `["Milk"]` || kitchen["toBuyCount"] != 1.0 || kitchen["pantryCount"] != 3.0:
 		t.Errorf("groceries and pantry %s", glance(kitchen))
-	case glance(kitchen["pantry"]) != `["spinach (1 bag, expires `+day(2)+`)","rice (1 kg, expires `+day(30)+`)","salt"]`:
+	case glance(kitchen["pantry"]) != `[{"expires":"`+day(2)+`","name":"spinach","quantity":"1 bag"},{"expires":"`+day(30)+`","name":"rice","quantity":"1 kg"},{"name":"salt"}]`:
 		t.Errorf("pantry %s", glance(kitchen["pantry"]))
-	case glance(kitchen["expiringSoon"]) != `["spinach (`+day(2)+`)"]`:
+	case glance(kitchen["expiringSoon"]) != `[{"expires":"`+day(2)+`","name":"spinach"}]`:
 		t.Errorf("expiring %s", glance(kitchen["expiringSoon"]))
 	case glance(input["shownRecipes"]) != `[{"id":"soup","title":"Leek soup"},{"id":"toast","title":"Lemon toast"}]`:
 		t.Errorf("shown %s", glance(input["shownRecipes"]))

@@ -124,6 +124,12 @@ export type Recipe = Omit<RecipeInput, 'derivedFrom'> & {
   /** Cooks whose suggested fixes its author accepted (docs/RECIPE-FIXES.md). Missing on older servers. */
   improvedBy?: number;
   /**
+   * What each name on equipment names, for its icon (EquipmentIcon): an equipment key, an
+   * everyday tool ('bowl', 'spoon'), or '' for none, one for one with equipment. Missing on older
+   * servers.
+   */
+  equipmentKinds?: string[];
+  /**
    * The equipment its method mentions, read by the server's lexicon, as English keys ('frying
    * pan', 'oven') the app names in the reader's language (equipmentName). Missing on older servers.
    */

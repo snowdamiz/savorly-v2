@@ -13,6 +13,7 @@ const pasta = recipe({
     { title: 'Drain', text: 'Drain the pasta in a colander.', seconds: 0 },
   ],
   equipment: ['Large pot', 'Colander'],
+  equipmentKinds: ['pot', 'colander'],
   equipmentDetected: ['pot', 'colander'],
 });
 // No list of its own: the page shows what the method mentions.
@@ -48,9 +49,39 @@ test('a recipe page lists the cook’s equipment before the method', async ({ pa
   await expect(needs(page)).toBeVisible();
   await expect(item(page, 'Large pot')).toBeVisible();
   await expect(item(page, 'Colander')).toBeVisible();
+  // Each tool is a card with its illustration beside its name.
+  await expect(item(page, 'Large pot').locator('svg')).toHaveCount(1);
+  await expect(item(page, 'Colander').locator('svg')).toHaveCount(1);
   // The cook's own words, never mixed with what the method mentions.
   await expect(page.getByRole('listitem')).toHaveCount(2);
   await expect(page.getByText('· From the method', { exact: true })).toHaveCount(0);
+});
+
+test('the three tools that matter most show, and the rest open under them', async ({ page }) => {
+  const cookies = recipe({
+    id: 'cookies',
+    title: 'Brown butter cookies',
+    equipment: ['Saucepan', 'Mixing bowl', 'Oven', '2 baking trays', 'Baking paper'],
+    equipmentKinds: ['saucepan', 'bowl', 'oven', 'sheet pan', 'baking paper'],
+    equipmentDetected: ['saucepan', 'oven'],
+  });
+  await mockApi(page, { recipes: [cookies] });
+  await page.goto('/recipes/cookies');
+  await expect(needs(page)).toBeVisible();
+  const names = () => page.getByRole('listitem').allInnerTexts();
+  await expect(page.getByRole('listitem')).toHaveCount(3);
+  expect(await names()).toEqual(['Oven', 'Saucepan', '2 baking trays']);
+  await page.getByRole('button', { name: 'Show all 5', exact: true }).click();
+  await expect(page.getByRole('listitem')).toHaveCount(5);
+  expect(await names()).toEqual([
+    'Oven',
+    'Saucepan',
+    '2 baking trays',
+    'Mixing bowl',
+    'Baking paper',
+  ]);
+  await page.getByRole('button', { name: 'Show fewer', exact: true }).click();
+  await expect(page.getByRole('listitem')).toHaveCount(3);
 });
 
 test('without a list, the page shows what the method mentions, and says so', async ({ page }) => {
@@ -156,7 +187,9 @@ test('without a list, the page and cooking mode show the sous-chef’s guess, st
   await expect(needs(page)).toBeVisible();
   await expect(page.getByText('· Sous-chef’s guess', { exact: true })).toBeVisible();
   await expect(page.getByRole('listitem')).toHaveCount(3);
-  await expect(item(page, 'Blender')).toBeVisible();
+  // Each says when it's used.
+  await expect(item(page, 'Blender')).toContainText('Step 1');
+  await expect(item(page, 'Colander')).toContainText('Step 2');
   await page.getByRole('button', { name: 'Start cooking', exact: true }).click();
   await expect(
     page.getByText('You’ll need: Blender, Pot, Colander', { exact: true }),
