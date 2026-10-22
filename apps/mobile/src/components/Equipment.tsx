@@ -2,13 +2,15 @@ import React, { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { useI18n } from '../lib/i18n';
 import { joinNames } from '../lib/food';
-import { byImportance, shownEquipment, stepEquipment } from '../lib/equipment';
-import { Recipe } from '../lib/types';
+import { byImportance, ShownTool, shownEquipment, sizeIn, stepEquipment } from '../lib/equipment';
+import { openOrder } from '../lib/groceryCheckout';
+import { useApp } from '../lib/store';
+import { EquipmentSize, Recipe, UnitChoice } from '../lib/types';
 import { color, font, radius, s } from '../lib/theme';
 import { EquipmentIcon } from './EquipmentIcon';
-import { ChevronDown, CookingPot } from './icons';
+import { ChevronDown, CookingPot, ExternalLink } from './icons';
 import type { StepNote } from './CookStep';
-import { Press } from './ui';
+import { Button, Dialog, Press } from './ui';
 
 type Translate = ReturnType<typeof useI18n>['t'];
 
@@ -114,18 +116,74 @@ export function useShownEquipment(recipe: Recipe) {
 const SHOWN = 3;
 
 /**
- * The recipe page's "You'll need", at the head of the method: a card for each tool, its
- * illustration beside its name, from the cook's list, or the sous-chef's guess (with the steps
- * that use it), or what the method mentions, labelled as such. The three that matter most show,
- * and the rest open under them.
+ * The units sizes show in: the page's choice, or for its original units, the reader's region's
+ * (inches and quarts in the United States).
  */
-export function RecipeEquipment({ recipe }: { recipe: Recipe }) {
+const sizeSystem = (units: UnitChoice, locale: string) =>
+  units || (/-US\b/i.test(locale) ? 'imperial' : 'metric');
+
+/** A size as the reader reads it ("At least 5 l", "28 cm", "9 × 13 in"); '' for none. */
+export function useSizeText(units: UnitChoice) {
+  const { t: tr, locale } = useI18n();
+  return (size?: EquipmentSize) => {
+    const shown = sizeIn(size, sizeSystem(units, locale));
+    if (!shown) return '';
+    const n = (v: number) => new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(v);
+    const amount = n(shown.value);
+    const length = n(shown.length ?? 0);
+    switch (`${shown.shape} ${shown.unit}`) {
+      case 'least l':
+        return tr('At least {{amount}} l', { amount });
+      case 'least qt':
+        return tr('At least {{amount}} qt', { amount });
+      case 'across cm':
+        return tr('{{amount}} cm', { amount });
+      case 'across in':
+        return tr('{{amount}} in', { amount });
+      case 'sides cm':
+        return tr('{{width}} × {{length}} cm', { width: amount, length });
+      default:
+        return tr('{{width}} × {{length}} in', { width: amount, length });
+    }
+  };
+}
+
+/** What a store's search is asked for: the name, with the size in its units ("Pot 5 qt"). */
+function shopQuery(tool: ShownTool, system: 'metric' | 'imperial') {
+  const shown = sizeIn(tool.size, system);
+  if (!shown) return tool.name;
+  const measure = shown.length ? `${shown.value} x ${shown.length}` : `${shown.value}`;
+  return `${tool.name} ${measure} ${shown.unit}`;
+}
+
+/**
+ * The recipe page's "You'll need", at the head of the method: a card for each tool, its
+ * illustration beside its name and its size, from the cook's list, or the sous-chef's guess (with
+ * the steps that use it and how big it should be), or what the method mentions, labelled as such.
+ * The three that matter most show, and the rest open under them. A card opens the tool larger,
+ * with where to buy one when the server has a store (EQUIPMENT_SHOP_URL).
+ */
+export function RecipeEquipment({ recipe, units = '' }: { recipe: Recipe; units?: UnitChoice }) {
   const { t: tr, language } = useI18n();
   const { tools, note } = useShownEquipment(recipe);
+  const sizeText = useSizeText(units);
   const [all, setAll] = useState(false);
+  const [open, setOpen] = useState<ShownTool | null>(null);
   if (!tools.length) return null;
   const ranked = byImportance(tools);
   const shown = all ? ranked : ranked.slice(0, SHOWN);
+  const detail = (tool: ShownTool) =>
+    [
+      sizeText(tool.size),
+      tool.steps?.length
+        ? tr('equipmentSteps', {
+            count: tool.steps.length,
+            steps: joinNames(tool.steps.map(String), language),
+          })
+        : '',
+    ]
+      .filter(Boolean)
+      .join(' · ');
   return (
     <View style={{ gap: 10, marginTop: 6 }}>
       <View style={[s.row, { gap: 8 }]}>
@@ -140,21 +198,23 @@ export function RecipeEquipment({ recipe }: { recipe: Recipe }) {
       </View>
       <View role="list" style={{ gap: 8 }}>
         {shown.map((tool) => (
-          <View key={tool.name} role="listitem" style={styles.card}>
-            <View style={styles.art}>
-              <EquipmentIcon kind={tool.kind} size={34} />
-            </View>
-            <View style={{ flex: 1, gap: 1 }}>
-              <Text style={styles.cardName}>{tool.name}</Text>
-              {!!tool.steps?.length && (
-                <Text style={s.small}>
-                  {tr('equipmentSteps', {
-                    count: tool.steps.length,
-                    steps: joinNames(tool.steps.map(String), language),
-                  })}
-                </Text>
-              )}
-            </View>
+          <View key={tool.name} role="listitem">
+            <Press
+              accessibilityRole="button"
+              accessibilityLabel={[tool.name, detail(tool)].filter(Boolean).join(', ')}
+              accessibilityHint={tr('Shows it larger')}
+              onPress={() => setOpen(tool)}
+              scale={0.985}
+              style={styles.card}
+            >
+              <View style={styles.art}>
+                <EquipmentIcon kind={tool.kind} size={34} />
+              </View>
+              <View style={{ flex: 1, gap: 1 }}>
+                <Text style={styles.cardName}>{tool.name}</Text>
+                {!!detail(tool) && <Text style={s.small}>{detail(tool)}</Text>}
+              </View>
+            </Press>
           </View>
         ))}
       </View>
@@ -175,7 +235,68 @@ export function RecipeEquipment({ recipe }: { recipe: Recipe }) {
           />
         </Press>
       )}
+      {open && (
+        <ToolSheet
+          tool={open}
+          detail={detail(open)}
+          note={note}
+          units={units}
+          onClose={() => setOpen(null)}
+        />
+      )}
     </View>
+  );
+}
+
+/** One tool, larger: its illustration, name, size and steps, and where to buy one. */
+function ToolSheet({
+  tool,
+  detail,
+  note,
+  units,
+  onClose,
+}: {
+  tool: ShownTool;
+  detail: string;
+  note: string;
+  units: UnitChoice;
+  onClose: () => void;
+}) {
+  const { t: tr, locale } = useI18n();
+  const shop = useApp().capabilities?.equipmentShop;
+  return (
+    <Dialog visible onClose={onClose}>
+      <View style={{ alignItems: 'center', gap: 6 }}>
+        <View style={styles.bigArt}>
+          <EquipmentIcon kind={tool.kind} size={132} />
+        </View>
+        <Text role="heading" aria-level={2} style={[s.h2, { textAlign: 'center', marginTop: 10 }]}>
+          {tool.name}
+        </Text>
+        {!!detail && <Text style={[s.muted, { textAlign: 'center' }]}>{detail}</Text>}
+        {!!note && <Text style={[s.small, { textAlign: 'center' }]}>{note}</Text>}
+      </View>
+      {!!shop && (
+        <View style={{ gap: 8 }}>
+          <Button
+            title={tr('Find one to buy')}
+            icon={ExternalLink}
+            variant="secondary"
+            onPress={() =>
+              void openOrder(
+                shop.replace(
+                  '{query}',
+                  encodeURIComponent(shopQuery(tool, sizeSystem(units, locale))),
+                ),
+              )
+            }
+          />
+          <Text style={[s.small, { textAlign: 'center' }]}>
+            {tr('Savorly may earn a commission on what you buy there.')}
+          </Text>
+        </View>
+      )}
+    </Dialog>
   );
 }
 
@@ -229,4 +350,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   cardName: { fontFamily: font.semibold, fontSize: 15, lineHeight: 20, color: color.ink },
+  bigArt: {
+    width: 188,
+    height: 188,
+    borderRadius: radius.xl,
+    backgroundColor: color.bg,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 });

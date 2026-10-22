@@ -341,3 +341,28 @@ func TestCookQuestionsWithEquipmentStayBounded(t *testing.T) {
 		t.Fatalf("detected:\n%.400s", text)
 	}
 }
+
+// A guess sizes only pieces the lexicon has.
+func TestSizedEquipmentIsInTheLexicon(t *testing.T) {
+	for _, key := range slices.Concat(ai.SizedByVolume, ai.SizedByDiameter, ai.SizedByArea) {
+		if !slices.Contains(equipmentKeys, key) {
+			t.Errorf("%q is sized but isn't a lexicon key", key)
+		}
+	}
+}
+
+func TestEquipmentShopURLNeedsHTTPSAndAQuery(t *testing.T) {
+	for shop, want := range map[string]string{
+		"":                                       "",
+		"https://shop.example/s?k={query}&tag=x": "https://shop.example/s?k={query}&tag=x",
+		" https://shop.example/{query} ":         "https://shop.example/{query}",
+		"http://shop.example/s?k={query}":        "",
+		"https://shop.example/kitchen":           "",
+		"javascript:alert(1)//{query}":           "",
+	} {
+		t.Setenv("EQUIPMENT_SHOP_URL", shop)
+		if got := equipmentShopURL(); got != want {
+			t.Errorf("%q: %q, want %q", shop, got, want)
+		}
+	}
+}

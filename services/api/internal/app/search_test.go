@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"reflect"
@@ -190,4 +191,68 @@ func sqlLiterals(args []any) string {
 		}
 	}
 	return strings.Join(out, ",")
+}
+
+func TestCookSearch(t *testing.T) {
+	db := isolatedDB(t)
+	ctx := context.Background()
+	member := func(id, name, handle, bio string) {
+		t.Helper()
+		if _, e := db.Exec(ctx, `INSERT INTO users(id,email,password_hash,name,handle,bio,created_at) VALUES($1,$1||'@example.test','!disabled',$2,$3,$4,now()-interval '30 days'+(SELECT count(*) FROM users)*interval '1 day')`, id, name, handle, bio); e != nil {
+			t.Fatal(e)
+		}
+	}
+	member("rosa", "Rosa Martínez", "rosa_cocina", "Paella every Sunday.")
+	member("anna", "Anna Schmidt", "anna", "Bakes bread before dawn.")
+	member("annabel", "Annabel Lee", "bel", "")
+	member("sam", "Sam Okafor", "samcooks", "Jollof and plantains.") // joined, cooked, never published
+	member("newest", "Joanna Park", "jo_park", "")
+	member("gone", "Anna Hidden", "anna_hidden", "")
+	for _, owner := range []string{"rosa", "anna", "annabel", "gone"} {
+		publishRecipe(t, db, owner, "r-"+owner, nil)
+	}
+	if _, e := db.Exec(ctx, `UPDATE users SET suspended_at=now() WHERE id='gone';
+ INSERT INTO follows(user_id,creator_id) VALUES('sam','annabel'),('anna','annabel'),('sam','rosa')`); e != nil {
+		t.Fatal(e)
+	}
+	f := recipesApp(db, false)
+	list := func(query string) []string {
+		t.Helper()
+		status, b := callAPI(t, f, "GET", "/v1/creators?"+query, "", nil)
+		if status != 200 {
+			t.Fatalf("%s: %d %s", query, status, b)
+		}
+		return listedIDs(t, b)
+	}
+	q := func(text string) string { return "everyone=true&q=" + url.QueryEscape(text) }
+	for query, want := range map[string][]string{
+		// As before: those who have published, most followed first.
+		"": {"annabel", "rosa", "anna"},
+		// Every member: those who have published, then the newest.
+		"everyone=true":          {"annabel", "rosa", "anna", "newest", "sam"},
+		"everyone=true&limit=2":  {"annabel", "rosa"},
+		"everyone=true&offset=3": {"newest", "sam"},
+		q("sam"):                 {"sam"},             // never published
+		q("@SamCooks"):           {"sam"},             // a handle, as typed
+		q("martinez"):            {"rosa"},            // without the accent
+		q("ROSA COC"):            {"rosa"},            // words of a name and a handle, as prefixes
+		q("okaffor"):             {"sam"},             // misspelt
+		q("anna"):                {"anna", "annabel"}, // the handle first, never the suspended cook
+		q("paella"):              {},                  // bios are the sous-chef's to search
+		q("!!!"):                 {},
+		"q=sam":                  {}, // without everyone, only those who have published
+	} {
+		if got := list(query); !slices.Equal(got, want) {
+			t.Errorf("%s: %v, want %v", query, got, want)
+		}
+	}
+	// The sous-chef finds bios too, and anyone who hasn't published.
+	turn := &toolTurn{a: &App{DB: db}, ctx: ctx, in: &toolArgs{}}
+	for query, want := range map[string]string{"paella": "rosa", "jollof": "sam", "": "annabel"} {
+		turn.in.Query = query
+		var out struct{ Cooks []struct{ ID string } }
+		if e := json.Unmarshal([]byte(turn.findCooks()), &out); e != nil || len(out.Cooks) == 0 || out.Cooks[0].ID != want {
+			t.Errorf("find_cooks %q: %+v %v, want %s first", query, out, e, want)
+		}
+	}
 }

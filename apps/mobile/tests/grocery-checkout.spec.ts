@@ -77,3 +77,29 @@ test('a recipe orders its ingredients, less what the pantry has', async ({ page 
     .poll(() => api.sentTo('/recipes/soup/checkout'))
     .toEqual([['POST', { servings: 2, skipPantry: true }]]);
 });
+
+test('once a recipe’s ingredients are on the list, its button leads there', async ({ page }) => {
+  const api = await mockApi(page, {
+    recipes: [recipe({ id: 'pasta', title: 'Lemon pasta' })],
+    kitchen: { groceries: [] },
+  });
+  api.on('POST', '/recipes/pasta/groceries', () => {
+    api.state.kitchen.groceries = [
+      { id: 'g1', name: 'Lemon', quantity: '1', category: 'Produce', checked: false },
+    ];
+    return json({ added: 1, merged: 0, skipped: [] });
+  });
+  await page.goto('/recipes/pasta');
+  await page.getByRole('button', { name: 'Add to grocery list', exact: true }).click();
+  const see = page.getByRole('button', { name: 'See your grocery list', exact: true });
+  await expect(see).toBeVisible();
+  // Other servings are other amounts, so they can be added too.
+  await page.getByRole('button', { name: 'More servings', exact: true }).click();
+  await expect(
+    page.getByRole('button', { name: 'Add to grocery list', exact: true }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Fewer servings', exact: true }).click();
+  await see.click();
+  await expect(page.getByText('0 of 1 in the basket', { exact: true })).toBeVisible();
+  await expect(page.getByText('Lemon', { exact: true })).toBeVisible();
+});

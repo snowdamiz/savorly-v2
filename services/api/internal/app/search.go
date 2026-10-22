@@ -119,3 +119,60 @@ func (q recipeQuery) build() (sql string, args []any, ok bool) {
 	sql = `SELECT ` + recipeJSON + from + `WHERE ` + strings.Join(where, " AND ") + ` ORDER BY ` + order + ` LIMIT ` + arg(q.Limit) + ` OFFSET ` + arg(q.Offset)
 	return sql, args, true
 }
+
+// cookQuery is GET /creators: the cooks who have published a recipe, most followed first, or
+// with Everyone every member, those who have published first and then the newest, so someone who
+// just joined can be found. Text matches each word as the start of a word in a member's name or
+// handle, ignoring case and accents, and a misspelt name by trigram similarity; with Bio (the
+// sous-chef's find_cooks) a bio's words match too, after the rest. A handle typed as it is comes
+// first. Members are few beside recipes, so these read every row rather than keep indexes.
+type cookQuery struct {
+	Text          string
+	Everyone, Bio bool
+	Limit, Offset int
+}
+
+func (q cookQuery) build() (sql string, args []any, ok bool) {
+	arg := func(v any) string {
+		args = append(args, v)
+		return "$" + strconv.Itoa(len(args))
+	}
+	where := []string{"u.suspended_at IS NULL"}
+	order := "m.followers DESC,u.created_at,u.id"
+	if q.Everyone {
+		order = "m.published DESC,m.followers DESC,CASE WHEN m.published THEN u.created_at END,u.created_at DESC,u.id"
+	} else {
+		where = append(where, "m.published")
+	}
+	if q.Text != "" {
+		text := q.Text
+		if utf8.RuneCountInString(text) > 100 {
+			text = string([]rune(text)[:100])
+		}
+		words := searchWords(text)
+		var arms, ranks []string
+		if len(words) > 0 {
+			tsq := "(SELECT search_query(" + arg(words) + "::text[]))"
+			named := "search_document(u.name||' '||u.handle) @@ " + tsq
+			arms = append(arms, named)
+			ranks = append(ranks, "("+named+") DESC")
+			if q.Bio {
+				arms = append(arms, "search_document(u.bio) @@ "+tsq)
+			}
+		}
+		if utf8.RuneCountInString(strings.Join(words, "")) >= 3 {
+			folded := "(SELECT search_fold(" + arg(text) + "::text))"
+			arms = append(arms, "search_fold(u.name) %>> "+folded)
+			ranks = append(ranks, "strict_word_similarity("+folded+",search_fold(u.name)) DESC")
+		}
+		if len(arms) == 0 {
+			return "", nil, false
+		}
+		where = append(where, "("+strings.Join(arms, " OR ")+")")
+		handle := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(text), "@"))
+		order = "lower(u.handle)=" + arg(handle) + " DESC," + strings.Join(ranks, ",") + "," + order
+	}
+	sql = `SELECT ` + creatorJSON + ` FROM users u CROSS JOIN LATERAL (SELECT EXISTS(SELECT 1 FROM recipes WHERE author_id=u.id AND published) AS published,(SELECT count(*) FROM follows WHERE creator_id=u.id) AS followers) m WHERE ` +
+		strings.Join(where, " AND ") + ` ORDER BY ` + order + ` LIMIT ` + arg(q.Limit) + ` OFFSET ` + arg(q.Offset)
+	return sql, args, true
+}

@@ -34,12 +34,13 @@ func TestEquipmentGuessAddsWhatTheMethodNames(t *testing.T) {
 	}
 }
 
-// equipmentModel stands in for OpenRouter's guesses: every recipe uses a pot at its last step and
-// a blender at its first, and a spork, which isn't equipment the request offers.
+// equipmentModel stands in for OpenRouter's guesses: every recipe uses a pot of 5 liters at its
+// last step and a blender at its first, and a spork, which isn't equipment the request offers.
 type equipmentModel struct {
-	calls  atomic.Int32
-	keys   atomic.Value
-	server *httptest.Server
+	calls       atomic.Int32
+	keys        atomic.Value
+	ingredients atomic.Value
+	server      *httptest.Server
 }
 
 func newEquipmentModel(t *testing.T) *equipmentModel {
@@ -53,14 +54,20 @@ func newEquipmentModel(t *testing.T) *equipmentModel {
 			return
 		}
 		var input struct {
-			Steps     []ai.EquipmentStep
-			Equipment []string
+			Steps       []ai.EquipmentStep
+			Equipment   []string
+			Servings    int
+			Ingredients []string
 		}
 		if e := json.Unmarshal([]byte(body.Messages[1].Content), &input); e != nil {
 			t.Error(e)
 		}
 		m.keys.Store(input.Equipment)
-		out := []ai.EquipmentGuess{{Key: "pot", Steps: []int{len(input.Steps)}}, {Key: "blender", Steps: []int{1}}, {Key: "spork", Steps: []int{1}}}
+		m.ingredients.Store(input.Ingredients)
+		if input.Servings < 1 {
+			t.Errorf("no servings to size by: %+v", input)
+		}
+		out := []ai.EquipmentGuess{{Key: "pot", Steps: []int{len(input.Steps)}, Size: &ai.EquipmentSize{Liters: 5}}, {Key: "blender", Steps: []int{1}}, {Key: "spork", Steps: []int{1}}}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]string{"content": string(jsonBytes(map[string]any{"equipment": out}))}}}, "usage": map[string]float64{"cost": 0.0004}})
 	}))
@@ -91,6 +98,7 @@ func TestTheModelGuessesEquipmentOnceWithinTheDaysCap(t *testing.T) {
 	a.AI.OpenRouterURL, a.AI.OpenRouterKey = model.server.URL, "test-only-never-sent"
 	ctx := context.Background()
 	pesto := func(r *RecipeInput) {
+		r.Ingredients = []Ingredient{{Name: "Linguine", Amount: 500, Unit: "g", Category: "Pantry"}, {Name: "Basil", Category: "Produce"}}
 		r.Steps = []Step{{Title: "Pesto", Text: "Blend the basil with oil."}, {Title: "Pasta", Text: "Cook the linguine in salted boiling water, then drain in a colander."}}
 	}
 	publishRecipe(t, db, "cook", "loved", pesto)
@@ -112,9 +120,12 @@ func TestTheModelGuessesEquipmentOnceWithinTheDaysCap(t *testing.T) {
 	if keys, _ := model.keys.Load().([]string); !slices.Equal(keys, equipmentKeys) {
 		t.Fatalf("offered %q", keys)
 	}
+	if lines, _ := model.ingredients.Load().([]string); !slices.Equal(lines, []string{"500 g Linguine", "Basil"}) {
+		t.Fatalf("sized by %q", lines)
+	}
 	// The model's guess, with the colander the method names, in the order the method uses them.
 	guess := guessOf(t, a, "loved")
-	if equipmentGuessLine(guess) != "blender (step 1); pot (step 2); colander (step 2)" {
+	if equipmentGuessLine(guess) != "blender (step 1); pot (at least 5 l; step 2); colander (step 2)" {
 		t.Fatalf("guess %+v", guess)
 	}
 	// Paid from the shared budget, nobody's own.
@@ -147,8 +158,24 @@ func TestTheModelGuessesEquipmentOnceWithinTheDaysCap(t *testing.T) {
 	if n, _ := a.guessEquipment(ctx); n != 1 || model.calls.Load() != 3 {
 		t.Fatalf("the edit wasn't asked about: %d, %d calls", n, model.calls.Load())
 	}
-	if line := equipmentGuessLine(guessOf(t, a, "loved")); line != "blender (step 1); colander (step 2); pot (step 3)" {
+	if line := equipmentGuessLine(guessOf(t, a, "loved")); line != "blender (step 1); colander (step 2); pot (at least 5 l; step 3)" {
 		t.Fatalf("after the edit: %s", line)
+	}
+	// A guess from before sizes still shows, and is asked about again once the rest have been.
+	if _, e := db.Exec(ctx, `UPDATE recipes SET equipment_guess='[{"key":"pot","steps":[2]}]',equipment_guess_version=0 WHERE id='quiet'`); e != nil {
+		t.Fatal(e)
+	}
+	if line := equipmentGuessLine(guessOf(t, a, "quiet")); line != "pot (step 2)" {
+		t.Fatalf("an older guess: %s", line)
+	}
+	if n, _ := a.guessEquipment(ctx); n != 1 || model.calls.Load() != 4 {
+		t.Fatalf("the older guess wasn't asked about again: %d, %d calls", n, model.calls.Load())
+	}
+	if line := equipmentGuessLine(guessOf(t, a, "quiet")); !strings.Contains(line, "pot (at least 5 l; step 2)") {
+		t.Fatalf("asked again: %s", line)
+	}
+	if n, _ := a.guessEquipment(ctx); n != 0 || model.calls.Load() != 4 {
+		t.Fatalf("asked again twice: %d, %d calls", n, model.calls.Load())
 	}
 	// A list of the cook's own replaces the guess.
 	if _, e := db.Exec(ctx, `UPDATE recipes SET equipment='{Mortar}' WHERE id='loved'`); e != nil {
@@ -161,5 +188,24 @@ func TestTheModelGuessesEquipmentOnceWithinTheDaysCap(t *testing.T) {
 	r := &sceneRecipe{guess: []equipmentUse{{Key: "pot", Steps: []int{2}}}}
 	if line := r.equipmentLine(); !strings.Contains(line, "likely uses, guessed from it") || !strings.Contains(line, "pot (step 2)") {
 		t.Fatalf("scene line %q", line)
+	}
+}
+
+func TestEquipmentGuessKeepsSizes(t *testing.T) {
+	steps := []Step{{Title: "Layer", Text: "Layer the pasta and sauce."}, {Title: "Onions", Text: "Soften the onions."}}
+	got := mergeEquipmentGuess(steps, "en", []ai.EquipmentGuess{
+		{Key: "baking dish", Steps: []int{1}, Size: &ai.EquipmentSize{Cm: 23, LengthCm: 33}},
+		{Key: "frying pan", Steps: []int{2}, Size: &ai.EquipmentSize{Cm: 28}},
+		{Key: "saucepan", Steps: []int{2}, Size: &ai.EquipmentSize{Liters: 1.5}},
+	})
+	if line := equipmentGuessLine(got); line != "baking dish (23 × 33 cm; step 1); frying pan (28 cm across; step 2); saucepan (at least 1.5 l; step 2)" {
+		t.Fatalf("line %q", line)
+	}
+	// As readers get it: a size only where the model gave one.
+	if b := string(jsonBytes(got[:1])); b != `[{"key":"baking dish","steps":[1],"size":{"cm":23,"lengthCm":33}}]` {
+		t.Fatalf("json %s", b)
+	}
+	if b := string(jsonBytes(mergeEquipmentGuess(steps[:1], "en", []ai.EquipmentGuess{{Key: "baking dish", Steps: []int{1}}}))); b != `[{"key":"baking dish","steps":[1]}]` {
+		t.Fatalf("json %s", b)
 	}
 }

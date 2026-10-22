@@ -2253,5 +2253,20 @@
   "toBuyCount_other": "待买 {{count}} 件",
   "Publish recipe": "发布食谱",
   "Private draft. It stays private until you publish it.": "私人草稿。在你发布之前，它一直是私密的。",
-  "Say whether to publish the recipe or keep it private.": "请说明是发布这份食谱还是保持私密。"
+  "Say whether to publish the recipe or keep it private.": "请说明是发布这份食谱还是保持私密。",
+  "Search cooks by name or @handle": "按名字或 @用户名搜索厨友",
+  "Search cooks": "搜索厨友",
+  "No cooks by that name": "没有叫这个名字的厨友",
+  "Try their first name, or the @handle on their kitchen.": "试试对方的名字，或厨房页面上的 @用户名。",
+  "New to Savorly": "刚加入 Savorly",
+  "See your grocery list": "查看购物清单",
+  "At least {{amount}} l": "至少 {{amount}} 升",
+  "At least {{amount}} qt": "至少 {{amount}} 夸脱",
+  "{{amount}} cm": "{{amount}} 厘米",
+  "{{amount}} in": "{{amount}} 英寸",
+  "{{width}} × {{length}} cm": "{{width}} × {{length}} 厘米",
+  "{{width}} × {{length}} in": "{{width}} × {{length}} 英寸",
+  "Shows it larger": "放大显示",
+  "Find one to buy": "查找购买",
+  "Savorly may earn a commission on what you buy there.": "你在那里购买时，Savorly 可能获得佣金。"
 }

@@ -2253,5 +2253,20 @@
   "toBuyCount_other": "{{count}} zu kaufen",
   "Publish recipe": "Rezept veröffentlichen",
   "Private draft. It stays private until you publish it.": "Privater Entwurf. Er bleibt privat, bis du ihn veröffentlichst.",
-  "Say whether to publish the recipe or keep it private.": "Gib an, ob du das Rezept veröffentlichen oder privat halten möchtest."
+  "Say whether to publish the recipe or keep it private.": "Gib an, ob du das Rezept veröffentlichen oder privat halten möchtest.",
+  "Search cooks by name or @handle": "Köche nach Name oder @Handle suchen",
+  "Search cooks": "Köche suchen",
+  "No cooks by that name": "Kein Koch mit diesem Namen",
+  "Try their first name, or the @handle on their kitchen.": "Versuch es mit dem Vornamen oder dem @Handle der Küche.",
+  "New to Savorly": "Neu bei Savorly",
+  "See your grocery list": "Einkaufsliste ansehen",
+  "At least {{amount}} l": "Mindestens {{amount}} l",
+  "At least {{amount}} qt": "Mindestens {{amount}} qt",
+  "{{amount}} cm": "{{amount}} cm",
+  "{{amount}} in": "{{amount}} Zoll",
+  "{{width}} × {{length}} cm": "{{width}} × {{length}} cm",
+  "{{width}} × {{length}} in": "{{width}} × {{length}} Zoll",
+  "Shows it larger": "Zeigt es größer",
+  "Find one to buy": "Zum Kaufen finden",
+  "Savorly may earn a commission on what you buy there.": "Savorly erhält für Käufe dort eventuell eine Provision."
 }

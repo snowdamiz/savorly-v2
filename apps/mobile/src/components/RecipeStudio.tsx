@@ -116,6 +116,8 @@ const RESUME_MS = 6 * 60 * 60 * 1000;
 // A new recipe is written in a conversation where nothing's been said yet, or one already
 // writing a new recipe that has no draft so far; anything else starts a conversation of its own.
 const takesNewRecipe = (p: StudioProject) => !p.recipeId && (!p.title || p.purpose === 'recipe');
+// Nothing's been said in it yet: where a request of its own goes (StudioStart.fresh).
+const unsaid = (p: StudioProject) => !p.recipeId && !p.title;
 const timeZone = (() => {
   try {
     return Intl.DateTimeFormat().resolvedOptions().timeZone || '';
@@ -335,7 +337,8 @@ export function RecipeStudio({
         const resumable = items.find(
           (p) =>
             Date.now() - Date.parse(p.updatedAt) < RESUME_MS &&
-            (!opening.recipe || takesNewRecipe(p)),
+            (!opening.recipe || takesNewRecipe(p)) &&
+            (!opening.fresh || unsaid(p)),
         );
         if (resumable) await selectProject(resumable);
         else {
@@ -368,8 +371,22 @@ export function RecipeStudio({
     // Placed once per start; create changes every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [start, project]);
+  // A request of its own (a twist on the recipe on screen) goes in the open conversation only
+  // while nothing's been said in it, or else in a new one, so twists asked one after another
+  // never build on each other. The earlier conversation stays in the history.
+  const [freshFor, setFreshFor] = useState(0);
+  const freshPlacing = useRef(0);
+  useEffect(() => {
+    if (!start.fresh || !project || freshPlacing.current === start.n) return;
+    const n = (freshPlacing.current = start.n);
+    if (unsaid(project) && !events.length) setFreshFor(n);
+    else void create().then((id) => id && setFreshFor(n));
+    // Placed once per start; create changes every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [start, project]);
   // What a start does next (Speak it's call) waits until its conversation is chosen.
-  const placed = !start.recipe || recipeFor?.n === start.n;
+  const placed =
+    (!start.recipe || recipeFor?.n === start.n) && (!start.fresh || freshFor === start.n);
   useEffect(() => {
     if (!project?.id || !watching) return;
     let done = false;

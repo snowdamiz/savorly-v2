@@ -50,6 +50,7 @@ import {
 import { RecipeGrid, RecipeRow, RecipeTile, Save } from '../components/RecipeCard';
 import { FollowPill } from '../components/FollowPill';
 import { useRecipeSearch } from '../lib/useRecipeSearch';
+import { useCookSearch } from '../lib/useCookSearch';
 import { foodIcon } from '../lib/icons';
 import { allCuisines } from '../lib/cuisines';
 import { homeShelves } from '../lib/feed';
@@ -107,7 +108,7 @@ export function Discover({
    * Opens the sous-chef's conversation, sending `message` when there is one; `recipe` when it asks
    * for a new recipe.
    */
-  onAsk: (message?: string, recipe?: boolean) => void;
+  onAsk: (message?: string, start?: { recipe?: boolean }) => void;
   onActivity: () => void;
   onAccount: () => void;
   /** Height of the phone's black header, so the shell can turn the status bar light past it. */
@@ -139,6 +140,8 @@ export function Discover({
     listing,
   );
   const filtered = search.recipes;
+  // A name typed into the search finds its cook too, above the recipes.
+  const cookSearch = useCookSearch(query, { size: 6, enabled: query.trim().length >= 2 });
   const refined =
     !!explore && (cuisine !== allCuisines || quick || sort !== 'For you' || fits || tested);
   // What people search for, and what finds nothing: each search once, when the typing has paused
@@ -339,6 +342,24 @@ export function Discover({
             }}
           />
         )}
+        {listing && cookSearch.cooks.length > 0 && (
+          <FadeIn offset={10}>
+            <SectionTitle title={tr('Cooks')} />
+            {compact ? (
+              <Rail gap={12} pad={14}>
+                {cookSearch.cooks.map((c) => (
+                  <Cook key={c.id} creator={c} onPress={onCreator} width={156} />
+                ))}
+              </Rail>
+            ) : (
+              <View style={[s.row, { gap: 16, alignItems: 'stretch' }]}>
+                {cookSearch.cooks.map((c) => (
+                  <Cook key={c.id} creator={c} onPress={onCreator} />
+                ))}
+              </View>
+            )}
+          </FadeIn>
+        )}
         {listing ? (
           <FadeIn key={category} offset={10}>
             {explore ? (
@@ -384,11 +405,12 @@ export function Discover({
             {!!search.error && (
               <Text style={[s.muted, { color: color.error }]}>{tr(search.error)}</Text>
             )}
+            {/* A search that found only its cook found what it was for: no "nothing matches". */}
             {search.loading && !filtered.length ? (
               <TileBones />
             ) : filtered.length ? (
               <RecipeGrid recipes={filtered} onOpen={onOpen} />
-            ) : (
+            ) : cookSearch.cooks.length ? null : (
               <View style={{ alignItems: 'center' }}>
                 <Empty
                   title={tr('Nothing matches yet')}
@@ -407,7 +429,9 @@ export function Discover({
                     variant="secondary"
                     small
                     // In the cook's language: it's their own message, and the model's cue.
-                    onPress={() => onAsk(tr('Create a recipe for {{v0}}.', { v0: query }), true)}
+                    onPress={() =>
+                      onAsk(tr('Create a recipe for {{v0}}.', { v0: query }), { recipe: true })
+                    }
                   />
                 )}
               </View>
@@ -909,7 +933,9 @@ function Cook({
             {creator.name}
           </Text>
           <Text numberOfLines={1} style={s.small}>
-            {tr('recipeCount', { count: creator.recipeCount ?? 0, more: '' })}
+            {creator.recipeCount
+              ? tr('recipeCount', { count: creator.recipeCount, more: '' })
+              : tr('New to Savorly')}
           </Text>
         </View>
       </View>

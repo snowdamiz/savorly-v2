@@ -164,6 +164,8 @@ func NewWithContext(ctx context.Context, db *pgxpool.Pool, config Config) *fiber
 			"creatorFund": creatorFundEnabled(),
 			// Ordering the grocery list or a recipe's ingredients (grocery_checkout.go): "instacart" or "".
 			"groceryCheckout": groceryCheckoutProvider(),
+			// Where equipment can be bought (EQUIPMENT_SHOP_URL), with {query} for its name; "" for nowhere.
+			"equipmentShop": equipmentShopURL(),
 			// Public client identifiers the sign-in SDKs need; none of these are secrets.
 			"auth": fiber.Map{"googleWebClientId": os.Getenv("GOOGLE_WEB_CLIENT_ID"), "googleIosClientId": os.Getenv("GOOGLE_IOS_CLIENT_ID"), "appleServicesId": os.Getenv("APPLE_SERVICES_ID"), "appleRedirectUri": os.Getenv("APPLE_REDIRECT_URI")},
 			// Hands-free cooking's "Chef, …" questions (POST /recipes/:id/ask); its commands need nothing.

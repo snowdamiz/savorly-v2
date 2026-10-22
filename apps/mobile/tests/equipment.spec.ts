@@ -298,3 +298,59 @@ test('editing a recipe keeps its list, and emptying it clears it', async ({ page
   await expect.poll(() => api.sentTo('/recipes/mine').length).toBe(1);
   expect((api.sentTo('/recipes/mine')[0][1] as RecipeInput).equipment).toEqual([]);
 });
+
+// The guess sizes a pot for the recipe's amounts.
+const sized = recipe({
+  ...pesto,
+  equipmentGuess: [
+    { key: 'blender', steps: [1] },
+    { key: 'pot', steps: [2], size: { liters: 5 } },
+    { key: 'colander', steps: [2] },
+  ],
+});
+
+test('a card opens the tool larger, with its size and where to buy one', async ({ page }) => {
+  await page.addInitScript(() => {
+    const opened: string[] = [];
+    Object.assign(window, { opened });
+    window.open = ((url: string) => {
+      opened.push(url);
+      return null;
+    }) as typeof window.open;
+  });
+  await mockApi(page, {
+    recipes: [sized],
+    capabilities: { equipmentShop: 'https://shop.example/s?k={query}&tag=savorly-20' },
+  });
+  await page.goto('/recipes/pesto');
+  // In the reader's units: a reader in the United States gets quarts.
+  await expect(item(page, 'Pot')).toContainText('At least 5.5 qt · Step 2');
+  await expect(item(page, 'Blender')).toHaveText('BlenderStep 1');
+  await page.getByRole('button', { name: 'Pot, At least 5.5 qt · Step 2', exact: true }).click();
+  const sheet = page.getByRole('dialog');
+  await expect(sheet.getByRole('heading', { name: 'Pot', exact: true })).toBeVisible();
+  await expect(sheet.getByText('At least 5.5 qt · Step 2', { exact: true })).toBeVisible();
+  await expect(sheet.locator('svg').first()).toBeVisible();
+  await expect(
+    sheet.getByText('Savorly may earn a commission on what you buy there.', { exact: true }),
+  ).toBeVisible();
+  await sheet.getByRole('button', { name: 'Find one to buy', exact: true }).click();
+  expect(await page.evaluate(() => (window as unknown as { opened: string[] }).opened)).toEqual([
+    'https://shop.example/s?k=Pot%205.5%20qt&tag=savorly-20',
+  ]);
+});
+
+test('sizes follow the page’s units, and without a store there’s nothing to buy', async ({
+  page,
+}) => {
+  await mockApi(page, {
+    recipes: [sized],
+    user: { preferences: { diets: [], allergies: [], units: 'metric' } },
+  });
+  await page.goto('/recipes/pesto');
+  await expect(item(page, 'Pot')).toContainText('At least 5 l · Step 2');
+  await page.getByRole('button', { name: 'Pot, At least 5 l · Step 2', exact: true }).click();
+  const sheet = page.getByRole('dialog');
+  await expect(sheet.getByRole('heading', { name: 'Pot', exact: true })).toBeVisible();
+  await expect(sheet.getByRole('button', { name: 'Find one to buy', exact: true })).toHaveCount(0);
+});

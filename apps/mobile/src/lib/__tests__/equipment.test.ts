@@ -5,6 +5,7 @@ import {
   cleanEquipment,
   moved,
   shownEquipment,
+  sizeIn,
   stepEquipment,
   withSuggestions,
 } from '../equipment';
@@ -148,4 +149,29 @@ test('an item moves up and down inside the list', () => {
   expect(moved(['a', 'b', 'c'], 2, -1)).toEqual(['a', 'c', 'b']);
   expect(moved(['a', 'b', 'c'], 0, -1)).toEqual(['a', 'b', 'c']);
   expect(moved(['a', 'b', 'c'], 2, 1)).toEqual(['a', 'b', 'c']);
+});
+
+test('the guess carries each tool’s size', () => {
+  const shown = shownEquipment(
+    { equipment: [], equipmentGuess: [{ key: 'pot', steps: [2], size: { liters: 5 } }] },
+    name,
+  );
+  expect(shown.tools).toEqual([{ name: 'Pot', kind: 'pot', steps: [2], size: { liters: 5 } }]);
+});
+
+test('sizes read in either system, rounded the way kitchenware is sold', () => {
+  expect(sizeIn({ liters: 5 }, 'metric')).toEqual({ shape: 'least', unit: 'l', value: 5 });
+  expect(sizeIn({ liters: 5 }, 'imperial')).toEqual({ shape: 'least', unit: 'qt', value: 5.5 });
+  expect(sizeIn({ liters: 0.3 }, 'imperial')).toEqual({ shape: 'least', unit: 'qt', value: 0.5 });
+  expect(sizeIn({ cm: 28 }, 'metric')).toEqual({ shape: 'across', unit: 'cm', value: 28 });
+  expect(sizeIn({ cm: 30 }, 'imperial')).toEqual({ shape: 'across', unit: 'in', value: 12 });
+  expect(sizeIn({ cm: 23, lengthCm: 33 }, 'imperial')).toEqual({
+    shape: 'sides',
+    unit: 'in',
+    value: 9,
+    length: 13,
+  });
+  expect(sizeIn({ cm: 23, lengthCm: 33 }, 'metric')).toMatchObject({ value: 23, length: 33 });
+  expect(sizeIn(undefined, 'metric')).toBeNull();
+  expect(sizeIn({}, 'imperial')).toBeNull();
 });

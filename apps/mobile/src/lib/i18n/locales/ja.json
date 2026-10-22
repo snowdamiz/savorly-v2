@@ -2253,5 +2253,20 @@
   "toBuyCount_other": "買うもの{{count}}点",
   "Publish recipe": "レシピを公開",
   "Private draft. It stays private until you publish it.": "非公開の下書きです。公開するまで非公開のままです。",
-  "Say whether to publish the recipe or keep it private.": "レシピを公開するか非公開のままにするかを指定してください。"
+  "Say whether to publish the recipe or keep it private.": "レシピを公開するか非公開のままにするかを指定してください。",
+  "Search cooks by name or @handle": "名前または@ハンドルで料理家を検索",
+  "Search cooks": "料理家を検索",
+  "No cooks by that name": "その名前の料理家はいません",
+  "Try their first name, or the @handle on their kitchen.": "下の名前か、キッチンの@ハンドルで探してみてください。",
+  "New to Savorly": "Savorlyに参加したばかり",
+  "See your grocery list": "買い物リストを見る",
+  "At least {{amount}} l": "{{amount}}L以上",
+  "At least {{amount}} qt": "{{amount}}クォート以上",
+  "{{amount}} cm": "{{amount}}cm",
+  "{{amount}} in": "{{amount}}インチ",
+  "{{width}} × {{length}} cm": "{{width}}×{{length}}cm",
+  "{{width}} × {{length}} in": "{{width}}×{{length}}インチ",
+  "Shows it larger": "大きく表示します",
+  "Find one to buy": "購入先を探す",
+  "Savorly may earn a commission on what you buy there.": "そこでの購入により、Savorlyが手数料を受け取る場合があります。"
 }

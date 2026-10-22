@@ -559,6 +559,20 @@ var evalCases = []evalCase{
 		})},
 	},
 
+	// Cooks who joined but haven't published are found too.
+	{
+		name: "follows a cook who hasn't published yet",
+		setup: func(e *evalKitchen) {
+			e.exec(`INSERT INTO users(id,email,password_hash,name,handle) VALUES('newbie','newbie@example.test','!disabled','Priya Nair','priyacooks')`)
+		},
+		turns: []evalStep{ask("Follow Priya Nair.", func(e *evalKitchen, d evalTurn) error {
+			if e.count(`follows WHERE user_id='cook' AND creator_id='newbie'`) != 1 {
+				return fmt.Errorf("didn't follow her: called %v", d.tools)
+			}
+			return nil
+		})},
+	},
+
 	// What a recipe needs besides its ingredients.
 	{
 		name: "says what a recipe needs from its cook's list",

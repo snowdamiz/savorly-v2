@@ -119,14 +119,7 @@ const twists = (tr: (key: string) => string) => [
 ];
 // The page's account actions; each one spins only its own button while it runs.
 type Action =
-  | 'groceries'
-  | 'review'
-  | 'unreview'
-  | 'plan'
-  | 'cookbook'
-  | 'report'
-  | 'follow'
-  | 'publish';
+  'groceries' | 'review' | 'unreview' | 'plan' | 'cookbook' | 'report' | 'follow' | 'publish';
 export function RecipeDetail({
   recipe,
   onClose,
@@ -137,6 +130,7 @@ export function RecipeDetail({
   onCooking,
   cookCommand,
   onReload,
+  onGroceries,
 }: {
   recipe: Recipe;
   onClose: () => void;
@@ -146,14 +140,16 @@ export function RecipeDetail({
   onEdit: (r: Recipe) => void;
   /**
    * Opens the sous-chef, which already knows this recipe is open, sending message when there is
-   * one.
+   * one; `fresh` when it's a request of its own, such as a twist, in a conversation of its own.
    */
-  onAsk: (message?: string) => void;
+  onAsk: (message?: string, start?: { fresh?: boolean }) => void;
   /** Reports the cooking-mode step (1-based), or null when not cooking. */
   onCooking: (step: number | null) => void;
   cookCommand?: CookCommand | null;
   /** Reads the recipe again, after something else changed it: an accepted or undone fix. */
   onReload?: () => void;
+  /** Opens the grocery list, which the page leads to once its ingredients are on it. */
+  onGroceries?: () => void;
 }) {
   const { t: tr, number, locale, language } = useI18n();
   const app = useApp();
@@ -196,6 +192,8 @@ export function RecipeDetail({
   const [reason, setReason] = useState('');
   const [collections, setCollections] = useState(false);
   const [busy, setBusy] = useState<Partial<Record<Action, boolean>>>({});
+  // The servings last added to the grocery list.
+  const [listed, setListed] = useState<number | null>(null);
   // Publishing a draft that plays a family recording first asks whether the person agreed.
   const [asking, setAsking] = useState(false);
   const [agreeing, setAgreeing] = useState(false);
@@ -441,7 +439,13 @@ export function RecipeDetail({
   // The checklist goes by the recipe's own names, so a check stays when the language changes.
   const own = (n: number) => recipe.ingredients[n]?.name ?? '';
   const twistChips = twists(tr).map(([title, prompt]) => (
-    <Chip key={title} title={tr(title)} icon={foodIcon(title)} onPress={() => onAsk(prompt)} />
+    <Chip
+      key={title}
+      title={tr(title)}
+      icon={foodIcon(title)}
+      // Each twist is a new version of this recipe, never of the last twist asked for.
+      onPress={() => onAsk(prompt, { fresh: true })}
+    />
   ));
   const ingredients = (
     <View style={{ gap: 14 }}>
@@ -546,33 +550,44 @@ export function RecipeDetail({
           </View>
         ))}
       </View>
-      <Button
-        title={tr('Add to grocery list')}
-        icon={ShoppingBasket}
-        variant="secondary"
-        busy={busy.groceries}
-        onPress={() =>
-          void perform(
-            'groceries',
-            async () => {
-              // What the pantry has, and salt, pepper, oil and water, stay off the list.
-              const merge = await api<GroceryMerge>(`/recipes/${recipe.id}/groceries`, {
-                method: 'POST',
-                body: { servings, skipPantry: true },
-              });
-              await app.refreshKitchen();
-              app.notify(
-                merge.skipped?.length
-                  ? tr('Added to your grocery list, without what you have: {{v0}}.', {
-                      v0: joinNames(merge.skipped, language),
-                    })
-                  : tr('Ingredients added to your grocery list.'),
-              );
-            },
-            '',
-          )
-        }
-      />
+      {/* Once these servings are on the list, the button leads to it, so it's never hard to find. */}
+      {listed === servings && onGroceries ? (
+        <Button
+          title={tr('See your grocery list')}
+          icon={Check}
+          variant="secondary"
+          onPress={onGroceries}
+        />
+      ) : (
+        <Button
+          title={tr('Add to grocery list')}
+          icon={ShoppingBasket}
+          variant="secondary"
+          busy={busy.groceries}
+          onPress={() =>
+            void perform(
+              'groceries',
+              async () => {
+                // What the pantry has, and salt, pepper, oil and water, stay off the list.
+                const merge = await api<GroceryMerge>(`/recipes/${recipe.id}/groceries`, {
+                  method: 'POST',
+                  body: { servings, skipPantry: true },
+                });
+                setListed(servings);
+                await app.refreshKitchen();
+                app.notify(
+                  merge.skipped?.length
+                    ? tr('Added to your grocery list, without what you have: {{v0}}.', {
+                        v0: joinNames(merge.skipped, language),
+                      })
+                    : tr('Ingredients added to your grocery list.'),
+                );
+              },
+              '',
+            )
+          }
+        />
+      )}
       <RecipeOrder recipeId={recipe.id} servings={servings} />
       {/* Twists change the ingredients, so they sit with them rather than above the tabs. */}
       <View style={{ gap: 12, marginTop: 10 }}>
@@ -611,7 +626,7 @@ export function RecipeDetail({
       </Text>
       {/* What to get out before step 1, as cooking mode starts: the cook's list, or what the
           method mentions. */}
-      <RecipeEquipment recipe={reading} />
+      <RecipeEquipment recipe={reading} units={units} />
       <View style={webPage ? [s.card, { paddingVertical: 6, paddingHorizontal: 28 }] : { gap: 12 }}>
         {reading.steps.map((st, i) => (
           <View

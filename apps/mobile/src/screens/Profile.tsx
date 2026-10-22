@@ -9,6 +9,7 @@ import {
   LucideIcon,
   PencilLine,
   Plus,
+  Search,
   Settings,
   ShieldCheck,
   ShoppingBasket,
@@ -31,6 +32,7 @@ import {
   PageHeading,
   Pill,
   Press,
+  SearchBar,
   SectionTitle,
   useChrome,
 } from '../components/ui';
@@ -41,6 +43,7 @@ import { CreatorEarnings } from '../components/CreatorEarnings';
 import { HandleField, useHandle } from '../components/Username';
 import { PhotoButton, ProfilePhoto } from '../components/ProfilePhoto';
 import { useSaveProfile } from '../lib/profile';
+import { useCookSearch } from '../lib/useCookSearch';
 import { foodIcon } from '../lib/icons';
 import { HouseholdSheet, useHousehold } from '../components/HouseholdSheet';
 import { FoundingMark } from '../components/FoundingMark';
@@ -48,56 +51,100 @@ import { VerifyEmail } from '../components/VerifyEmail';
 export function Community({ onCreator }: { onCreator: (c: Creator) => void }) {
   const { t: tr } = useI18n();
   const app = useApp();
+  // Every member, so someone who just joined is here before their first recipe, or whoever's
+  // name or handle matches. Until the first page arrives (or offline) it shows the cooks the app
+  // already has.
+  const [query, setQuery] = useState('');
+  const searching = !!query.trim();
+  const search = useCookSearch(query);
+  const waiting = search.loading && !search.cooks.length;
+  const cooks = searching || (!waiting && !search.error) ? search.cooks : app.creators;
   return (
     <View style={{ gap: 22 }}>
       <PageHeading
         title={tr('Community')}
         subtitle={tr('Find cooks who inspire you, and follow their kitchens.')}
       />
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
-        {app.creators.map((c) => {
-          const following = app.library.followingIds.includes(c.id);
-          return (
-            <Press
-              key={c.id}
-              accessibilityRole="button"
-              accessibilityLabel={tr('Visit {{v0}}’s kitchen', { v0: c.name })}
-              onPress={() => onCreator(c)}
-              scale={0.985}
-              style={[
-                s.card,
-                {
-                  flexGrow: 1,
-                  flexBasis: 300,
-                  gap: 14,
-                },
-              ]}
-            >
-              <View style={[s.row, { gap: 14 }]}>
-                <Avatar uri={c.avatar} name={c.name} size={56} />
-                <View style={{ flex: 1, gap: 2 }}>
-                  <Text style={s.h3}>{c.name}</Text>
-                  <Text style={s.small}>
-                    {[`@${c.handle}`, c.founding && tr('Founding creator')]
-                      .filter(Boolean)
-                      .join(' · ')}
-                  </Text>
-                </View>
-                {following && <Pill title={tr('Following')} icon={Check} tone="dark" />}
-              </View>
-              <Text numberOfLines={3} style={s.muted}>
-                {c.bio}
-              </Text>
-              <Text style={[s.small, { color: color.ink }]}>
-                {[
-                  tr('recipeCount', { count: c.recipeCount ?? 0, more: '' }),
-                  tr('followerCount', { count: c.followerCount ?? 0 }),
-                ].join(' · ')}
-              </Text>
-            </Press>
-          );
-        })}
+      <View style={{ flexDirection: 'row', maxWidth: 560 }}>
+        <SearchBar
+          value={query}
+          onChangeText={setQuery}
+          placeholder={tr('Search cooks by name or @handle')}
+          label={tr('Search cooks')}
+        />
       </View>
+      {searching && !!search.error && (
+        <Text style={[s.muted, { color: color.error }]}>{tr(search.error)}</Text>
+      )}
+      {searching && waiting ? (
+        <ActivityIndicator color={color.ink} style={{ paddingVertical: 24 }} />
+      ) : searching && !cooks.length && !search.error ? (
+        <Empty
+          title={tr('No cooks by that name')}
+          text={tr('Try their first name, or the @handle on their kitchen.')}
+          icon={Search}
+          action={() => setQuery('')}
+          actionTitle={tr('Clear search')}
+        />
+      ) : (
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
+          {cooks.map((c) => {
+            const following = app.library.followingIds.includes(c.id);
+            return (
+              <Press
+                key={c.id}
+                accessibilityRole="button"
+                accessibilityLabel={tr('Visit {{v0}}’s kitchen', { v0: c.name })}
+                onPress={() => onCreator(c)}
+                scale={0.985}
+                style={[
+                  s.card,
+                  {
+                    flexGrow: 1,
+                    flexBasis: 300,
+                    gap: 14,
+                  },
+                ]}
+              >
+                <View style={[s.row, { gap: 14 }]}>
+                  <Avatar uri={c.avatar} name={c.name} size={56} />
+                  <View style={{ flex: 1, gap: 2 }}>
+                    <Text style={s.h3}>{c.name}</Text>
+                    <Text style={s.small}>
+                      {[`@${c.handle}`, c.founding && tr('Founding creator')]
+                        .filter(Boolean)
+                        .join(' · ')}
+                    </Text>
+                  </View>
+                  {following && <Pill title={tr('Following')} icon={Check} tone="dark" />}
+                </View>
+                {!!c.bio && (
+                  <Text numberOfLines={3} style={s.muted}>
+                    {c.bio}
+                  </Text>
+                )}
+                <Text style={[s.small, { color: color.ink }]}>
+                  {c.recipeCount
+                    ? [
+                        tr('recipeCount', { count: c.recipeCount, more: '' }),
+                        tr('followerCount', { count: c.followerCount ?? 0 }),
+                      ].join(' · ')
+                    : tr('New to Savorly')}
+                </Text>
+              </Press>
+            );
+          })}
+        </View>
+      )}
+      {search.hasMore && (
+        <Button
+          title={tr('Show more')}
+          variant="secondary"
+          busy={search.loading}
+          onPress={() => void search.loadMore()}
+          style={{ alignSelf: 'center' }}
+        />
+      )}
     </View>
   );
 }
