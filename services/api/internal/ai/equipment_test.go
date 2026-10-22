@@ -43,3 +43,21 @@ func TestCheckEquipmentKeepsWhatTheRequestOffers(t *testing.T) {
 		t.Fatalf("kept %d", len(got))
 	}
 }
+
+func TestCheckEquipmentSizes(t *testing.T) {
+	r := EquipmentRecipe{Steps: []EquipmentStep{{Step: 1}}, Keys: []string{"pot", "frying pan", "baking dish", "whisk", "wok", "cake pan"}}
+	got := CheckEquipment(r, []EquipmentGuess{
+		{Key: "pot", Steps: []int{1}, Size: &EquipmentSize{Liters: 4.8}},
+		{Key: "frying pan", Steps: []int{1}, Size: &EquipmentSize{Liters: 3}},                 // measured the wrong way
+		{Key: "baking dish", Steps: []int{1}, Size: &EquipmentSize{Cm: 33.2, LengthCm: 22.9}}, // long side first
+		{Key: "whisk", Steps: []int{1}, Size: &EquipmentSize{Cm: 25}},                         // no size to have
+		{Key: "wok", Steps: []int{1}, Size: &EquipmentSize{Cm: 300}},                          // no kitchen has one
+		{Key: "cake pan", Steps: []int{1}},
+	})
+	want := []*EquipmentSize{{Liters: 5}, nil, {Cm: 23, LengthCm: 33}, nil, nil, nil}
+	for i, w := range want {
+		if g := got[i].Size; (g == nil) != (w == nil) || (g != nil && *g != *w) {
+			t.Errorf("%s: %+v, want %+v", got[i].Key, g, w)
+		}
+	}
+}

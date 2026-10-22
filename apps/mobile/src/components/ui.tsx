@@ -488,12 +488,15 @@ export function SearchBar({
   value,
   onChangeText,
   placeholder = 'Search recipes, ingredients…',
+  label = 'Search recipes',
   bare,
   accessory,
 }: {
   value: string;
   onChangeText: (v: string) => void;
   placeholder?: string;
+  /** What the field searches, for screen readers. */
+  label?: string;
   bare?: boolean;
   /** A control at the end of the bar, such as filters. */
   accessory?: React.ReactNode;
@@ -517,7 +520,7 @@ export function SearchBar({
     >
       <Search size={19} color={color.muted} strokeWidth={2} />
       <TextInput
-        accessibilityLabel={tr('Search recipes')}
+        accessibilityLabel={tr(label)}
         placeholder={placeholder ? tr(placeholder) : undefined}
         placeholderTextColor={color.soft}
         value={value}

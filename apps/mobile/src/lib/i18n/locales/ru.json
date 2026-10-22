@@ -2253,5 +2253,20 @@
   "toBuyCount_other": "Купить: {{count}}",
   "Publish recipe": "Опубликовать рецепт",
   "Private draft. It stays private until you publish it.": "Личный черновик. Он останется личным, пока вы его не опубликуете.",
-  "Say whether to publish the recipe or keep it private.": "Укажите, опубликовать рецепт или оставить его личным."
+  "Say whether to publish the recipe or keep it private.": "Укажите, опубликовать рецепт или оставить его личным.",
+  "Search cooks by name or @handle": "Поиск кулинаров по имени или @нику",
+  "Search cooks": "Поиск кулинаров",
+  "No cooks by that name": "Кулинаров с таким именем нет",
+  "Try their first name, or the @handle on their kitchen.": "Попробуйте имя или @ник с его кухни.",
+  "New to Savorly": "Недавно в Savorly",
+  "See your grocery list": "Открыть список покупок",
+  "At least {{amount}} l": "Не меньше {{amount}} л",
+  "At least {{amount}} qt": "Не меньше {{amount}} кварт",
+  "{{amount}} cm": "{{amount}} см",
+  "{{amount}} in": "{{amount}} дюйм.",
+  "{{width}} × {{length}} cm": "{{width}} × {{length}} см",
+  "{{width}} × {{length}} in": "{{width}} × {{length}} дюйм.",
+  "Shows it larger": "Показывает крупнее",
+  "Find one to buy": "Найти, где купить",
+  "Savorly may earn a commission on what you buy there.": "Savorly может получить комиссию с ваших покупок там."
 }

@@ -196,6 +196,45 @@ var modelEvals = []modelEval{
 		},
 	},
 	{
+		name: "sizes the pot by the amounts, and the tin as the recipe says",
+		run: func(m *modelKitchen) error {
+			m.recipe("crowd", "Spaghetti for a crowd", []Step{
+				{Title: "Sauce", Text: "Simmer the tomatoes with the garlic and oil for 20 minutes."},
+				{Title: "Pasta", Text: "Cook the spaghetti in plenty of salted boiling water, then drain and toss with the sauce."},
+			}, func(r *RecipeInput) {
+				r.Servings = 6
+				r.Ingredients = []Ingredient{{Name: "Spaghetti", Amount: 750, Unit: "g", Category: "Pantry"}, {Name: "Chopped tomatoes", Amount: 800, Unit: "g", Category: "Pantry"}, {Name: "Garlic", Amount: 3, Unit: "cloves", Category: "Produce"}}
+			})
+			m.recipe("drizzle", "Lemon drizzle cake", []Step{
+				{Title: "Batter", Text: "Beat the butter, sugar, eggs and flour together, then spoon into a lined 9-inch round tin."},
+				{Title: "Bake", Text: "Bake at 180°C for 40 minutes, then pour the lemon syrup over the warm cake."},
+			}, nil)
+			pasta, err := m.guess("crowd")
+			if err != nil {
+				return err
+			}
+			cake, err := m.guess("drizzle")
+			if err != nil {
+				return err
+			}
+			sized := func(guess []equipmentUse, keys ...string) *ai.EquipmentSize {
+				for _, u := range guess {
+					if slices.Contains(keys, u.Key) && u.Size != nil {
+						return u.Size
+					}
+				}
+				return nil
+			}
+			if s := sized(pasta, "pot", "dutch oven"); s == nil || s.Liters < 4 || s.Liters > 12 {
+				return fmt.Errorf("750 g of spaghetti boils in %+v", s)
+			}
+			if s := sized(cake, "cake pan"); s == nil || s.Cm < 22 || s.Cm > 24 {
+				return fmt.Errorf("a 9-inch tin is %+v", s)
+			}
+			return nil
+		},
+	},
+	{
 		name: "names only what a method needs, whatever the recipe says",
 		run: func(m *modelKitchen) error {
 			m.recipe("salad", "Tomato salad", []Step{

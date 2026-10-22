@@ -108,6 +108,39 @@ test('twists and a nutrition estimate go to the same conversation', async ({ pag
   expect(state.conversations()).toBe(1);
 });
 
+test('each twist is a version of the recipe, never of the twist before it', async ({ page }) => {
+  const state = await mockStudio(page, true, false, (text) => ({
+    content: text.includes('dairy-free')
+      ? 'Here is a dairy-free version.'
+      : text.includes('faster')
+        ? 'Here is a quicker version.'
+        : 'Here is a vegetarian version.',
+  }));
+  await page.goto('/');
+  await page.getByRole('link', { name: 'Let’s get cooking: Lemon toast', exact: true }).click();
+  await page.getByRole('button', { name: 'Vegetarian', exact: true }).click();
+  await expect(page.getByText('Here is a vegetarian version.', { exact: true })).toBeVisible();
+  // Minimized, the next twist starts a conversation of its own.
+  await page.getByRole('button', { name: 'Minimize the sous-chef', exact: true }).click();
+  await page.getByRole('button', { name: 'Dairy-free', exact: true }).click();
+  await expect(page.getByText('Here is a dairy-free version.', { exact: true })).toBeVisible();
+  await expect(page.getByText('Here is a vegetarian version.', { exact: true })).toHaveCount(0);
+  expect(state.conversations()).toBe(2);
+  // Closed, too, though the last conversation would otherwise be picked up again.
+  const close = page.getByRole('button', { name: 'Close the sous-chef', exact: true });
+  await close.click();
+  await expect(close).toHaveCount(0);
+  await page.getByRole('button', { name: 'Quicker', exact: true }).click();
+  await expect(page.getByText('Here is a quicker version.', { exact: true })).toBeVisible();
+  await expect(page.getByText('Here is a dairy-free version.', { exact: true })).toHaveCount(0);
+  expect(state.conversations()).toBe(3);
+  expect(state.messages).toEqual([
+    'Make this recipe vegetarian.',
+    'Make this recipe dairy-free.',
+    'Make a faster weeknight version of this recipe.',
+  ]);
+});
+
 test('a swap asks guests to sign in before anything is sent', async ({ page }) => {
   const state = await mockStudio(page);
   await page.route('**/v1/me', (route) =>

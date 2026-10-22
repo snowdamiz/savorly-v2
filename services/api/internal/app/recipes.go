@@ -317,9 +317,16 @@ func (a *App) deleteOwned(c fiber.Ctx, table, column string) error {
 
 const creatorJSON = `jsonb_build_object('id',u.id,'name',u.name,'handle',u.handle,'bio',u.bio,'avatar',u.avatar,'founding',u.founding_creator_at IS NOT NULL,'recipeCount',(SELECT count(*) FROM recipes WHERE author_id=u.id AND published),'followerCount',(SELECT count(*) FROM follows WHERE creator_id=u.id))`
 
+// creators lists the cooks who have published, or every member (everyone=true), found by name or
+// handle with q (search.go).
 func (a *App) creators(c fiber.Ctx) error {
 	limit, offset := pageParams(c, 40, 100)
-	return a.queryMany(c, `SELECT `+creatorJSON+` FROM users u WHERE u.suspended_at IS NULL AND EXISTS(SELECT 1 FROM recipes WHERE author_id=u.id AND published) ORDER BY (SELECT count(*) FROM follows WHERE creator_id=u.id) DESC,u.created_at,u.id LIMIT $1 OFFSET $2`, limit, offset)
+	q := cookQuery{Text: strings.TrimSpace(c.Query("q")), Everyone: c.Query("everyone") == "true", Limit: limit, Offset: offset}
+	sql, args, ok := q.build()
+	if !ok {
+		return c.JSON([]json.RawMessage{})
+	}
+	return a.queryMany(c, sql, args...)
 }
 
 // pageParams reads limit (1..max, else def) and offset (0..10000, else 0).

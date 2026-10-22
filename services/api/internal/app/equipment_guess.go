@@ -19,23 +19,31 @@ import (
 // methods take most of it for granted: pasta cooked in boiling water needs a pot, "blend until
 // smooth" a blender. So the cheap model guesses, once per version of a published recipe, the most
 // saved first, at most equipmentGuessRecipes a day, naming only the lexicon's keys so the app
-// names them in every language. What the method names is added at the steps that name it. Every
+// names them in every language, and how big the pots, pans and dishes should be for its amounts.
+// What the method names is added at the steps that name it. Recipes guessed under an older
+// equipmentGuessVersion (045_equipment_sizes.sql) are asked again after the rest, keeping their
+// guess until then. Every
 // later cook shares a guess, so like a translation it counts against the shared free budget
 // (reserveShared), as ai_usage kind equipment_guess. Without an OpenRouter key, or once the day's
 // cap or budget is spent, recipes show what their method names, as before.
 
-// equipmentUse is one piece of a guess: its key and the 1-based steps that use it, in order.
+// equipmentUse is one piece of a guess: its key, the 1-based steps that use it, in order, and its
+// size when the recipe needs one.
 type equipmentUse struct {
-	Key   string `json:"key"`
-	Steps []int  `json:"steps"`
+	Key   string            `json:"key"`
+	Steps []int             `json:"steps"`
+	Size  *ai.EquipmentSize `json:"size,omitempty"`
 }
+
+// equipmentGuessVersion changes with what a guess holds; 1 added sizes.
+const equipmentGuessVersion = 1
 
 // equipmentGuessSQL is recipe r's guess as readers get it: only while the recipe has no list of
 // its own and the guess is about its current steps; [] otherwise.
 const equipmentGuessSQL = `CASE WHEN r.equipment='{}' AND r.equipment_asked=r.equipment_source THEN r.equipment_guess ELSE '[]' END`
 
-// equipmentGuessLine is a guess for a model reading the recipe: "pot (steps 2, 3); blender
-// (step 1)".
+// equipmentGuessLine is a guess for a model reading the recipe: "pot (at least 5 l; steps 2, 3);
+// blender (step 1)".
 func equipmentGuessLine(guess []equipmentUse) string {
 	parts := make([]string, len(guess))
 	for i, u := range guess {
@@ -47,7 +55,17 @@ func equipmentGuessLine(guess []equipmentUse) string {
 		if len(steps) == 1 {
 			label = "step "
 		}
-		parts[i] = u.Key + " (" + label + strings.Join(steps, ", ") + ")"
+		size := ""
+		switch s := u.Size; {
+		case s == nil:
+		case s.Liters > 0:
+			size = "at least " + strconv.FormatFloat(s.Liters, 'f', -1, 64) + " l; "
+		case s.LengthCm > 0:
+			size = strconv.FormatFloat(s.Cm, 'f', -1, 64) + " × " + strconv.FormatFloat(s.LengthCm, 'f', -1, 64) + " cm; "
+		case s.Cm > 0:
+			size = strconv.FormatFloat(s.Cm, 'f', -1, 64) + " cm across; "
+		}
+		parts[i] = u.Key + " (" + size + label + strings.Join(steps, ", ") + ")"
 	}
 	return strings.Join(parts, "; ")
 }
@@ -65,10 +83,10 @@ func equipmentGuessRecipes() int {
 // order the method first uses each piece, at most maxEquipment of them.
 func mergeEquipmentGuess(steps []Step, language string, model []ai.EquipmentGuess) []equipmentUse {
 	out := []equipmentUse{}
-	use := func(key string, step int) {
+	use := func(key string, step int, size *ai.EquipmentSize) {
 		i := slices.IndexFunc(out, func(u equipmentUse) bool { return u.Key == key })
 		if i < 0 {
-			out = append(out, equipmentUse{Key: key})
+			out = append(out, equipmentUse{Key: key, Size: size})
 			i = len(out) - 1
 		}
 		if !slices.Contains(out[i].Steps, step) {
@@ -77,12 +95,12 @@ func mergeEquipmentGuess(steps []Step, language string, model []ai.EquipmentGues
 	}
 	for _, g := range model {
 		for _, n := range g.Steps {
-			use(g.Key, n)
+			use(g.Key, n, g.Size)
 		}
 	}
 	for i, st := range steps {
 		for _, key := range append(matchEquipment(st.Title, language), matchEquipment(st.Text, language)...) {
-			use(key, i+1)
+			use(key, i+1, nil)
 		}
 	}
 	for i := range out {
@@ -93,9 +111,9 @@ func mergeEquipmentGuess(steps []Step, language string, model []ai.EquipmentGues
 }
 
 // guessEquipment has the model guess about published recipes without a list that it hasn't been
-// asked about at their current steps, within what's left of the day's cap, under a lock so
-// replicas don't ask twice. It stops when the shared budget says no, and reports how many recipes
-// it asked about.
+// asked about at their current steps, and then those guessed under an older
+// equipmentGuessVersion, within what's left of the day's cap, under a lock so replicas don't ask
+// twice. It stops when the shared budget says no, and reports how many recipes it asked about.
 func (a *App) guessEquipment(ctx context.Context) (int, error) {
 	conn, e := a.DB.Acquire(ctx)
 	if e != nil {
@@ -120,8 +138,8 @@ func (a *App) guessEquipment(ctx context.Context) (int, error) {
 		return 0, nil
 	}
 	ids, e := collectIDs(ctx, conn, `SELECT r.id FROM recipes r JOIN users u ON u.id=r.author_id AND u.suspended_at IS NULL
- WHERE r.published AND r.equipment='{}' AND r.equipment_asked<>r.equipment_source
- ORDER BY (SELECT count(*) FROM saves s WHERE s.recipe_id=r.id) DESC,r.id LIMIT $1`, left)
+ WHERE r.published AND r.equipment='{}' AND (r.equipment_asked<>r.equipment_source OR r.equipment_guess_version<$2)
+ ORDER BY r.equipment_asked<>r.equipment_source DESC,(SELECT count(*) FROM saves s WHERE s.recipe_id=r.id) DESC,r.id LIMIT $1`, left, equipmentGuessVersion)
 	if e != nil {
 		return 0, e
 	}
@@ -151,20 +169,31 @@ func (a *App) guessEquipment(ctx context.Context) (int, error) {
 // guess. It reports whether the model was asked (and so paid for).
 func (a *App) guessRecipeEquipment(ctx context.Context, id string) (bool, error) {
 	var title, language, source string
+	var servings int
+	var ingredients []Ingredient
 	var steps []Step
 	var own []string
-	e := a.DB.QueryRow(ctx, `SELECT title,language,steps,equipment,equipment_source FROM recipes WHERE id=$1`, id).Scan(&title, &language, &steps, &own, &source)
+	e := a.DB.QueryRow(ctx, `SELECT title,language,servings,ingredients,steps,equipment,equipment_source FROM recipes WHERE id=$1`, id).Scan(&title, &language, &servings, &ingredients, &steps, &own, &source)
 	if e != nil {
 		return false, e
 	}
 	keep := func(guess []equipmentUse) error {
-		_, e := a.DB.Exec(ctx, `UPDATE recipes SET equipment_guess=$2,equipment_asked=$3 WHERE id=$1 AND equipment_source=$3`, id, jsonBytes(guess), source)
+		_, e := a.DB.Exec(ctx, `UPDATE recipes SET equipment_guess=$2,equipment_asked=$3,equipment_guess_version=$4 WHERE id=$1 AND equipment_source=$3`, id, jsonBytes(guess), source, equipmentGuessVersion)
 		return e
 	}
 	if len(own) > 0 || len(steps) == 0 {
 		return false, keep([]equipmentUse{})
 	}
-	request := ai.EquipmentRecipe{Title: title, Keys: equipmentKeys}
+	// Sizes go by the amounts. A guess is about the steps (equipment_source), so one sized for
+	// amounts changed since stays until the steps change too.
+	request := ai.EquipmentRecipe{Title: title, Servings: servings, Keys: equipmentKeys}
+	for _, in := range ingredients[:min(len(ingredients), 40)] {
+		line := strings.TrimSpace(in.Name)
+		if in.Amount > 0 {
+			line = strings.TrimSpace(strconv.FormatFloat(in.Amount, 'f', -1, 64) + " " + in.Unit + " " + line)
+		}
+		request.Ingredients = append(request.Ingredients, clip(line, 120))
+	}
 	for i, st := range steps {
 		request.Steps = append(request.Steps, ai.EquipmentStep{Step: i + 1, Text: stepText(st, 600)})
 	}

@@ -157,7 +157,24 @@ export async function mockApi(page: Page, options: MockOptions = {}) {
           following: [],
           newest: state.recipes,
         });
-      if (path === '/creators') return json(state.creators);
+      if (path === '/creators') {
+        // As the API lists them: those who have published, or everyone, found by a word of the
+        // name or the handle, ignoring case.
+        const everyone = query.get('everyone') === 'true';
+        const q = (query.get('q') || '').trim().toLowerCase().replace(/^@/, '');
+        return json(
+          state.creators.filter(
+            (c) =>
+              (everyone || c.recipeCount !== 0) &&
+              (!q ||
+                c.handle.toLowerCase().startsWith(q) ||
+                c.name
+                  .toLowerCase()
+                  .split(/\s+/)
+                  .some((w) => w.startsWith(q))),
+          ),
+        );
+      }
       if (path === '/library') return signedIn(() => json(state.library));
       if (path === '/library/recipes') return signedIn(() => json(shelf(query)));
       if (path === '/kitchen')

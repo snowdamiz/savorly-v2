@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -293,4 +294,15 @@ func RunEquipmentIndex(ctx context.Context, db *pgxpool.Pool) {
 		case <-time.After(10 * time.Minute):
 		}
 	}
+}
+
+// equipmentShopURL is where the app's equipment cards look a piece up to buy it
+// (EQUIPMENT_SHOP_URL): a store's search address with {query} where its name goes, such as an
+// affiliate link that pays a commission, or "" without one, or for anything but https.
+func equipmentShopURL() string {
+	shop := strings.TrimSpace(os.Getenv("EQUIPMENT_SHOP_URL"))
+	if !strings.HasPrefix(shop, "https://") || !strings.Contains(shop, "{query}") {
+		return ""
+	}
+	return shop
 }

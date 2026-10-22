@@ -1,4 +1,5 @@
-import type { Recipe } from './types';
+import type { EquipmentSize, Recipe } from './types';
+import type { UnitSystem } from './units';
 
 // What a recipe needs besides its ingredients. The cook's own list (`equipment`) comes first. A
 // recipe without one shows what the sous-chef's model guesses its method uses (`equipmentGuess`,
@@ -32,9 +33,9 @@ type Shown = Pick<Recipe, 'equipment' | 'equipmentKinds' | 'equipmentDetected' |
 
 /**
  * A piece of equipment as a recipe shows it: its name, what it names for its icon, and, for the
- * sous-chef's guess, the 1-based steps that use it.
+ * sous-chef's guess, the 1-based steps that use it and its size when the recipe needs one.
  */
-export type ShownTool = { name: string; kind: string; steps?: number[] };
+export type ShownTool = { name: string; kind: string; steps?: number[]; size?: EquipmentSize };
 
 /** Tools as a list keeps names: trimmed, without blanks or repeats (in any case), at most 20. */
 function cleanTools(tools: readonly ShownTool[]): ShownTool[] {
@@ -74,6 +75,7 @@ export function shownEquipment(recipe: Shown, name: (key: string) => string) {
       name: name(use.key),
       kind: use.key,
       steps: use.steps,
+      size: use.size,
     })),
   );
   if (guess.length) return shown(guess, true, true);
@@ -178,4 +180,36 @@ export function moved<T>(list: readonly T[], from: number, by: number): T[] {
   const [item] = next.splice(from, 1);
   next.splice(to, 0, item);
   return next;
+}
+
+/**
+ * A size in `system`'s units, rounded the way kitchenware is sold: half litres or half quarts
+ * for what a pot holds (`least`, the least it should hold), and whole centimetres or inches for a
+ * round pan (`across`) or a rectangular one's sides (`sides`, with `length`). null for no size.
+ */
+export function sizeIn(
+  size: EquipmentSize | undefined,
+  system: UnitSystem,
+): {
+  shape: 'least' | 'across' | 'sides';
+  unit: 'l' | 'qt' | 'cm' | 'in';
+  value: number;
+  length?: number;
+} | null {
+  const half = (n: number) => Math.max(0.5, Math.round(n * 2) / 2);
+  const inches = (cm: number) => Math.max(1, Math.round(cm / 2.54));
+  const imperial = system === 'imperial';
+  if (size?.liters && size.liters > 0)
+    return imperial
+      ? { shape: 'least', unit: 'qt', value: half(size.liters * 1.05669) }
+      : { shape: 'least', unit: 'l', value: half(size.liters) };
+  if (!size?.cm || size.cm <= 0) return null;
+  const length = size.lengthCm && size.lengthCm > 0 ? size.lengthCm : 0;
+  if (imperial)
+    return length
+      ? { shape: 'sides', unit: 'in', value: inches(size.cm), length: inches(length) }
+      : { shape: 'across', unit: 'in', value: inches(size.cm) };
+  return length
+    ? { shape: 'sides', unit: 'cm', value: Math.round(size.cm), length: Math.round(length) }
+    : { shape: 'across', unit: 'cm', value: Math.round(size.cm) };
 }

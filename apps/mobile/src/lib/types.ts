@@ -90,8 +90,17 @@ export type RecipeOrigin = {
   title: string;
   author: { id: string; name: string; handle: string };
 };
-/** A piece of equipment a recipe's method likely uses, and the 1-based steps that use it. */
-export type EquipmentUse = { key: string; steps: number[] };
+/**
+ * A piece of equipment a recipe's method likely uses, the 1-based steps that use it, and its size
+ * when the recipe needs one.
+ */
+export type EquipmentUse = { key: string; steps: number[]; size?: EquipmentSize };
+/**
+ * How big a pot, pan or dish should be, as the sous-chef's guess sizes it for a recipe's amounts:
+ * `liters`, the least a pot holds; `cm`, a round pan across; `cm` and `lengthCm`, a rectangular
+ * one's sides. Missing where any size will do, and on older servers.
+ */
+export type EquipmentSize = { liters?: number; cm?: number; lengthCm?: number };
 
 export type Recipe = Omit<RecipeInput, 'derivedFrom'> & {
   id: string;
@@ -412,6 +421,11 @@ export type Capabilities = {
   translationModel?: string;
   /** Who orders the grocery list or a recipe's ingredients: "instacart", or none ('' or missing). */
   groceryCheckout?: string;
+  /**
+   * Where equipment can be bought: a store's search address with {query} where a piece's name
+   * goes, such as an affiliate link; '' or missing for nowhere.
+   */
+  equipmentShop?: string;
   /** Plans and allowances are live (PAID_PLANS); until then everyone has unlimited use. */
   plans?: boolean;
   billing?: boolean;
@@ -472,6 +486,11 @@ export type StudioStart = {
   message?: string;
   /** From Create a recipe: the conversation is for writing a new recipe. */
   recipe?: boolean;
+  /**
+   * A request of its own, such as a twist on the recipe on screen: it goes in a conversation
+   * where nothing's been said yet, never on top of an earlier one.
+   */
+  fresh?: boolean;
 };
 export type StudioEvent = {
   seq: number;

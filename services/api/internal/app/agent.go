@@ -40,7 +40,7 @@ var draftRecipe = object([]string{"title", "description", "cuisine", "minutes", 
 	"ingredients": list(object([]string{"name", "amount", "unit", "category"}, props{"name": field("string", ""), "amount": field("number", ""), "unit": field("string", ""), "category": field("string", "e.g. Produce, Dairy, Pantry")}), 80),
 	"steps": list(object([]string{"title", "text", "seconds"}, props{"title": field("string", ""), "text": field("string", ""), "seconds": field("integer", "Timer length, 0 if none"),
 		"timing": object(nil, props{"active": field("integer", "Seconds that need the cook's hands"), "wait": field("integer", "Seconds that need no attention: baking, simmering, resting"), "oven": field("integer", "The oven's heat in °C while the step runs, 0 if none; a step that only preheats has only this"), "burners": field("integer", "Burners of the hob it uses")})}), 40),
-	"equipment": list(field("string", "A pot, pan, appliance or tool the recipe needs, as the cook would name it (\"Large pot\", \"Blender\"); up to 60 characters"), 20),
+	"equipment": list(field("string", "A pot, pan, appliance or tool the recipe needs, as the cook would name it, with a size where the recipe needs one (\"Large pot\", \"23 cm cake pan\", \"Blender\"); up to 60 characters"), 20),
 })
 var none = object(nil, props{})
 var editableRecipe = object(nil, draftRecipe["properties"].(props))
@@ -71,7 +71,7 @@ var agentToolDefs = []agentToolDef{
 	{tool("pantry_recipes", "Recipes the user can make mostly from their pantry: fewest missing ingredients first, then those using what expires soon. Each says what they have, what's missing and what's expiring. Leaves out what they avoid.", object(nil, props{})), "looking", (*toolTurn).pantryRecipes},
 	{tool("get_recipe", "Full ingredients, steps and equipment of a published recipe or one of the user's own: equipment is what its cook lists, equipmentDetected the equipment its method mentions, and equipmentGuess, when its cook lists none, the equipment its method likely uses with the steps that use each, a guess.", object([]string{"recipe_id"}, props{"recipe_id": recipeID()})), "looking", (*toolTurn).getRecipe},
 	{tool("show_recipes", "Show tappable recipe cards with your reply. It opens nothing: to open a recipe on the user's screen, use app_action open_recipe.", object([]string{"recipe_ids"}, props{"recipe_ids": list(field("string", ""), 6)})), "looking", (*toolTurn).showRecipes},
-	{tool("find_cooks", "Find Savorly cooks by name, handle or bio, with ids and recipe counts.", object(nil, props{"query": field("string", "")})), "looking", (*toolTurn).findCooks},
+	{tool("find_cooks", "Find Savorly cooks by name, handle or bio, with ids and recipe counts, members who haven't published yet included.", object(nil, props{"query": field("string", "")})), "looking", (*toolTurn).findCooks},
 	{tool("get_reviews", "Recent reviews of a published recipe.", object([]string{"recipe_id"}, props{"recipe_id": recipeID()})), "looking", (*toolTurn).getReviews},
 	{tool("get_kitchen", "The user's meal plan, grocery list and pantry, with ids.", none), "checking", (*toolTurn).getKitchen},
 	{tool("get_cookbooks", "The user's cookbooks, saved recipes, their own recipes and followed cooks, with ids.", none), "checking", (*toolTurn).getCookbooks},
@@ -486,7 +486,11 @@ func (t *toolTurn) showRecipes() string {
 
 func (t *toolTurn) findCooks() string {
 	var cooks json.RawMessage
-	e := t.a.DB.QueryRow(t.ctx, `SELECT COALESCE(jsonb_agg(c),'[]') FROM (SELECT `+creatorJSON+` - 'avatar' c FROM users u WHERE u.suspended_at IS NULL AND EXISTS(SELECT 1 FROM recipes WHERE author_id=u.id AND published) AND ($1='' OR u.name ILIKE '%'||$1||'%' OR u.handle ILIKE '%'||$1||'%' OR u.bio ILIKE '%'||$1||'%') ORDER BY (SELECT count(*) FROM follows WHERE creator_id=u.id) DESC LIMIT 10) x`, strings.TrimSpace(t.in.Query)).Scan(&cooks)
+	sql, args, ok := cookQuery{Text: strings.TrimSpace(t.in.Query), Everyone: true, Bio: true, Limit: 10}.build()
+	if !ok {
+		return string(jsonBytes(fiber.Map{"cooks": []any{}}))
+	}
+	e := t.a.DB.QueryRow(t.ctx, `SELECT COALESCE(jsonb_agg(c - 'avatar'),'[]') FROM (`+sql+`) x(c)`, args...).Scan(&cooks)
 	if e != nil {
 		return toolError("Couldn't search cooks.")
 	}
